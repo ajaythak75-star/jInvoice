@@ -50,15 +50,23 @@ httpApp.get("/auth/google/login/callback", async (req, res) => {
   const { code } = req.query;
   if (!code) { deliverOAuthResult("#error=oauth_denied"); return res.send(CLOSE_TAB_HTML); }
   try {
-    const t = await (await fetch("https://oauth2.googleapis.com/token", {
+    const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({ code, client_id: GOOGLE_CLIENT_ID, client_secret: GOOGLE_CLIENT_SECRET, redirect_uri: `${BASE}/auth/google/login/callback`, grant_type: "authorization_code" }),
-    })).json();
-    if (!t.access_token) throw new Error("no token");
+    });
+    const t = await tokenRes.json();
+    if (!t.access_token) {
+      const errDetail = t.error_description ?? t.error ?? "no access_token";
+      deliverOAuthResult("#error=oauth_failed");
+      return res.send(`<html><body><h2>OAuth error</h2><p>${errDetail}</p><p>Status: ${tokenRes.status}</p><p>Response: ${JSON.stringify(t)}</p></body></html>`);
+    }
     const p = await (await fetch("https://www.googleapis.com/oauth2/v3/userinfo", { headers: { Authorization: `Bearer ${t.access_token}` } })).json();
     deliverOAuthResult(`#${new URLSearchParams({ google_login_email: p.email ?? "", google_login_name: p.name ?? "" })}`);
     res.send(CLOSE_TAB_HTML);
-  } catch { deliverOAuthResult("#error=oauth_failed"); res.send(CLOSE_TAB_HTML); }
+  } catch(e) {
+    deliverOAuthResult("#error=oauth_failed");
+    res.send(`<html><body><h2>OAuth error</h2><p>${e.message}</p></body></html>`);
+  }
 });
 
 // ── Gmail ────────────────────────────────────────────────────────────────────
@@ -143,9 +151,10 @@ function isOAuthUrl(url) {
 
 function deliverOAuthResult(hash) {
   if (!win) return;
-  // App.tsx reads the hash once at module init, so we must do a full reload
-  // with the hash in the URL — executeJavaScript/hashchange is not enough.
-  win.webContents.loadURL(`${BASE}/${hash}`);
+  // Set hash via JS → fires hashchange → App.tsx applyOAuthHash() picks it up.
+  // Falls back to loadURL (full reload) if the page isn't ready yet.
+  win.webContents.executeJavaScript(`window.location.hash = ${JSON.stringify(hash)}`)
+    .catch(() => { win?.webContents.loadURL(`${BASE}/${hash}`); });
   app.dock?.bounce("informational");
   app.focus({ steal: true });
   win.show();
@@ -173,6 +182,7 @@ function createWindow() {
 
   // Also intercept server-side 302 redirects (will-navigate does not fire for these).
   win.webContents.on("will-redirect", (event, url) => {
+    console.log("[nav] will-redirect:", url.slice(0, 80));
     if (isOAuthUrl(url)) {
       event.preventDefault();
       shell.openExternal(url);
