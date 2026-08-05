@@ -19,11 +19,12 @@ try {
   console.warn("No .env found — credentials will be empty. Set them before building.");
 }
 
+// .env takes priority; fall back to process.env (for CI / GitHub Actions secrets)
 const creds = {
-  GOOGLE_CLIENT_ID:     env.GOOGLE_CLIENT_ID     ?? "",
-  GOOGLE_CLIENT_SECRET: env.GOOGLE_CLIENT_SECRET  ?? "",
-  AZURE_CLIENT_ID:      env.AZURE_CLIENT_ID       ?? "",
-  AZURE_CLIENT_SECRET:  env.AZURE_CLIENT_SECRET   ?? "",
+  GOOGLE_CLIENT_ID:     env.GOOGLE_CLIENT_ID     ?? process.env.GOOGLE_CLIENT_ID     ?? "",
+  GOOGLE_CLIENT_SECRET: env.GOOGLE_CLIENT_SECRET  ?? process.env.GOOGLE_CLIENT_SECRET  ?? "",
+  AZURE_CLIENT_ID:      env.AZURE_CLIENT_ID       ?? process.env.AZURE_CLIENT_ID       ?? "",
+  AZURE_CLIENT_SECRET:  env.AZURE_CLIENT_SECRET   ?? process.env.AZURE_CLIENT_SECRET   ?? "",
 };
 
 writeFileSync(

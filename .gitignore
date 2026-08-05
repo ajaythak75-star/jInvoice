@@ -9,7 +9,7 @@ npm-debug.log*
 
 # Gradle
 .gradle/
-build/
+/build/
 app/build/
 core/build/
 

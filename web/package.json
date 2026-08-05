@@ -3,14 +3,16 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "main": "electron/main.cjs",
+  "main": "electron/main.mjs",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "start": "node server/prod.mjs",
     "pkg:build:win": "npm run build && npx pkg server/launcher.cjs --target node22-win-x64 --output release/pkg/jInvoice.exe && node scripts/pkg-package.mjs win",
-    "pkg:build:mac": "npm run build && npx pkg server/launcher.cjs --target node22-macos-arm64 --output release/pkg/jInvoice-mac && node scripts/pkg-package.mjs mac"
+    "pkg:build:mac": "npm run build && npx pkg server/launcher.cjs --target node22-macos-arm64 --output release/pkg/jInvoice-mac && node scripts/pkg-package.mjs mac",
+    "electron:build:mac": "node electron/prebuild.mjs && npm run build && electron-builder --mac",
+    "electron:build:win": "node electron/prebuild.mjs && npm run build && electron-builder --win"
   },
   "dependencies": {
     "dexie": "^3.2.7",
@@ -35,5 +37,41 @@
   "pkg": {
     "scripts": "server/launcher.cjs",
     "outputPath": "release/pkg"
+  },
+  "build": {
+    "appId": "com.jinvoice.app",
+    "productName": "jInvoice",
+    "copyright": "Copyright © 2025 jInvoice",
+    "directories": {
+      "output": "release/electron",
+      "buildResources": "build"
+    },
+    "files": [
+      "electron/main.mjs",
+      "electron/credentials.mjs",
+      "package.json",
+      "node_modules/**",
+      "!node_modules/.cache/**",
+      "!node_modules/.vite/**"
+    ],
+    "extraResources": [
+      { "from": "dist", "to": "dist" }
+    ],
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "jInvoice"
+    },
+    "mac": {
+      "target": [{ "target": "dmg", "arch": ["arm64"] }],
+      "icon": "build/icon.png",
+      "category": "public.app-category.finance"
+    }
   }
 }

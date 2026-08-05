@@ -8,7 +8,7 @@ interface Props {
   onScanFiles?: (files: File[]) => Promise<string>;
 }
 
-export function DesktopFolderSettings({ folderName, onFolderSet, onScanFiles }: Props) {
+export function DesktopFolderSettings({ folderName, onFolderSet }: Props) {
   const [supported, setSupported] = useState<boolean | null>(null);
   const [safariInput, setSafariInput] = useState("");
 
