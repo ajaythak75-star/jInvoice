@@ -151,10 +151,10 @@ function isOAuthUrl(url) {
 
 function deliverOAuthResult(hash) {
   if (!win) return;
-  // Set hash via JS → fires hashchange → App.tsx applyOAuthHash() picks it up.
-  // Falls back to loadURL (full reload) if the page isn't ready yet.
-  win.webContents.executeJavaScript(`window.location.hash = ${JSON.stringify(hash)}`)
-    .catch(() => { win?.webContents.loadURL(`${BASE}/${hash}`); });
+  // Use /index.html (different path from /) so Chromium does a true cross-document
+  // navigation regardless of the window's current URL — guarantees App.tsx re-runs
+  // and applyOAuthHash() reads the hash at module init.
+  win.webContents.loadURL(`${BASE}/index.html${hash}`);
   app.dock?.bounce("informational");
   app.focus({ steal: true });
   win.show();
@@ -182,7 +182,6 @@ function createWindow() {
 
   // Also intercept server-side 302 redirects (will-navigate does not fire for these).
   win.webContents.on("will-redirect", (event, url) => {
-    console.log("[nav] will-redirect:", url.slice(0, 80));
     if (isOAuthUrl(url)) {
       event.preventDefault();
       shell.openExternal(url);
