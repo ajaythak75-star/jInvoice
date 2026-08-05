@@ -40,11 +40,9 @@ function pkceConsume(key) {
 // ── Google login ────────────────────────────────────────────────────────────
 
 httpApp.get("/auth/google/login/start", (_req, res) => {
-  const { challenge } = pkceStart("google_login");
   res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${new URLSearchParams({
     client_id: GOOGLE_CLIENT_ID, redirect_uri: `${BASE}/auth/google/login/callback`,
     response_type: "code", scope: GOOGLE_LOGIN_SCOPE, access_type: "online", state: "google_login",
-    code_challenge: challenge, code_challenge_method: "S256",
   })}`);
 });
 
@@ -54,7 +52,7 @@ httpApp.get("/auth/google/login/callback", async (req, res) => {
   try {
     const t = await (await fetch("https://oauth2.googleapis.com/token", {
       method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ code, client_id: GOOGLE_CLIENT_ID, client_secret: GOOGLE_CLIENT_SECRET, redirect_uri: `${BASE}/auth/google/login/callback`, grant_type: "authorization_code", code_verifier: pkceConsume("google_login") }),
+      body: new URLSearchParams({ code, client_id: GOOGLE_CLIENT_ID, client_secret: GOOGLE_CLIENT_SECRET, redirect_uri: `${BASE}/auth/google/login/callback`, grant_type: "authorization_code" }),
     })).json();
     if (!t.access_token) throw new Error("no token");
     const p = await (await fetch("https://www.googleapis.com/oauth2/v3/userinfo", { headers: { Authorization: `Bearer ${t.access_token}` } })).json();
@@ -66,11 +64,9 @@ httpApp.get("/auth/google/login/callback", async (req, res) => {
 // ── Gmail ────────────────────────────────────────────────────────────────────
 
 httpApp.get("/auth/gmail/start", (_req, res) => {
-  const { challenge } = pkceStart("gmail");
   res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${new URLSearchParams({
     client_id: GOOGLE_CLIENT_ID, redirect_uri: `${BASE}/auth/gmail/callback`,
     response_type: "code", scope: GMAIL_SCOPE, access_type: "offline", prompt: "consent", state: "gmail",
-    code_challenge: challenge, code_challenge_method: "S256",
   })}`);
 });
 
@@ -80,7 +76,7 @@ httpApp.get("/auth/gmail/callback", async (req, res) => {
   try {
     const t = await (await fetch("https://oauth2.googleapis.com/token", {
       method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ code, client_id: GOOGLE_CLIENT_ID, client_secret: GOOGLE_CLIENT_SECRET, redirect_uri: `${BASE}/auth/gmail/callback`, grant_type: "authorization_code", code_verifier: pkceConsume("gmail") }),
+      body: new URLSearchParams({ code, client_id: GOOGLE_CLIENT_ID, client_secret: GOOGLE_CLIENT_SECRET, redirect_uri: `${BASE}/auth/gmail/callback`, grant_type: "authorization_code" }),
     })).json();
     if (!t.access_token) throw new Error("no token");
     const prof = await (await fetch("https://www.googleapis.com/oauth2/v3/userinfo", { headers: { Authorization: `Bearer ${t.access_token}` } })).json();
@@ -146,7 +142,15 @@ function isOAuthUrl(url) {
 }
 
 function deliverOAuthResult(hash) {
-  win?.webContents.loadURL(`${BASE}/${hash}`);
+  if (!win) return;
+  win.webContents.executeJavaScript(`window.location.hash = ${JSON.stringify(hash)}`)
+    .catch(() => {
+      win?.webContents.loadURL(`${BASE}/${hash}`);
+    });
+  app.dock?.bounce("informational");
+  app.focus({ steal: true });
+  win.show();
+  win.focus();
 }
 
 const CLOSE_TAB_HTML = `<html><body><script>window.close()</script><p>Done — you can close this tab.</p></body></html>`;
@@ -162,6 +166,14 @@ function createWindow() {
 
   // Open OAuth pages in the system browser, not the Electron window.
   win.webContents.on("will-navigate", (event, url) => {
+    if (isOAuthUrl(url)) {
+      event.preventDefault();
+      shell.openExternal(url);
+    }
+  });
+
+  // Also intercept server-side 302 redirects (will-navigate does not fire for these).
+  win.webContents.on("will-redirect", (event, url) => {
     if (isOAuthUrl(url)) {
       event.preventDefault();
       shell.openExternal(url);
