@@ -143,10 +143,9 @@ function isOAuthUrl(url) {
 
 function deliverOAuthResult(hash) {
   if (!win) return;
-  win.webContents.executeJavaScript(`window.location.hash = ${JSON.stringify(hash)}`)
-    .catch(() => {
-      win?.webContents.loadURL(`${BASE}/${hash}`);
-    });
+  // App.tsx reads the hash once at module init, so we must do a full reload
+  // with the hash in the URL — executeJavaScript/hashchange is not enough.
+  win.webContents.loadURL(`${BASE}/${hash}`);
   app.dock?.bounce("informational");
   app.focus({ steal: true });
   win.show();
