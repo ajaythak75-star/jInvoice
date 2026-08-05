@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Electron release artifacts
+release/
+
+# Secrets
+.env
+.env.local
+.env.*.local
+
+# Electron credential files (auto-generated, contain real secrets)
+electron/credentials.json
+electron/credentials.mjs
+
+# Vite cache
+.vite/

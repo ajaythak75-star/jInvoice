@@ -1,0 +1,7 @@
+[build]
+builder = "NIXPACKS"
+buildCommand = "npm ci --legacy-peer-deps"
+
+[deploy]
+startCommand = "node server/proxy.mjs"
+healthcheckPath = "/health"

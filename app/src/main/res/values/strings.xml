@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">jInvoice</string>
+
+    <!-- Bottom nav -->
+    <string name="nav_invoices">Invoices</string>
+    <string name="nav_import">Auto-Import</string>
+    <string name="nav_search">Search</string>
+    <string name="nav_settings">Settings</string>
+
+    <!-- Auto-Import settings -->
+    <string name="autoimport_title">Auto-Import Email Connector</string>
+    <string name="autoimport_subtitle">Connect your inbox to automatically import invoice PDFs. Opt-in only — you can disconnect at any time.</string>
+    <string name="autoimport_privacy_note">Your emails are never sent to jInvoice servers. PDFs are downloaded directly to your device and processed on-device only.</string>
+
+    <!-- Connectors -->
+    <string name="connector_gmail">Gmail</string>
+    <string name="connector_outlook">Outlook</string>
+    <string name="connector_revoke">Disconnect</string>
+
+    <!-- Consent screen -->
+    <string name="consent_title">Connect %1$s to jInvoice</string>
+    <string name="consent_body">jInvoice will access your %1$s inbox to find and download invoice PDFs. Before you continue, please read and confirm each of the following disclosures.</string>
+    <string name="consent_disclosure_subject">jInvoice will scan email subject lines to identify invoices and receipts.</string>
+    <string name="consent_disclosure_download">Matching PDF attachments will be downloaded directly to your device (Downloads/jInvoice/).</string>
+    <string name="consent_disclosure_local_only">All processing happens on your device. No email content or attachments are sent to jInvoice servers.</string>
+    <string name="consent_disclosure_no_server">Your OAuth token is stored only on this device in encrypted storage. You can revoke access at any time from Settings.</string>
+    <string name="consent_accept">I understand — Connect</string>
+    <string name="consent_decline">Cancel</string>
+</resources>

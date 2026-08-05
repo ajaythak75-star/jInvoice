@@ -1,0 +1,29 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Gradle
+.gradle/
+build/
+app/build/
+core/build/
+
+# Android
+*.apk
+*.aab
+local.properties
+
+# iOS
+iOS/build/
+iOS/Pods/
+iOS/*.xcworkspace
+
+# Secrets — never commit
+web/.env
+web/.env.local
+web/.env.*.local

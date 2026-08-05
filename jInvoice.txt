@@ -1,0 +1,716 @@
+# jInvoice — Claude Code Context
+
+## Product Overview
+jInvoice is a negotiation intelligence platform for Indian consumers, powered by verified real-transaction price data. It gives buyers the negotiation power to walk into any neighborhood store already knowing what their neighbors actually paid for the same item — not a listed price, not an online estimate, but a completed transaction from the same zip code.
+
+For electronics, mobiles, appliances, and other touch-before-you-buy categories, jInvoice routes customers to the nearest neighborhood store at the verified lowest price — delivering the Amazon price with the kirana experience, keeping sales in the local economy instead of big-brand retail.
+
+For merchants, jInvoice creates a **Virtual Inventory Network**: a shared stock layer across subscribed neighborhood stores so that if Store A doesn't have an item, it can fulfill the customer from Store B's stock — without either store over-investing in inventory. The network becomes a virtual warehouse for the neighborhood.
+
+Expense tracking is the data collection mechanism that powers all of this — not the product itself.
+
+The platform is built on a two-part architecture that eliminates central server costs and ensures native compliance with India's DPDP Act and Europe's GDPR.
+
+---
+
+## Architecture
+
+### Part 1 — Invoice Ingestion Layer (Primary — Phase 1)
+The primary data entry layer. Users feed invoices into jInvoice via two methods: manual file upload or automatic email import. All processing happens on-device after ingestion. This is the Phase 1 development priority — camera OCR (Part 2) is deferred to Phase 2.
+
+#### 1a — Manual Upload
+Users upload invoice PDFs directly from their device storage, Google Drive, iCloud, or any Files-accessible location.
+
+- **Trigger** — user taps "Upload Invoice" → native file picker (Android Storage Access Framework / iOS UIDocumentPickerViewController)
+- **Accepted format** — PDF only (v1)
+- **Flow** — file selected → copied to local jInvoice folder → PDF branching logic runs → edge engine extracts structured data → written to SQLite FTS5
+- **No network call required** — works fully offline
+- **Local folder** —
+  - Android: `Downloads/jInvoice/` (MediaStore, scoped storage)
+  - iOS: `Files app → jInvoice/`
+
+#### 1b — Auto-Import Email Connector (Optional, Separate Module)
+A distinct, explicitly user-authorized ingestion layer. Users must opt in with a clear disclosure that jInvoice will access their inbox to find and download invoice PDFs.
+
+**Supported sources**
+- Gmail (OAuth 2.0)
+- Outlook / Microsoft Graph (OAuth 2.0)
+- SMS — removed from scope permanently
+
+**File formats**
+- PDF invoices only
+- JPEG, PNG, HTML body, Excel, CSV — out of scope for v1
+
+**Flow**
+1. User completes OAuth → dedicated consent screen disclosing exactly what is accessed
+2. Background polling detects emails with PDF attachments matching invoice/receipt heuristics (subject line keywords + sender domain patterns)
+3. Matching PDF downloaded directly to device — never routed through jInvoice servers
+4. PDF saved to user-accessible local folder (visible in Files app / Downloads on both Android and iOS)
+5. Edge engine reads the saved PDF locally and extracts: merchant name, date, location, line items (name + quantity + unit price), total, discount, payment mode
+6. Extracted structured data written to SQLite FTS5 index exactly as a manual scan would be
+7. Original PDF remains in the local folder untouched — jInvoice does not delete or move it
+
+**PDF Branching Logic (detect type before extraction)**
+
+Every downloaded PDF must be classified before the extraction pipeline runs:
+
+```
+PDF downloaded to local folder
+        │
+        ▼
+Does the PDF have a text layer?
+(check via PDFKit / iText / PdfBox — attempt text extraction, check char count > threshold)
+        │
+   ┌────┴────┐
+  YES        NO
+   │          │
+   ▼          ▼
+Native PDF   Scanned PDF
+(text layer  (image-only,
+ present)     no text layer)
+   │          │
+   ▼          ▼
+Parse text   Rasterize each page to
+directly     high-res bitmap (300 dpi)
+via PDF      then pass to edge engine
+text APIs    OCR pipeline (ML Kit /
+             Vision framework)
+   │          │
+   └────┬─────┘
+        ▼
+Structured extraction:
+merchant, date, location,
+line items, total, discount,
+payment mode → SQLite FTS5
+```
+
+**Classification rules:**
+- Attempt text extraction on page 1; if extracted string length > 50 chars with printable content → **Native PDF**
+- If extracted string is empty, whitespace-only, or below threshold → **Scanned PDF**
+- Mixed PDFs (some pages native, some scanned) — treat page-by-page; route each page independently
+- Password-protected PDFs — surface a user prompt to enter password; if declined, mark record `import_blocked_encrypted` and skip
+
+**Native PDF extraction (text layer):**
+- Android: `PdfRenderer` for rendering + `iText` or `Apache PdfBox` (Android port) for text extraction
+- iOS: `PDFKit` — `PDFPage.string` for direct text extraction
+- No OCR call needed — faster, more accurate, zero ML Kit / Vision framework usage
+
+**Scanned PDF extraction (image-only):**
+- Rasterize at 300 dpi minimum for acceptable OCR accuracy
+- Android: `PdfRenderer` → `Bitmap` → ML Kit Text Recognition v2
+- iOS: `PDFKit` → `CGImage` → Vision framework `VNRecognizeTextRequest`
+- Flag extracted record as `source: scanned_pdf` in SQLite for quality tracking
+
+**Quality fallback:**
+- If extraction confidence is below threshold (< 70% field coverage), mark record `pending_review` and surface to user for manual correction
+- Never silently write low-confidence data to the FTS5 index without flagging it
+
+**Extraction targets from PDF**
+| Field | Notes |
+|---|---|
+| Merchant name | Header / logo region |
+| Date | Invoice date or transaction date |
+| Location | Store address or GST registered address |
+| Line items | Item name, quantity, unit price |
+| Total amount | Pre-tax, tax, and grand total |
+| Discount | Line-level and bill-level discounts |
+| Payment mode | Cash, UPI, card, BNPL, credit |
+
+**Local folder**
+- Android: `Downloads/jInvoice/` (MediaStore, scoped storage)
+- iOS: `Files app → jInvoice/` (accessible via the Files app)
+- Folder is created on first Auto-Import run; user can change path in settings
+- jInvoice requests only the permissions needed to write to this folder — no broader storage access
+
+**Permission disclosure**
+- Dedicated consent screen before OAuth — cannot be bundled into Terms of Service
+- Disclose: subject line scanning, PDF attachment download, local-only storage, no server transmission
+- User can revoke OAuth access at any time from settings; revocation stops all background polling immediately
+
+**DPDP / GDPR posture**
+- Inbox access is a higher consent tier than camera — must be disclosed specifically
+- No email content, metadata, or PDF transmitted to jInvoice servers at any point
+- OAuth token stored in device secure keystore only (Android Keystore / iOS Keychain)
+
+**OAuth scope**
+- Read-only, narrowest available scope (Gmail: `gmail.readonly` filtered by label/query; Microsoft: `Mail.Read`)
+- Never request full inbox scope
+
+> ⚠️ Auto-Import is opt-in only, never default. It is an ingestion connector — not part of the edge engine. Never describe it as part of the "zero-server-cost" or "raw files never leave device" architecture claims. Those apply to the edge engine only. The PDF lands on-device; the edge engine processes it locally. Nothing leaves the device.
+
+### Part 2 — On-Device Camera OCR Engine (Phase 2)
+Deferred to Phase 2. Do not build or scaffold until Phase 1 ingestion layer is stable and validated.
+
+- **OCR / Text Extraction** — ML Kit Text Recognition v2 (Android) / Vision framework VNRecognizeTextRequest (iOS)
+- **Trigger** — user points camera at a physical paper receipt
+- **Data Extraction** — on-device regex + heuristic parsing pipeline (merchant, date, total, line items); lives in `core/extraction/` as platform-agnostic Kotlin/Swift — same pipeline used by Phase 1 PDF extraction
+- **Storage** — raw scan stored in local encrypted file store; extracted data written to SQLite FTS5
+- **Expiry Sentinel** — on-device tracker for product warranties and insurance deadlines (active from Phase 2)
+- **Reward Eligibility Engine** — same on-device checks as Phase 1; camera scans eligible for Manual Scan rewards
+
+> ⚠️ Phase 2 builds on the same `core/extraction/` pipeline as Phase 1. Do not duplicate extraction logic. Camera input is just another ingestion source feeding the same pipeline.
+
+---
+
+### Part 3 — Best-Price Web Portal (Public, Lightweight)
+Devices anonymously transmit only: `[Item Name] + [Price Paid] + [Zip Code]`. No user identity, no receipt text, no raw files.
+
+- Public hyper-local price discovery web interface — powers consumer negotiation intelligence
+- Verified real-transaction price data (not listed prices) — this is the core differentiator
+- Consumer-facing: "what did people actually pay for this item near me this week?"
+- Merchant-facing (logged in): Virtual Inventory Network stock visibility across subscribed stores
+- Programmatic display advertising (zip code + search intent targeting only — never derived from edge engine data)
+- Group B lead-gen verticals: Coaching, Insurance, Vehicles, Furniture, Jewellery
+- Group C maintenance lead push notifications routed via server to subscribed service shops
+- Anonymous price transmissions from Phase 1 ingestion layer feed the price directory from day one
+
+### Server-Side (Minimal)
+- **Auth** — JWT-based; device operates offline-first after token acquisition
+- **Sync** — delta sync of receipt metadata and FTS index snapshots; PostgreSQL stores metadata only (receipt ID, date, total, merchant name hash) — never receipt text or line items
+- **Model Updates** — periodic push of updated OCR/ML models and merchant-hint dictionaries
+- **Reward Ledger** — server-side wallet ledger with 7-day cooling lock and FIFO expiry enforcement
+- **LSP Credit Layer** — merchant creditworthiness signals passed to licensed NBFC partners (Lendingkart / FlexiLoans); jInvoice never holds or disburses funds
+- **Analytics & Crash Reporting** — non-blocking, fire-and-forget (PostHog self-hosted preferred)
+
+> ⚠️ Never route receipt text, extracted data, or user search queries through the cloud. Ad targeting signals must come only from web portal behavior — never from the edge engine.
+> ⚠️ Phase 1 (manual upload + email import) must be fully stable before Phase 2 (camera OCR) is started. The `core/extraction/` pipeline is shared — validate it thoroughly in Phase 1.
+
+---
+
+## Revenue Model
+
+### 1. Consumer Subscription — ₹49/month
+Unlocks unlimited scanning and reward earning. Free tier capped at 10 scans/day or 100/month.
+
+### 2. Unified B2B SaaS — ₹499/month
+Single tier for both retail merchants and service providers. Includes hyper-local customer discovery, storefront price-matching, and LSP-brokered working capital access via licensed NBFC partners.
+
+### 3. Enterprise Ad Layer
+Programmatic display advertising on the public web portal. Targeting by zip code and web search intent only.
+
+### 4. Logistics Convenience Fee — ₹49 (products) / ₹99 (services)
+Pass-through fee paid by consumer, delivered 100% to the merchant. jInvoice holds zero inventory.
+
+---
+
+## Gamified Reward System — Time-Vesting Decay Engine
+
+Rewards are the data acquisition budget for the crowd-sourced pricing directory. Daily action limits are the primary fraud guardrail. There is no monthly rupee cap — daily limits do all the work.
+
+### Auto-Scan (background digital receipts)
+| Rate | Daily Limit | Daily Max |
+|---|---|---|
+| ₹1 flat | 10 | ₹10 |
+
+### Manual Scan (physical receipt, time-vested)
+| Receipt Age | Rate | Daily Limit | Daily Max |
+|---|---|---|---|
+| ≤ 24 hours | ₹3 | 5 | ₹15 |
+| 24–48 hours | ₹2 | 5 | ₹10 |
+| > 48 hours | ₹1 | 5 | ₹5 |
+
+### Beat the Price (competitive price entry, time-vested)
+| Receipt Age | Rate | Daily Limit | Daily Max |
+|---|---|---|---|
+| ≤ 24 hours | ₹25 | 1 | ₹25 |
+| 24–48 hours | ₹15 | 1 | ₹15 |
+| > 48 hours | ₹10 | 1 | ₹10 |
+
+### Peak Daily Ceiling
+| Action | Peak Rate | Limit | Max |
+|---|---|---|---|
+| Auto-Scan | ₹1 | 10 | ₹10 |
+| Manual Scan | ₹3 | 5 | ₹15 |
+| Beat the Price | ₹25 | 1 | ₹25 |
+| **Total** | | | **₹50/day** |
+
+### Realistic Monthly Earnings by User Type
+| User Type | Daily Avg | Monthly Total |
+|---|---|---|
+| Casual (3 auto-scans, 1 manual) | ₹6 | ₹180 |
+| Active (10 auto, 3 manual, 1 BtP) | ₹28 | ₹840 |
+| Power (all maxed, every day) | ₹50 | ₹1,500 |
+
+### Wallet Rules
+- **Cooling lock** — 7-day mandatory hold with on-device cryptographic verification before rewards are spendable
+- **Expiry** — 90-day FIFO; unspent balance returns to platform (breakage revenue)
+- **Spend restriction** — wallet redeemable only at subscribed neighborhood merchants; enforced server-side
+- **No monthly rupee cap** — daily action limits are the sole guardrail
+
+### Reward Eligibility (on-device checks before minting)
+- Receipt belongs to one of the 16 approved verticals (Group A only — Groups B and C are not eligible for scan rewards)
+- Item-level pricing is present and parseable
+- Receipt image hash is unique (deduplication)
+- GPS proximity confirms user was near the claimed merchant (Beat the Price only)
+- Price entry is not a statistical outlier vs. existing directory data (anomaly flag → delayed payout)
+
+---
+
+## 16-Vertical Product Directory
+
+### Group A — Edge-Scanning Channels (App, High-Frequency)
+Physical paper receipts and PDF invoices scanned in-app for budget tracking and price verification.
+
+1. Medical, Labs & Pharmacies
+2. Clothes, Shoes & Fashion Apparel
+3. Eyeglasses & Vision Diagnostics — Expiry Sentinel tracks lens prescription renewal
+4. Mobiles, Smartphones & Accessories — Expiry Sentinel tracks warranty; eligible for maintenance lead routing
+5. Hardware, Building Materials & Paints
+6. Home Appliances — Expiry Sentinel tracks warranty; eligible for maintenance lead routing
+7. Electronics — Expiry Sentinel tracks warranty; eligible for maintenance lead routing
+
+### Group B — Web-Portal Lead-Gen Verticals (High-Ticket, Web Intent)
+High-consideration purchases; live on the public website as a discovery and leads marketplace.
+
+8. Coaching Institutes & School Fees
+9. Insurance (Health, Life & Motor)
+10. Vehicle Dealerships & Showrooms — purchase invoice triggers Expiry Sentinel for service intervals; eligible for maintenance lead routing
+11. Furniture Showrooms & Workshops
+12. Jewellery Retailers & Bullion Sourcing
+
+### Group C — Maintenance Lead-Gen Verticals (Push Notification Routing)
+Service verticals activated by Expiry Sentinel events or manual user request. Leads are pushed as notifications to nearby subscribed service shops — the user does not browse; the shop receives the lead.
+
+13. Vehicle Maintenance & Service Centres — triggered by service interval expiry or manual request
+14. Electronics Repair Shops — triggered by warranty expiry or manual request
+15. Mobile Repair Shops — triggered by warranty expiry or manual request
+16. School / Coaching Fee Renewal — renewal reminders routed to subscribed institutes near user
+
+> Group B and Group C are Discovery & Leads Engines, not price directories. Do not apply receipt-scanning or FTS5 price-matching patterns to these verticals.
+
+---
+
+## Expiry Sentinel — Maintenance Lead Integration
+
+The Expiry Sentinel runs entirely on-device and monitors warranty and service deadlines extracted from invoices. When a threshold is crossed it triggers two parallel actions.
+
+**On-device (always):**
+- Local push notification to the user: "Your [Product] warranty expires in 7 days — find a nearby service centre"
+
+**Lead routing (only if user has enabled the toggle):**
+- Anonymous lead payload transmitted to server: `[Category] + [Customer Zip Code] + [Lead Type: warranty_expiry | service_interval | manual_request]`
+- Zip code is the customer's registered address zip code — not GPS-derived at time of lead; never transmit precise GPS coordinates
+- No product serial number, purchase price, or user identity included in the payload
+- Server pushes lead notification to all subscribed service shops within the user's zip code radius
+
+**Lead routing rules:**
+| Trigger | Source Category | Lead sent to |
+|---|---|---|
+| Warranty expiry (auto) | Home Appliances | Electronics Repair Shops |
+| Warranty expiry (auto) | Electronics | Electronics Repair Shops |
+| Warranty expiry (auto) | Mobiles | Mobile Repair Shops |
+| Service interval expiry (auto) | Vehicle Dealerships | Vehicle Maintenance Centres |
+| Manual user request | Any eligible category | Relevant service shops in zip code |
+
+**Consent model:**
+- "Send maintenance leads to nearby shops" toggle — off by default, user must explicitly enable
+- Separate toggle from Auto-Import consent
+- User can disable per-category (e.g. enable for Vehicle, disable for Electronics)
+
+**Service shop subscription:**
+- Service shops subscribe under the existing ₹499/month B2B SaaS tier
+- Lead push notifications are included in that subscription — no per-lead charge
+- Shops receive: category, zip code, lead type, timestamp — zero user PII
+
+> 🚩 **FLAG — Group C requires a separate B2B sales motion:**
+> Group C subscribers (vehicle workshops, electronics repair shops, mobile repair centres) are a fundamentally different buyer from Group A/B retail merchants. They do not care about price-matching or storefront discovery — their sole value prop is inbound maintenance leads routed by proximity. The current ₹499/month tier bundles features irrelevant to them. Three decisions required before building Group C onboarding:
+>
+> 1. **Pricing** — does Group C get a stripped-down ₹499 tier (lead-routing only), a lower price point to reduce signup friction, or a separate tier entirely?
+> 2. **Onboarding flow** — does Group C need its own app flow, landing page, and sales collateral separate from Group A/B merchants? A single generic merchant onboarding screen will not convert a vehicle workshop owner.
+> 3. **Service radius** — resolved: leads are routed based on the **customer's zip code**. All subscribed Group C shops registered in that zip code receive the lead notification. No configurable km radius needed.
+>
+> Do not build a single generic merchant onboarding flow and assume it covers Group C. Decisions 1 and 2 above must be resolved in the product document before any Group C screens are designed or built.
+
+> ⚠️ Lead payload must never include user identity, product serial number, purchase price, or any field that could identify the individual. Enforce with a payload schema validator before every transmission — reject any payload that fails the check.
+
+---
+
+
+---
+
+## Virtual Inventory Network
+
+The Virtual Inventory Network (VIN) connects subscribed merchants into a shared fulfillment layer. When a customer wants an item that Store A doesn't stock, Store A can fulfill from Store B's inventory without losing the sale.
+
+### Transaction Flow
+```
+Customer requests item → Store A doesn't have stock
+        ↓
+Store A checks jInvoice VIN → Store B (2 streets away) has stock
+        ↓
+Customer confirms purchase → payment collected via licensed PA partner
+        ↓
+PA partner splits automatically:
+  - Store B receives wholesale amount (stock cost + margin)
+  - Store A receives referral/coordination fee
+  - jInvoice receives platform fee
+        ↓
+Customer collects from Store B (or Store A arranges transfer)
+```
+
+### Payment Infrastructure — PA Partner (MANDATORY)
+jInvoice must NEVER hold customer funds or execute splits directly. This is payment aggregation and requires an RBI Payment Aggregator licence (minimum ₹25 crore net worth, 12–18 month approval).
+
+**Required approach: integrate a licensed PA partner's marketplace/route API.**
+
+| Partner | Product | Notes |
+|---|---|---|
+| Razorpay | Razorpay Route | Production-ready split payments, strong docs |
+| Cashfree | Cashfree Route | Competitive pricing, good India coverage |
+| PayU | PayU Escrow | Better for high-ticket items |
+
+Split rules defined by jInvoice → executed and disbursed by PA → jInvoice earns platform fee. No PA licence required for jInvoice under this model.
+
+> ⚠️ Do not build any payment collection, escrow, or disbursement logic in jInvoice's own backend. All money movement must flow through the PA partner's API. Any code that holds or transfers funds between parties makes jInvoice an unlicensed payment aggregator.
+
+### Merchant Inventory (v1 — Manual Updates)
+- Merchants manually update their stock list via the B2B merchant app
+- Each stock entry shows a "last updated" timestamp visible to other merchants and customers
+- Merchants receive a daily push notification to refresh stock if no update in 24 hours
+- Stock entries older than 72 hours are automatically flagged as "unverified" in the UI
+
+### Inventory Staleness (v2 — Passive Inference)
+- If no customer receipt for Item X from Store B appears in the price directory for 30+ days, flag as "possibly out of stock"
+- This is a passive signal requiring no merchant action — derived from scan data already collected
+
+### Split Fee Structure (suggested, to be finalised)
+- Store B (stock provider): wholesale cost + agreed margin
+- Store A (customer relationship): coordination/referral fee (suggested 5–8% of sale)
+- jInvoice: platform fee (suggested 1–2% of transaction value, charged to Store A)
+- PA partner: payment processing fee (typically 1.5–2%, charged to Store A)
+
+> 🚩 **FLAG — Split fee percentages and wholesale pricing agreements between merchants need a standard contract template before VIN goes live. Engage a commercial lawyer to draft the merchant-to-merchant fulfillment agreement. This is separate from the jInvoice merchant subscription agreement.**
+
+
+## Development Phases
+
+| Phase | Scope | Status |
+|---|---|---|
+| **Phase 1 — Web** | Manual PDF upload + Gmail auto-import + Desktop folder connector + PDF extraction pipeline + Dexie storage + Invoice PDF download + Expiry Sentinel | **In progress — core flow functional** |
+| **Phase 1 — Native** | Android + iOS apps, SQLite FTS5, ML Kit / Vision framework OCR | Not started |
+| **Phase 2** | Camera OCR for physical receipts + Expiry Sentinel (native) + Maintenance lead routing | After Phase 1 native validated |
+
+### Phase 1 Web — What's Built
+
+| Module | Location | Status |
+|---|---|---|
+| PDF classification (native / scanned / encrypted) | `web/src/extraction/` | Done |
+| Native PDF text extraction | `web/src/extraction/WebNativePdfExtractor.ts` | Done |
+| Scanned PDF OCR (Tesseract.js) | `web/src/extraction/WebScannedPdfExtractor.ts` | Done |
+| Extraction pipeline + DB persistence | `web/src/extraction/ExtractionPipeline.ts` | Done |
+| Dexie DB schema (invoices, lineItems, importRecords, sentinelRecords) | `web/src/data/InvoiceDatabase.ts` | Done — schema v2 |
+| Invoice list UI with status badges, review panel | `web/src/ui/invoices/InvoiceList.tsx` | Done |
+| Invoice PDF generator (jsPDF) | `web/src/service/InvoicePdfGenerator.ts` | Done |
+| Desktop folder save (File System Access API) | `web/src/autoimport/DesktopFolderConnector.ts` | Done |
+| Gmail OAuth auto-import connector | `web/src/autoimport/GmailConnector.ts` | Done |
+| Outlook connector | `web/src/autoimport/OutlookConnector.ts` | Placeholder — Azure creds needed |
+| Auto-import settings UI | `web/src/ui/autoimport/AutoImportSettings.tsx` | Done |
+| Expiry Sentinel (on-device tracker) | `web/src/service/ExpirySentinel.ts` | Done |
+| Sentinel UI | `web/src/ui/sentinel/` | Done |
+| Camera capture UI | `web/src/ui/camera/` | Done |
+| Reward engine | Not started | Pending |
+| FTS5 search bar (invoice search UI) | Not started | Pending |
+| Anonymous price transmission | Not started | Pending |
+
+### Key Behaviours Implemented
+
+- **sourceFilename**: Original filename captured at import (`file.name`) and stored in Dexie. Invoice card title shows `sourceFilename` first, then `merchantName` as fallback. Downloaded PDF uses exact original filename.
+- **Download + remove**: Clicking ↓ on a card downloads the PDF (to folder or browser), then deletes the record from Dexie (`db.invoices.delete` + `db.lineItems…delete`) so the card is gone permanently even after tab switch.
+- **Download All**: Batch download button in invoice list header; removes each card as it succeeds; shows summary count on completion.
+- **Folder save (File System Access API)**: `restoreFolder()` must be the **first** `await` in any click handler that needs write access — user-activation window expires otherwise. `preloadHandle()` warms the handle at component mount from IndexedDB so `restoreFolder()` can skip the DB read during clicks.
+- **PDF branching**: Classify first (native / scanned / encrypted), then route — `extractNativePdf` for text-layer PDFs, `extractScannedPdf` (Tesseract.js) for image-only. Mixed PDFs use the majority-page type.
+
+---
+
+## Key Design Constraints
+
+1. **Offline-first** — scan, extract, search, and history must work with zero connectivity
+2. **SQLite FTS5 only** — no Elasticsearch, Typesense, Algolia, or remote search backend for user-facing queries
+3. **No per-query billing surface** — no third-party API that charges per OCR call or per document
+4. **Privacy by default** — receipt text never leaves the device; only `[Item Name] + [Price] + [Zip Code]` transmitted, anonymously
+5. **Ad targeting firewall** — programmatic ad signals sourced only from web portal behavior, never from edge engine data
+6. **LSP only, no direct lending** — jInvoice never disburses credit; all lending flows through licensed NBFC partners
+7. **PA partner only, no direct payment handling** — jInvoice never collects, holds, or splits customer payments; all VIN transactions flow through a licensed PA partner (Razorpay Route or Cashfree Route)
+8. **Device storage budget** — FTS5 index + receipt store under 500 MB for typical users; archive older records to compressed blobs when approaching limit
+9. **Stock staleness disclosure** — every merchant stock entry must display its last-updated timestamp; entries older than 72 hours must be flagged "unverified" in all UI surfaces
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Phase 1 Web App | React 18 + TypeScript + Vite (SPA / PWA) |
+| Phase 1 Storage (web) | Dexie 3 (IndexedDB) — invoices, lineItems, importRecords, sentinelRecords |
+| Phase 1 PDF extraction (web) | pdfjs-dist (text layer), Tesseract.js (scanned OCR fallback) |
+| Phase 1 PDF output (web) | jsPDF — generates invoice PDFs for download / folder save |
+| Phase 1 Folder save (web) | File System Access API — `FileSystemDirectoryHandle`, handle persisted in IndexedDB |
+| Mobile (Android) | Kotlin, ML Kit Text Recognition v2, Room + SQLite FTS5 |
+| Mobile (iOS) | Swift, Vision framework, GRDB + SQLite FTS5 |
+| Public Web Portal | Next.js (SSR for SEO) — Phase 3 price directory |
+| Sync Backend | Node.js (lightweight), PostgreSQL (metadata only) |
+| Auth | Auth0 or Supabase Auth |
+| Analytics | PostHog (self-hosted preferred) |
+| Ad Server | Google Ad Manager (web portal only) |
+
+---
+
+## Common Commands
+
+```bash
+# Web app — local dev (runs on http://localhost:5173)
+cd web && npm run dev
+
+# Web app — type check
+cd web && npx tsc --noEmit
+
+# Web app — production build
+cd web && npm run build
+
+# Android unit tests
+./gradlew test
+
+# iOS tests
+xcodebuild test -scheme jInvoice -destination 'platform=iOS Simulator,name=iPhone 15'
+
+# Rebuild FTS5 index from raw receipt store (repair utility — native only)
+./scripts/rebuild_fts_index.sh
+
+# Lint
+./gradlew ktlintCheck          # Android
+swiftlint lint --strict        # iOS
+cd web && npm run lint          # Web
+```
+
+---
+
+## Code Conventions
+
+- **Extraction pipeline** in `core/extraction/` — pure Kotlin/Swift, no platform imports, fully unit-testable without a device
+- **FTS5 queries** must always include a column filter — never unscoped full-table FTS
+- **Reward minting** — never mint rewards server-side without passing all on-device eligibility checks first; treat on-device result as the source of truth, server does fraud post-validation only
+- **Monetary values** — stored as integers (minor currency units / paise); no floats anywhere
+- **Dates** — ISO 8601 strings in SQLite
+- **Anonymous price transmissions** — strip all user identifiers before transmission; assert in tests that the payload contains only `item_name`, `price_paise`, `zip_code`
+- **OCR failures** — degrade gracefully: store raw image, mark record `pending_extraction`, never block the user
+
+---
+
+## Testing
+
+- Unit test all extraction heuristics in `core/extraction/` with a fixture corpus of 200+ real receipt formats across all 7 Group A verticals
+- Integration tests: scan → extract → FTS index insertion → search retrieval, fully offline
+- Reward eligibility: test all decay windows, deduplication, GPS proximity check, and anomaly flag paths
+- Anonymous transmission: assert payload schema contains no user identity fields
+- Do not mock the SQLite layer in integration tests — use in-memory SQLite
+
+---
+
+## What Claude Should NOT Do
+
+- Do not suggest moving OCR or search to a cloud API — this violates the core architecture
+- Do not add network calls inside the extraction or search pipeline
+- Do not use `LIKE '%query%'` for search — always use FTS5 `MATCH`
+- Do not store receipt text or line items in PostgreSQL — metadata only
+- Do not apply receipt-scanning or FTS5 price-matching patterns to Group B or Group C verticals
+- Do not build any direct lending, credit disbursement, or wallet-to-bank flow — route all credit through the LSP/NBFC partner API
+- Do not build any payment collection, escrow, splitting, or disbursement logic in jInvoice's backend — all VIN money movement must flow through the PA partner API (Razorpay Route / Cashfree Route)
+- Do not show merchant stock entries without a last-updated timestamp and staleness flag
+- Do not derive ad targeting signals from edge engine data — web portal behavioral signals only
+- Do not build SMS inbox reading on any platform — removed from scope permanently
+- Do not enable the Auto-Import email connector by default — it is opt-in only with a mandatory dedicated consent screen
+- Do not request full inbox OAuth scope — read-only, invoice/receipt-filtered scope only
+- Do not transmit email content or attachments to jInvoice servers — download to device, process via edge engine locally
+
+---
+
+
+---
+
+
+---
+
+## Product Roadmap — Sustaining Features
+
+Features are sequenced by one principle: each phase must make it harder to leave, not just more useful. The goal is compounding data gravity — after 12 months of use, switching cost becomes emotionally real, not just technically inconvenient.
+
+---
+
+### Phase 2 — Deepen Retention (Months 4–12, parallel to Phase 1 launch)
+
+#### 1. Price Trend Alerts
+- **What:** Notify user when a tracked item's price drops in their zip code based on new scan data
+- **Why sticky:** Creates a daily pull reason to open the app — passive value without any user action
+- **Revenue impact:** Higher DAU → higher ad CPM on web portal
+- **Build effort:** Low — FTS5 price data already exists; add a background diff + push notification layer
+- **Constraint:** Alert must be derived from on-device FTS5 data or anonymised web portal data only — never from individual user scan data
+
+#### 2. GST Claim Assistant
+- **What:** Auto-extract GST number, GSTIN, tax amount, and HSN code from invoices; generate an ITR-ready annual expense summary exportable as PDF
+- **Why sticky:** Tax season lock-in — a user who has stored 12 months of GST invoices and filed their March summary through jInvoice will never delete the app. Tax anxiety is the most powerful retention mechanism available.
+- **Revenue impact:** Strongest single justification for the ₹49/month premium subscription
+- **Build effort:** Medium — add GST field extraction to the PDF branching pipeline; new export module
+- **Constraint:** jInvoice is a data extraction tool, not a tax filing service — never position as a CA replacement or submit directly to GSTN; export only
+
+#### 3. Family Wallet
+- **What:** Share expense tracking, scan history, and reward wallet across up to 5 family members under one premium subscription
+- **Why sticky:** One subscription covers the household — dramatically reduces individual churn; family inertia is much stronger than individual habit
+- **Revenue impact:** Higher ARPU per account; reduces CAC by making one subscriber bring in 4 users
+- **Build effort:** Low — shared SQLite sync via the existing delta sync backend; wallet split rules server-side
+- **Constraint:** Each family member's raw invoice data stays on their own device — only aggregated spend summaries sync across the family group
+
+#### 4. Warranty Vault
+- **What:** Dedicated section to store all warranty documents, service records, and insurance policies with auto-reminders before expiry
+- **Why sticky:** After storing refrigerator warranty, TV invoice, and car insurance policy, switching cost becomes real — this is years of irreplaceable personal records
+- **Revenue impact:** Primary trigger for Group C maintenance lead routing (Expiry Sentinel → service shop push notification)
+- **Build effort:** Low — extends the existing Expiry Sentinel module; add document storage UI and reminder engine
+- **Constraint:** Warranty documents stored in local encrypted file store only — never transmitted to server
+
+#### 5. Merchant Analytics Dashboard
+- **What:** Show B2B subscribers their real-time price rank vs. neighbourhood competition — "You are ₹200 cheaper than the average for this item in your zip code this week"
+- **Why sticky:** Merchants check daily to stay competitive — a merchant who monitors their price rank has zero reason to cancel the ₹499 subscription
+- **Revenue impact:** Single strongest justification for B2B subscription retention; reduces merchant churn to near zero
+- **Build effort:** Medium — aggregate anonymised FTS5 price data by zip code and category; build merchant-facing dashboard on web portal
+- **Constraint:** Dashboard must show aggregated category averages only — never reveal which specific competitor charged what
+
+#### 6. QR / Barcode Price Check
+- **What:** User scans a product barcode in-store → app instantly shows what people in their zip code actually paid for the same item in the last 30 days
+- **Why sticky:** In-store use case drives daily active usage — the app becomes a shopping companion, not just a scanner
+- **Revenue impact:** Top-of-funnel conversion to premium; users who experience this feature convert at higher rates
+- **Build effort:** Medium — barcode → product name mapping database needed (can use Open Food Facts / Open Beauty Facts as base for FMCG; electronics needs a separate mapping layer)
+- **Constraint:** Show only aggregated transaction prices, never individual scan data
+
+---
+
+### Phase 3 — Expand Revenue Surface (Year 2)
+
+#### 7. Brand Intelligence API
+- **What:** Sell anonymised, aggregated real-transaction price data to FMCG and electronics brands (Samsung, LG, Voltas, Bajaj Electricals, Havells) — "What did consumers in Mumbai actually pay for your 1.5-ton AC at the channel level last quarter?"
+- **Why sticky:** Once a brand budgets jInvoice data into their quarterly planning cycle, they do not switch — the dataset is irreplaceable
+- **Revenue impact:** ₹50K–2L/month per brand enterprise contract; 3–5 brand contracts = ₹15–10L/month additional revenue in year 2
+- **Build effort:** Medium — anonymisation layer + REST API + enterprise dashboard; legal data-sharing agreement per brand
+- **Constraint:** Payload must contain zero user identifiers; only category + price range + zip code + time period aggregates. Legal review required before first contract.
+
+#### 8. Vernacular Expansion
+- **What:** Full UI in Hindi, Marathi, Tamil, Telugu, and Kannada; voice-input for scan descriptions; regional merchant name recognition in OCR pipeline
+- **Why sticky:** Opens 400M+ non-English-primary users in tier 2 and tier 3 cities; competitors with cloud-based OCR cannot match regional language accuracy at scale without significant server cost
+- **Revenue impact:** 10× addressable market; tier 2/3 cities have strong kirana culture — ideal jInvoice demographic
+- **Build effort:** Medium — i18n framework + ML Kit language model updates + regional merchant name dictionary
+- **Constraint:** All OCR and extraction models must remain on-device after vernacular update — do not introduce a cloud OCR dependency for regional languages
+
+#### 9. ONDC Buyer App Layer
+- **What:** Register jInvoice as an ONDC buyer app on the Beckn protocol — surface ONDC seller listings alongside jInvoice's verified real-transaction price data so consumers see both listed price and what neighbours actually paid
+- **Why sticky:** Converts the biggest competitive threat (ONDC replicating the price directory) into jInvoice's deepest moat — no other ONDC buyer app has verified transaction intelligence
+- **Revenue impact:** Commission on ONDC orders placed through jInvoice + ad revenue from ONDC seller promotion
+- **Build effort:** Medium — Beckn protocol integration; ONDC Network Participant registration with DPIIT
+- **Constraint:** ONDC listed prices and jInvoice transaction prices must be clearly differentiated in UI — never conflate the two data sources
+
+#### 10. jInvoice Pay (UPI + VIN)
+- **What:** UPI-linked payment inside the Virtual Inventory Network — consumer pays through jInvoice, PA partner splits automatically between Store A and Store B
+- **Why sticky:** Closes the full consumer loop: discover → negotiate → pay → track invoice automatically. Payment data enriches the price directory with zero additional user effort.
+- **Revenue impact:** 1–2% platform fee on every VIN transaction; additive to ₹499 B2B subscription
+- **Build effort:** High — deep Razorpay Route / Cashfree Route integration; UPI mandate registration; PA partner agreement expansion
+- **Constraint:** jInvoice never holds funds — all money movement through PA partner API. See Virtual Inventory Network section.
+
+---
+
+### Phase 4 — Platform Layer (Year 3)
+
+#### 11. Consumer Credit Score
+- **What:** Build a spending behaviour score from 12+ months of invoice history → with user consent, share with NBFC partners for pre-approved personal loans or BNPL offers
+- **Why sticky:** Users opt in for loan access — high intent, very low churn once credit relationship is established
+- **Revenue impact:** LSP referral fee per disbursed loan (1–2% of loan value); same LSP model used for merchant credit
+- **Build effort:** High — RBI digital lending guidelines compliance, additional NBFC partnerships, consent framework
+- **Constraint:** Credit scoring model must be built on-device and shared only as a score + spending category summary — never raw invoice data. Full RBI compliance review before launch.
+
+#### 12. Group Buying Network
+- **What:** Aggregate demand from multiple consumers in the same zip code for the same item → surface the collective demand to the merchant → merchant offers a bulk discount to the group
+- **Why sticky:** Creates community and social lock-in around the app; users recruit other users to hit group thresholds
+- **Revenue impact:** Platform fee on group orders; merchant pays a premium listing fee to be featured in group buy opportunities
+- **Build effort:** High — demand aggregation engine, merchant notification system, group payment coordination via PA partner
+- **Constraint:** Group members remain anonymous to each other and to the merchant — only aggregate demand count and zip code shared
+
+#### 13. jRowdy Integration — Layer 3 (OCR Auto-Wallet)
+- **What:** Add transit ticket scanning (train PNR, bus ticket, flight boarding pass) to the jInvoice ingestion pipeline — auto-build a travel expense wallet from transit invoices
+- **Why sticky:** jInvoice becomes the single app for all personal finance tracking — travel expenses, shopping, utilities, warranties
+- **Revenue impact:** Expands Group B web portal to include travel-adjacent lead-gen (hotels, cabs, luggage)
+- **Build effort:** Medium — reuse existing PDF + OCR pipeline; add transit document templates to extraction heuristics
+- **Constraint:** Build only after jInvoice Phase 1 and 2 are stable — do not start this before month 18
+
+---
+
+### The Compounding Moat — Why These Features Lock Users In Permanently
+
+| Feature | Lock-in mechanism | Switching cost after 12 months |
+|---|---|---|
+| GST Claim Assistant | Years of tax records | Extremely high — emotionally real |
+| Warranty Vault | Irreplaceable personal documents | Very high — no alternative storage |
+| Price Trend History | 3+ years of local transaction data | Cannot be rebuilt by any competitor |
+| Brand Intelligence API | Enterprise planning dependency | Contract-level — near impossible |
+| ONDC Buyer App Layer | Verified price layer on open protocol | Structural moat — no one else has the data |
+| Family Wallet | Household inertia | One dissatisfied member cannot unilaterally leave |
+
+> The single most important insight: jInvoice is not an app users keep because it is convenient. It is a platform users cannot leave because it holds data that does not exist anywhere else. Every sustaining feature should be evaluated against this standard — does it add irreplaceable data gravity, or is it just a nice-to-have?
+
+
+## Competitive Landscape
+
+### No direct competitor holds the full jInvoice combination
+The three core value propositions — real-transaction price intelligence, touch-before-you-buy neighborhood routing, and Virtual Inventory Network — do not exist together in any single product in India today.
+
+### Competitor-by-competitor breakdown
+
+**Quick Commerce (Blinkit, Zepto, Swiggy Instamart)**
+Built around dark stores, speed, and grocery/daily essentials. They hold inventory, employ riders, and serve fast-moving categories. They do not serve electronics, mobiles, appliances, or any touch-before-you-buy category. They compete with neighborhood stores — jInvoice empowers them. Zero overlap on core proposition.
+
+**ONDC (Open Network for Digital Commerce)**
+The most important adjacent to understand. ONDC is a government-backed open protocol connecting buyers and sellers across apps — processing 14.45M+ monthly transactions by late 2024. It shows listed prices from seller catalogues. jInvoice shows verified completed-transaction prices from real purchases.
+
+> A seller lists a Samsung TV at ₹45,000 on ONDC. jInvoice tells the consumer that three people in their zip code bought the same TV for ₹41,500 last month. One is a price tag. The other is negotiation ammunition.
+
+That distinction is the entire moat. ONDC and jInvoice are complementary, not competitive — jInvoice could eventually build on ONDC as a buyer app while maintaining its own verified price layer on top.
+
+**JioMart / Udaan**
+Connect kiranas to supply chains and wholesale restocking. Solve the merchant's inventory replenishment problem. jInvoice solves the customer discovery and negotiation problem. Different layer entirely — no direct overlap.
+
+**axio (ex-Walnut) / ET Money**
+SMS-based expense parsing and investment tracking. No receipt scanning, no real-transaction price directory, no merchant tools, no VIN. The expense tracking space has consolidated and pivoted away from pure tracking — the vacuum jInvoice fills.
+
+**Google Shopping / Amazon**
+Online listed prices, no neighborhood physical store layer, no touch-before-you-buy routing, no verified transaction data. Built for online commerce — jInvoice is built for the offline kirana economy.
+
+**Zoho Expense**
+B2B corporate expense reimbursement tool. Cloud-based, enterprise-focused, no consumer price directory, no merchant discovery. Different buyer, different use case.
+
+### Competitive positioning matrix
+
+| Player | Real transaction prices | Neighborhood store routing | Virtual inventory network | On-device privacy | B2B kirana SaaS |
+|---|---|---|---|---|---|
+| **jInvoice** | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Blinkit / Zepto | ✗ | ✗ | ✗ | ✗ | ✗ |
+| ONDC platforms | ✗ (listed only) | ~ | ✗ | ✗ | ~ |
+| JioMart / Udaan | ✗ | ✗ | ✗ | ✗ | ~ |
+| axio / ET Money | ✗ | ✗ | ✗ | ✗ | ✗ |
+| Google Shopping | ✗ (listed only) | ✗ | ✗ | ✗ | ✗ |
+
+### The one genuine threat — ONDC expanding into transaction-verified pricing
+ONDC currently shows listed prices. If a buyer app built on ONDC were to surface completed-transaction price data across its network, it would replicate jInvoice's price directory. With 14.45M+ monthly transactions flowing through ONDC, the raw data exists. This is a real risk but a slow-moving one — ONDC is a protocol, not a product, and no buyer app is currently building this.
+
+**Response strategy:** build verified price data density in one metro within 18–24 months. Once 6+ months of real transaction data exists for a zip code cluster, the data moat is genuinely hard to replicate quickly regardless of who tries.
+
+### The Virtual Inventory Network has no competitor at all
+No app in India today lets Store A fulfill a customer using Store B's stock with an automatic split payment routed through a licensed PA partner. ONDC platforms do inventory synchronization for chains and large grocery stores — not peer-to-peer between independent neighborhood merchants. The VIN is a structurally novel layer for the Indian market.
+
+### Defensible position in one sentence
+> The only platform that gives Indian consumers verified real-transaction price intelligence for touch-before-you-buy categories, and connects neighborhood stores into a shared Virtual Inventory Network — none of which any existing player is building.
+
+
+## Relevant Docs & References
+
+- [SQLite FTS5](https://www.sqlite.org/fts5.html)
+- [ML Kit Text Recognition v2](https://developers.google.com/ml-kit/vision/text-recognition/v2)
+- [Apple Vision — VNRecognizeTextRequest](https://developer.apple.com/documentation/vision/vnrecognizetextrequest)
+- [GRDB Swift](https://github.com/groue/GRDB.swift)
+- [RBI Digital Lending Guidelines 2022](https://www.rbi.org.in/Scripts/NotificationUser.aspx?Id=12382)
+- [India DPDP Act 2023](https://www.meity.gov.in/data-protection-framework)
+- Architecture Decision Records: `docs/adr/`

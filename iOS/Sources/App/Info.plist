@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>jInvoice</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.jinvoice</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>LSRequiresIPhoneOS</key>
+    <true/>
+    <key>UILaunchScreen</key>
+    <dict/>
+    <key>UIApplicationSceneManifest</key>
+    <dict>
+        <key>UIApplicationSupportsMultipleScenes</key>
+        <false/>
+    </dict>
+
+    <!-- Google Sign-In: replace with your reversed client ID from GoogleService-Info.plist -->
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>com.googleusercontent.apps.YOUR_CLIENT_ID</string>
+            </array>
+        </dict>
+        <!-- MSAL redirect URI -->
+        <dict>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>msauth.com.jinvoice</string>
+            </array>
+        </dict>
+    </array>
+
+    <!-- Background task identifier must match AutoImportBackgroundTask.taskIdentifier -->
+    <key>BGTaskSchedulerPermittedIdentifiers</key>
+    <array>
+        <string>com.jinvoice.autoimport.poll</string>
+    </array>
+
+    <!-- Privacy usage descriptions (required by App Store review) -->
+    <key>NSFaceIDUsageDescription</key>
+    <string>Used to protect access to your invoice data</string>
+</dict>
+</plist>

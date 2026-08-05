@@ -1,0 +1,39 @@
+{
+  "name": "jinvoice-web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "start": "node server/prod.mjs",
+    "pkg:build:win": "npm run build && npx pkg server/launcher.cjs --target node22-win-x64 --output release/pkg/jInvoice.exe && node scripts/pkg-package.mjs win",
+    "pkg:build:mac": "npm run build && npx pkg server/launcher.cjs --target node22-macos-arm64 --output release/pkg/jInvoice-mac && node scripts/pkg-package.mjs mac"
+  },
+  "dependencies": {
+    "dexie": "^3.2.7",
+    "express": "^5.2.1",
+    "jspdf": "^4.2.1",
+    "pdfjs-dist": "^4.4.168",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tesseract.js": "^5.1.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-basic-ssl": "^2.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "@yao-pkg/pkg": "^6.21.0",
+    "electron": "^32.3.3",
+    "electron-builder": "^26.15.3",
+    "typescript": "^5.5.3",
+    "vite": "^5.3.4"
+  },
+  "pkg": {
+    "scripts": "server/launcher.cjs",
+    "outputPath": "release/pkg"
+  }
+}
