@@ -1,5 +1,12 @@
 node_modules
 dist
+release
 .env
 .env.*
-!.env.example
+electron/credentials.json
+electron/credentials.mjs
+*.dmg
+*.exe
+*.blockmap
+.git
+.gitignore

@@ -204,21 +204,6 @@ export function AutoImportSettings() {
         </div>
       </section>
 
-      {(vm.state.gmail.enabled || vm.state.outlook.enabled) && (
-        <div>
-          <button className="btn-sync" onClick={handleSyncNow} disabled={syncing}>
-            {syncing ? "Syncing…" : "Sync Now"}
-          </button>
-          {syncError && (
-            <p style={{ fontSize: 13, marginTop: 8, color: "var(--color-danger)" }}>{syncError}</p>
-          )}
-          {syncResult && <p style={{ fontSize: 13, marginTop: 8, color: "var(--color-text-secondary)" }}>{syncResult}</p>}
-          <button className="btn-sync" style={{ marginTop: 8, color: "var(--color-danger)" }} onClick={handleResetSync} disabled={syncing}>
-            Reset sync history
-          </button>
-        </div>
-      )}
-
       <section className="card">
         <h3>Email Connectors</h3>
 
@@ -266,6 +251,29 @@ export function AutoImportSettings() {
             />
             <span className="toggle-slider" />
           </label>
+        </div>
+
+        <div className="sync-actions">
+          {(vm.state.gmail.enabled || vm.state.outlook.enabled) ? (
+            <>
+              <button className="btn-sync-primary" onClick={handleSyncNow} disabled={syncing}>
+                {syncing ? "Syncing…" : "Sync Now"}
+              </button>
+              {syncError && (
+                <p style={{ fontSize: 12.5, color: "var(--color-danger)" }}>{syncError}</p>
+              )}
+              {syncResult && (
+                <p style={{ fontSize: 12.5, color: "var(--color-text-secondary)" }}>{syncResult}</p>
+              )}
+              <button className="btn-sync" style={{ color: "var(--color-danger)" }} onClick={handleResetSync} disabled={syncing}>
+                Reset sync history
+              </button>
+            </>
+          ) : (
+            <p style={{ fontSize: 12.5, color: "var(--color-text-tertiary)", textAlign: "center", padding: "4px 0" }}>
+              Enable Gmail or Outlook above to sync emails automatically.
+            </p>
+          )}
         </div>
       </section>
 

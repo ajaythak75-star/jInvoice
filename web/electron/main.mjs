@@ -161,7 +161,36 @@ function deliverOAuthResult(hash) {
   win.focus();
 }
 
-const CLOSE_TAB_HTML = `<html><body><script>window.close()</script><p>Done — you can close this tab.</p></body></html>`;
+const CLOSE_TAB_HTML = `<!doctype html>
+<html>
+<head>
+<meta charset="UTF-8"/>
+<title>Signed in — jInvoice</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    background:#f0eeff;display:flex;align-items:center;justify-content:center;
+    min-height:100vh;padding:24px}
+  .card{background:#fff;border-radius:16px;padding:40px 36px;text-align:center;
+    max-width:340px;width:100%;box-shadow:0 4px 24px rgba(92,62,240,.12)}
+  .mark{width:52px;height:52px;background:#5C3EF0;border-radius:14px;
+    display:flex;align-items:center;justify-content:center;
+    font-size:26px;font-weight:800;color:#fff;margin:0 auto 18px}
+  h1{font-size:20px;font-weight:700;color:#0D0D1C;margin-bottom:8px}
+  p{font-size:14px;color:#58587A;line-height:1.5}
+  .hint{margin-top:20px;font-size:13px;color:#9898B8;background:#f7f5ff;
+    border-radius:8px;padding:10px 14px}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="mark">j</div>
+  <h1>You're signed in!</h1>
+  <p>jInvoice is ready. You can close this tab and return to the app.</p>
+  <div class="hint">⌘W to close this tab</div>
+</div>
+</body>
+</html>`;
 
 function createWindow() {
   win = new BrowserWindow({
@@ -172,7 +201,8 @@ function createWindow() {
 
   win.loadURL(BASE);
 
-  // Open OAuth pages in the system browser, not the Electron window.
+  // Open OAuth pages in the system browser (not Electron) — Google/Microsoft
+  // block OAuth in embedded Chromium views.
   win.webContents.on("will-navigate", (event, url) => {
     if (isOAuthUrl(url)) {
       event.preventDefault();
@@ -180,7 +210,6 @@ function createWindow() {
     }
   });
 
-  // Also intercept server-side 302 redirects (will-navigate does not fire for these).
   win.webContents.on("will-redirect", (event, url) => {
     if (isOAuthUrl(url)) {
       event.preventDefault();

@@ -6,7 +6,7 @@ interface Props {
   onLogin: () => void;
 }
 
-type Mode = "signin" | "create";
+type Mode = "signin" | "create" | "reset";
 
 const GoogleIcon = () => (
   <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
@@ -18,50 +18,54 @@ const GoogleIcon = () => (
 );
 
 export function LoginScreen({ onLogin }: Props) {
-  const hasAccount     = auth.hasAccount;
-  const isGoogleAcct   = auth.isGoogleAccount;
+  const hasAccount   = auth.hasAccount;
+  const isGoogleAcct = auth.isGoogleAccount;
 
-  const [mode, setMode]         = useState<Mode>(hasAccount ? "signin" : "create");
+  const [mode, setMode]         = useState<Mode>(!hasAccount ? "create" : "signin");
   const [email, setEmail]       = useState(auth.email ?? "");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm]   = useState("");
+  const [newPwd, setNewPwd]     = useState("");
+  const [newConfirm, setNewConfirm] = useState("");
   const [error, setError]       = useState<string | null>(null);
   const [loading, setLoading]   = useState(false);
+
+  const clearForm = () => {
+    setPassword(""); setConfirm(""); setNewPwd(""); setNewConfirm(""); setError(null);
+  };
 
   const handleGoogleLogin = () => {
     window.location.href = `${AUTH_BASE}/auth/google/login/start`;
   };
+
+  const switchTo = (m: Mode) => { clearForm(); setMode(m); };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
     if (mode === "create") {
-      if (!email.trim() || !email.includes("@")) {
-        setError("Enter a valid email address.");
-        return;
-      }
-      if (password.length < 6) {
-        setError("Password must be at least 6 characters.");
-        return;
-      }
-      if (password !== confirm) {
-        setError("Passwords do not match.");
-        return;
-      }
+      if (!email.trim() || !email.includes("@")) { setError("Enter a valid email address."); return; }
+      if (password.length < 6)                    { setError("Password must be at least 6 characters."); return; }
+      if (password !== confirm)                   { setError("Passwords do not match."); return; }
       setLoading(true);
       await auth.createAccount(email.trim(), password);
       setLoading(false);
       onLogin();
-    } else {
+
+    } else if (mode === "signin") {
       setLoading(true);
       const ok = await auth.signIn(password);
       setLoading(false);
-      if (!ok) {
-        setError("Incorrect password. Try again.");
-        setPassword("");
-        return;
-      }
+      if (!ok) { setError("Incorrect password. Try again."); setPassword(""); return; }
+      onLogin();
+
+    } else if (mode === "reset") {
+      if (newPwd.length < 6)        { setError("Password must be at least 6 characters."); return; }
+      if (newPwd !== newConfirm)    { setError("Passwords do not match."); return; }
+      setLoading(true);
+      await auth.createAccount(auth.email ?? email.trim(), newPwd);
+      setLoading(false);
       onLogin();
     }
   };
@@ -69,107 +73,134 @@ export function LoginScreen({ onLogin }: Props) {
   return (
     <div className="auth-screen">
       <div className="auth-card">
-        <div className="auth-logo">jInvoice</div>
-        <p className="auth-tagline">Your invoices, on-device.</p>
+        <div className="auth-brand">
+          <div className="auth-logo-mark">j</div>
+          <div className="auth-logo">Invoice</div>
+        </div>
+        <p className="auth-tagline">
+          {mode === "reset" ? "Reset your password" : "Your invoices, on-device."}
+        </p>
 
-        {/* Google sign-in — primary option when account is Google-based */}
-        {(!hasAccount || isGoogleAcct) && (
-          <>
-            <button className="btn-google" onClick={handleGoogleLogin}>
-              <GoogleIcon />
-              {isGoogleAcct ? "Continue with Google" : "Sign up with Google"}
-            </button>
-
-            {!isGoogleAcct && (
-              <div className="auth-divider"><span>or</span></div>
-            )}
-          </>
-        )}
-
-        {/* Password form — hidden for Google-only accounts */}
-        {!isGoogleAcct && (
+        {/* ── Reset password ───────────────────────────── */}
+        {mode === "reset" && (
           <form onSubmit={handleSubmit} className="auth-form">
-            {mode === "create" && (
+            {auth.email && (
               <div className="auth-field">
-                <label className="auth-label">Email</label>
-                <input
-                  className="auth-input"
-                  type="email"
-                  placeholder="you@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  autoComplete="email"
-                  required
-                />
-              </div>
-            )}
-
-            {mode === "signin" && (
-              <div className="auth-field">
-                <div className="auth-label">Signed in as</div>
+                <div className="auth-label">Account</div>
                 <div className="auth-email-display">{auth.email}</div>
               </div>
             )}
-
             <div className="auth-field">
-              <label className="auth-label">Password</label>
-              <input
-                className="auth-input"
-                type="password"
-                placeholder={mode === "create" ? "Create a password" : "Enter your password"}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete={mode === "create" ? "new-password" : "current-password"}
-                required
-              />
+              <label className="auth-label">New password</label>
+              <input className="auth-input" type="password" placeholder="Create a new password"
+                value={newPwd} onChange={(e) => setNewPwd(e.target.value)}
+                autoComplete="new-password" autoFocus required />
             </div>
-
-            {mode === "create" && (
-              <div className="auth-field">
-                <label className="auth-label">Confirm password</label>
-                <input
-                  className="auth-input"
-                  type="password"
-                  placeholder="Repeat password"
-                  value={confirm}
-                  onChange={(e) => setConfirm(e.target.value)}
-                  autoComplete="new-password"
-                  required
-                />
-              </div>
-            )}
-
+            <div className="auth-field">
+              <label className="auth-label">Confirm new password</label>
+              <input className="auth-input" type="password" placeholder="Repeat new password"
+                value={newConfirm} onChange={(e) => setNewConfirm(e.target.value)}
+                autoComplete="new-password" required />
+            </div>
             {error && <p className="auth-error">{error}</p>}
-
             <button className="btn-primary" type="submit" disabled={loading}>
-              {loading ? "Please wait…" : mode === "create" ? "Create Account" : "Sign In"}
+              {loading ? "Please wait…" : "Set New Password"}
             </button>
-
-            {/* Google as secondary option for password accounts */}
-            {hasAccount && !isGoogleAcct && (
-              <>
-                <div className="auth-divider"><span>or</span></div>
-                <button type="button" className="btn-google" onClick={handleGoogleLogin}>
-                  <GoogleIcon />
-                  Continue with Google
-                </button>
-              </>
-            )}
+            <button type="button" className="auth-switch" onClick={() => switchTo("signin")}>
+              ← Back to sign in
+            </button>
           </form>
         )}
 
-        {hasAccount && (
-          <button
-            className="auth-switch"
-            onClick={() => {
-              setMode(mode === "signin" ? "create" : "signin");
-              setPassword("");
-              setConfirm("");
-              setError(null);
-            }}
-          >
-            {mode === "signin" ? "Use a different account" : "Back to sign in"}
-          </button>
+        {/* ── Sign in — Google account ─────────────────── */}
+        {mode === "signin" && isGoogleAcct && (
+          <>
+            <div className="auth-field" style={{ marginBottom: 18 }}>
+              <div className="auth-label">Signed in as</div>
+              <div className="auth-email-display">{auth.email}</div>
+            </div>
+            <button className="btn-google" onClick={handleGoogleLogin}>
+              <GoogleIcon />
+              Continue with Google
+            </button>
+            <button type="button" className="auth-switch"
+              onClick={() => { auth.signOut(); clearForm(); setEmail(""); switchTo("create"); }}>
+              Use a different account
+            </button>
+          </>
+        )}
+
+        {/* ── Sign in — password account ───────────────── */}
+        {mode === "signin" && !isGoogleAcct && (
+          <form onSubmit={handleSubmit} className="auth-form">
+            <div className="auth-field">
+              <div className="auth-label">Email</div>
+              <div className="auth-email-display">{auth.email}</div>
+            </div>
+            <div className="auth-field">
+              <div className="auth-field-header">
+                <label className="auth-label">Password</label>
+                <button type="button" className="auth-forgot" onClick={() => switchTo("reset")}>
+                  Forgot password?
+                </button>
+              </div>
+              <input className="auth-input" type="password" placeholder="Enter your password"
+                value={password} onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password" autoFocus required />
+            </div>
+            {error && <p className="auth-error">{error}</p>}
+            <button className="btn-primary" type="submit" disabled={loading}>
+              {loading ? "Please wait…" : "Sign In"}
+            </button>
+            <div className="auth-divider"><span>or</span></div>
+            <button type="button" className="btn-google" onClick={handleGoogleLogin}>
+              <GoogleIcon />
+              Continue with Google
+            </button>
+            <button type="button" className="auth-switch"
+              onClick={() => { clearForm(); setEmail(""); switchTo("create"); }}>
+              Use a different account
+            </button>
+          </form>
+        )}
+
+        {/* ── Create account ───────────────────────────── */}
+        {mode === "create" && (
+          <form onSubmit={handleSubmit} className="auth-form">
+            <div className="auth-field">
+              <label className="auth-label">Email</label>
+              <input className="auth-input" type="email" placeholder="you@example.com"
+                value={email} onChange={(e) => setEmail(e.target.value)}
+                autoComplete="email" autoFocus required />
+            </div>
+            <div className="auth-field">
+              <label className="auth-label">Password</label>
+              <input className="auth-input" type="password" placeholder="Create a password"
+                value={password} onChange={(e) => setPassword(e.target.value)}
+                autoComplete="new-password" required />
+            </div>
+            <div className="auth-field">
+              <label className="auth-label">Confirm password</label>
+              <input className="auth-input" type="password" placeholder="Repeat password"
+                value={confirm} onChange={(e) => setConfirm(e.target.value)}
+                autoComplete="new-password" required />
+            </div>
+            {error && <p className="auth-error">{error}</p>}
+            <button className="btn-primary" type="submit" disabled={loading}>
+              {loading ? "Please wait…" : "Create Account"}
+            </button>
+            <div className="auth-divider"><span>or</span></div>
+            <button type="button" className="btn-google" onClick={handleGoogleLogin}>
+              <GoogleIcon />
+              Sign up with Google
+            </button>
+            {hasAccount && (
+              <button type="button" className="auth-switch"
+                onClick={() => { clearForm(); setEmail(auth.email ?? ""); switchTo("signin"); }}>
+                Already have an account? Sign in
+              </button>
+            )}
+          </form>
         )}
       </div>
     </div>
