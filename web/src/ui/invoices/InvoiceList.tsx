@@ -318,10 +318,6 @@ export function InvoiceList() {
                 <div className="invoice-merchant">
                   {inv.sourceFilename ?? "Unknown file"}
                 </div>
-                <div className="invoice-meta-row">
-                  <span className="invoice-date">{formatDate(inv.invoiceDate)}</span>
-                  <span className="invoice-source">{inv.importSource}</span>
-                </div>
               </div>
               <div className="invoice-card-right">
                 <div className="invoice-amount">{formatAmount(inv.grandTotalPaise)}</div>
