@@ -186,9 +186,10 @@ const CLOSE_TAB_HTML = `<!doctype html>
 <div class="card">
   <div class="mark">j</div>
   <h1>You're signed in!</h1>
-  <p>jInvoice is ready. You can close this tab and return to the app.</p>
-  <div class="hint">⌘W to close this tab</div>
+  <p>jInvoice is ready. Closing this tab…</p>
+  <div class="hint">⌘W if it doesn't close automatically</div>
 </div>
+<script>setTimeout(() => window.close(), 1500);</script>
 </body>
 </html>`;
 
