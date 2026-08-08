@@ -141,6 +141,14 @@ function ReviewPanel({ inv, lineItems, onClose }: { inv: InvoiceMeta; lineItems:
   );
 }
 
+function cardHeading(inv: InvoiceMeta): string {
+  const f = inv.sourceFilename;
+  // Real filenames are short; anything >100 chars is extracted PDF text, not a name.
+  if (f && f.length <= 100) return f;
+  if (inv.subject) return inv.subject;
+  return "Unknown file";
+}
+
 function formatSource(src: string): string {
   switch (src) {
     case "gmail":          return "Gmail";
@@ -316,7 +324,7 @@ export function InvoiceList() {
               {hoveredId === inv.id && <SourceTooltip inv={inv} />}
               <div className="invoice-card-main">
                 <div className="invoice-merchant">
-                  {inv.sourceFilename ?? "Unknown file"}
+                  {cardHeading(inv)}
                 </div>
               </div>
               <div className="invoice-card-right">
