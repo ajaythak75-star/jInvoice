@@ -11,6 +11,7 @@
     "start": "node server/prod.mjs",
     "pkg:build:win": "npm run build && npx pkg server/launcher.cjs --target node22-win-x64 --output release/pkg/jInvoice.exe && node scripts/pkg-package.mjs win",
     "pkg:build:mac": "npm run build && npx pkg server/launcher.cjs --target node22-macos-arm64 --output release/pkg/jInvoice-mac && node scripts/pkg-package.mjs mac",
+    "electron:dev": "npm run build && open node_modules/electron/dist/Electron.app --args $PWD",
     "electron:build:mac": "node electron/prebuild.mjs && npm run build && electron-builder --mac",
     "electron:build:win": "node electron/prebuild.mjs && npm run build && electron-builder --win"
   },
