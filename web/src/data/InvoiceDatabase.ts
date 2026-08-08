@@ -113,9 +113,7 @@ function dedupKey(inv: InvoiceMeta): string | null {
   if (inv.merchantName && inv.grandTotalPaise != null && inv.invoiceDate) {
     return `content:${inv.merchantName.toLowerCase()}|${inv.grandTotalPaise}|${inv.invoiceDate}`;
   }
-  if (inv.sourceFilename) {
-    return `file:${inv.sourceFilename.toLowerCase()}`;
-  }
+  // No filename fallback — same filename from different emails are distinct invoices.
   return null;
 }
 

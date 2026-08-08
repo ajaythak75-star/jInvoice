@@ -9,11 +9,9 @@ function gmailAfterDate(months: number): string {
 }
 
 function buildGmailQuery(): string {
-  const after = gmailAfterDate(prefs.syncMonths);
-  // Search all mail (not just inbox) for any PDF attachment.
-  // Keyword hints improve relevance but are not required — the doc type
-  // detector classifies content after download.
-  return `has:attachment filename:pdf after:${after}`;
+  const base = "has:attachment filename:pdf";
+  if (prefs.syncMonths === 0) return base; // 0 = all time, no date filter
+  return `${base} after:${gmailAfterDate(prefs.syncMonths)}`;
 }
 
 export class GmailConnector {
@@ -28,7 +26,7 @@ export class GmailConnector {
     console.log("[Gmail] Query:", query);
 
     const messages = await this.get<{ messages?: any[] }>(
-      `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(query)}&maxResults=50`
+      `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(query)}&maxResults=200`
     );
     const list = messages.messages ?? [];
     console.log("[Gmail] Messages found:", list.length);
@@ -56,18 +54,30 @@ export class GmailConnector {
 
       for (const part of parts) {
         if (!part.filename?.toLowerCase().endsWith(".pdf")) continue;
-        const attachmentId: string = part.body?.attachmentId;
-        if (!attachmentId) {
-          console.log("[Gmail] Part has no attachmentId — skipping:", part.filename);
+
+        let data: ArrayBuffer | null = null;
+
+        if (part.body?.attachmentId) {
+          console.log("[Gmail] Downloading attachment:", part.filename);
+          data = await this.downloadAttachment(id, part.body.attachmentId);
+        } else if (part.body?.data) {
+          // Small PDFs (< ~25 KB) are inlined in the message payload instead
+          // of being referenced by attachmentId — decode them directly.
+          console.log("[Gmail] Decoding inline PDF:", part.filename);
+          const b64 = (part.body.data as string).replace(/-/g, "+").replace(/_/g, "/");
+          const binary = atob(b64);
+          const bytes = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+          data = bytes.buffer;
+        } else {
+          console.log("[Gmail] Part has no body data — skipping:", part.filename);
           continue;
         }
 
-        console.log("[Gmail] Downloading:", part.filename);
-        const data = await this.downloadAttachment(id, attachmentId);
         if (!data) { console.log("[Gmail] Download returned null for:", part.filename); continue; }
 
         results.push({ file: new File([data], part.filename, { type: "application/pdf" }), messageId: `${id}:gmail`, subject, senderEmail, receivedAt });
-        console.log("[Gmail] Downloaded:", part.filename, `(${data.byteLength} bytes)`);
+        console.log("[Gmail] Ready:", part.filename, `(${data.byteLength} bytes)`);
       }
     }
     console.log("[Gmail] Total PDFs ready to process:", results.length);

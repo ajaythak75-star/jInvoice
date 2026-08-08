@@ -316,10 +316,10 @@ export function InvoiceList() {
               {hoveredId === inv.id && <SourceTooltip inv={inv} />}
               <div className="invoice-card-main">
                 <div className="invoice-merchant">
-                  {inv.sourceFilename ?? inv.merchantName ?? "Unknown merchant"}
+                  {inv.sourceFilename ?? "Unknown file"}
                 </div>
-                {inv.merchantAddress && (
-                  <div className="invoice-address">{inv.merchantAddress}</div>
+                {inv.merchantName && (
+                  <div className="invoice-address">{inv.merchantName}</div>
                 )}
                 <div className="invoice-meta-row">
                   <span className="invoice-date">{formatDate(inv.invoiceDate)}</span>

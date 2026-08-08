@@ -49,7 +49,7 @@ export const prefs = {
   },
   set importDocTypes(v: string[]) { set("import_doc_types", v.join(",")); },
 
-  get syncMonths(): number { return parseInt(get("sync_months") ?? "1", 10); },
+  get syncMonths(): number { return parseInt(get("sync_months") ?? "3", 10); },
   set syncMonths(v: number) { set("sync_months", String(v)); },
 
   get isSubscribed(): boolean { return get("subscribed") === "true"; },

@@ -36,12 +36,14 @@ export class OutlookConnector {
   }
 
   private async fetchMessages(token: string): Promise<any[]> {
-    const since = new Date();
-    since.setMonth(since.getMonth() - prefs.syncMonths);
-    const dateClause = `receivedDateTime ge ${since.toISOString()}`;
-    const filter = encodeURIComponent(`hasAttachments eq true and ${dateClause}`);
+    let filter = `hasAttachments eq true`;
+    if (prefs.syncMonths > 0) {
+      const since = new Date();
+      since.setMonth(since.getMonth() - prefs.syncMonths);
+      filter += ` and receivedDateTime ge ${since.toISOString()}`;
+    }
     const res = await fetch(
-      `${GRAPH_BASE}/me/messages?$filter=${filter}&$select=id,subject,sender,receivedDateTime,hasAttachments&$top=50`,
+      `${GRAPH_BASE}/me/messages?$filter=${encodeURIComponent(filter)}&$select=id,subject,sender,receivedDateTime,hasAttachments&$top=200`,
       { headers: { Authorization: `Bearer ${token}` } }
     );
     const json = await res.json();
@@ -54,6 +56,8 @@ export class OutlookConnector {
       { headers: { Authorization: `Bearer ${token}` } }
     );
     const json = await res.json();
-    return (json.value ?? []).filter((a: any) => a.contentType?.includes("pdf"));
+    // Filter by filename only — some senders use application/octet-stream
+    // instead of application/pdf, which would cause contentType check to miss them.
+    return (json.value ?? []).filter((a: any) => a.name?.toLowerCase().endsWith(".pdf"));
   }
 }

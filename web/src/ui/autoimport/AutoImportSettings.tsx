@@ -33,6 +33,7 @@ export function AutoImportSettings() {
   const [uploading, setUploading]   = useState(false);
   const [uploadMsg, setUploadMsg]   = useState<string | null>(null);
   const [docTypes, setDocTypes]     = useState<string[]>(() => prefs.importDocTypes);
+  const [syncMonths, setSyncMonths] = useState(() => prefs.syncMonths);
   const [fsSupported, setFsSupported] = useState(false);
 
   useEffect(() => { isFsAccessSupported().then(setFsSupported); }, []);
@@ -256,6 +257,26 @@ export function AutoImportSettings() {
         <div className="sync-actions">
           {(vm.state.gmail.enabled || vm.state.outlook.enabled) ? (
             <>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                <label style={{ fontSize: 12.5, color: "var(--color-text-secondary)", whiteSpace: "nowrap" }}>
+                  Sync window
+                </label>
+                <select
+                  value={syncMonths}
+                  onChange={(e) => {
+                    const v = Number(e.target.value);
+                    prefs.syncMonths = v;
+                    setSyncMonths(v);
+                  }}
+                  style={{ fontSize: 12.5, padding: "2px 6px", borderRadius: 6, border: "1px solid var(--color-border)", background: "var(--color-surface)", color: "var(--color-text)", flex: 1 }}
+                >
+                  <option value={1}>Last 1 month</option>
+                  <option value={3}>Last 3 months</option>
+                  <option value={6}>Last 6 months</option>
+                  <option value={12}>Last 1 year</option>
+                  <option value={0}>All time</option>
+                </select>
+              </div>
               <button className="btn-sync-primary" onClick={handleSyncNow} disabled={syncing}>
                 {syncing ? "Syncing…" : "Sync Now"}
               </button>
