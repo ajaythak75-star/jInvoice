@@ -11,14 +11,16 @@
     "start": "node server/prod.mjs",
     "pkg:build:win": "npm run build && npx pkg server/launcher.cjs --target node22-win-x64 --output release/pkg/jInvoice.exe && node scripts/pkg-package.mjs win",
     "pkg:build:mac": "npm run build && npx pkg server/launcher.cjs --target node22-macos-arm64 --output release/pkg/jInvoice-mac && node scripts/pkg-package.mjs mac",
-    "electron:dev": "npm run build && open node_modules/electron/dist/Electron.app --args $PWD",
+    "electron:dev": "npm run build && node_modules/.bin/electron .",
     "electron:build:mac": "node electron/prebuild.mjs && npm run build && electron-builder --mac",
     "electron:build:win": "node electron/prebuild.mjs && npm run build && electron-builder --win"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.112.4",
     "dexie": "^3.2.7",
     "express": "^5.2.1",
     "jspdf": "^4.2.1",
+    "multer": "^1.4.5-lts.2",
     "pdfjs-dist": "^4.4.168",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -50,16 +52,27 @@
     "files": [
       "electron/main.mjs",
       "electron/credentials.mjs",
+      "server/mobile.mjs",
       "package.json",
       "node_modules/**",
       "!node_modules/.cache/**",
       "!node_modules/.vite/**"
     ],
     "extraResources": [
-      { "from": "dist", "to": "dist" }
+      {
+        "from": "dist",
+        "to": "dist"
+      }
     ],
     "win": {
-      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
       "icon": "build/icon.png"
     },
     "nsis": {
@@ -70,7 +83,15 @@
       "shortcutName": "jInvoice"
     },
     "mac": {
-      "target": [{ "target": "dmg", "arch": ["arm64", "x64"] }],
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
       "icon": "build/icon.png",
       "category": "public.app-category.finance",
       "artifactName": "${productName}-${version}-mac-${arch}.${ext}"
