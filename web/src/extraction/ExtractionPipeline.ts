@@ -14,7 +14,7 @@ import { computeSentinelForInvoice } from "../service/ExpirySentinel";
 import { prefs } from "../data/AutoImportPreferences";
 
 function hasGeminiKey(): boolean {
-  if (hasGeminiKey()) return true;
+  if (import.meta.env.VITE_GEMINI_API_KEY) return true;
   try { return !!localStorage.getItem("jinvoice:gemini_api_key"); } catch { return false; }
 }
 
