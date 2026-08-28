@@ -13,10 +13,9 @@ import { detectDocType } from "./DocTypeDetector";
 import { computeSentinelForInvoice } from "../service/ExpirySentinel";
 import { prefs } from "../data/AutoImportPreferences";
 
-function hasGeminiKey(): boolean {
-  if (import.meta.env.VITE_GEMINI_API_KEY) return true;
-  try { return !!localStorage.getItem("jinvoice:gemini_api_key"); } catch { return false; }
-}
+// Gemini is always attempted via the server-side proxy (/api/gemini).
+// If the server has no key it returns 503, caught by the try/catch fallback.
+function hasGeminiKey(): boolean { return true; }
 
 // Text-based fallback for when vision is unavailable or rendering fails.
 async function textExtractPdf(file: File, classification: PdfClassification): Promise<ExtractionResult> {

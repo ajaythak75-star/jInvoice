@@ -214,6 +214,25 @@ app.post("/api/set-secret", (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Gemini proxy (avoids CORS + keeps API key server-side) ───────────────────
+
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY ?? process.env.VITE_GEMINI_API_KEY ?? "";
+
+app.post("/api/gemini", async (req, res) => {
+  if (!GEMINI_API_KEY) return res.status(503).json({ error: "GEMINI_API_KEY not configured on server" });
+  const { model = "gemini-3.6-flash", ...body } = req.body ?? {};
+  try {
+    const upstream = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+    );
+    const data = await upstream.json();
+    res.status(upstream.status).json(data);
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
 // ── Static files + SPA fallback ────────────────────────────────────────────
 
 app.use(express.static(DIST));

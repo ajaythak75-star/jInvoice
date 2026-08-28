@@ -53,28 +53,12 @@ Rules:
 - Amounts must be numbers (not strings), in INR
 - PIN code is a 6-digit number found in the merchant address`;
 
-function getApiKey(): string {
-  try {
-    const userKey = localStorage.getItem("jinvoice:gemini_api_key");
-    if (userKey) return userKey;
-  } catch {}
-  return (import.meta.env.VITE_GEMINI_API_KEY as string | undefined) ?? "";
-}
-
-// When running inside Electron (local Express on 127.0.0.1), proxy through /api/gemini
-// to avoid CORS — the Node.js server can call googleapis.com directly.
+// Always proxy Gemini calls through the server — keeps the API key server-side,
+// avoids CORS, and works identically in Electron and web/Render.
 const GEMINI_MODEL = "gemini-3.6-flash";
 
 function geminiEndpoint(): { url: string; isProxy: boolean } {
-  const isLocal = typeof window !== "undefined" && window.location.hostname === "127.0.0.1";
-  if (isLocal) {
-    return { url: "/api/gemini", isProxy: true };
-  }
-  const key = getApiKey();
-  return {
-    url: `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${key}`,
-    isProxy: false,
-  };
+  return { url: "/api/gemini", isProxy: true };
 }
 
 function parseGeminiResponse(data: unknown): ClaudeInvoiceData {
@@ -121,7 +105,6 @@ async function geminiPost(url: string, body: Record<string, unknown>, label: str
 
 async function callGeminiText(rawText: string): Promise<ClaudeInvoiceData> {
   const { url, isProxy } = geminiEndpoint();
-  if (!isProxy && !getApiKey()) throw new Error("VITE_GEMINI_API_KEY not set");
 
   const body: Record<string, unknown> = {
     contents: [{ parts: [{ text: `${PROMPT}\n\nInvoice text:\n\n${rawText.slice(0, 6000)}` }] }],
@@ -134,7 +117,6 @@ async function callGeminiText(rawText: string): Promise<ClaudeInvoiceData> {
 
 async function callGeminiVision(pages: RenderedPage[]): Promise<ClaudeInvoiceData> {
   const { url, isProxy } = geminiEndpoint();
-  if (!isProxy && !getApiKey()) throw new Error("VITE_GEMINI_API_KEY not set");
 
   const imageParts = pages.map((p) => ({
     inline_data: { mime_type: p.mimeType, data: p.data },
