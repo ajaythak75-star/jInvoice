@@ -1,7 +1,10 @@
 import express from "express";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
-import { mobileRouter } from "./mobile.mjs";
+
+// mobile.mjs is optional — present locally but not deployed to Render
+let mobileRouter;
+try { ({ mobileRouter } = await import("./mobile.mjs")); } catch {}
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DIST = join(__dirname, "..", "dist");
@@ -25,7 +28,7 @@ function appOrigin(req) {
 const app = express();
 
 app.use(express.json());
-app.use(mobileRouter);
+if (mobileRouter) app.use(mobileRouter);
 
 // ── Google login ───────────────────────────────────────────────────────────
 
