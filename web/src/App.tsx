@@ -88,6 +88,21 @@ export function App() {
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
 
+  // Push the stored jInvoice secret to the server on every startup so the
+  // server's in-memory JINVOICE_SECRET stays in sync with localStorage even
+  // after a Render dyno spin-up or Electron restart.
+  useEffect(() => {
+    if (!loggedIn) return;
+    const secret = prefs.jInvoiceSecret;
+    if (secret) {
+      fetch("/api/set-secret", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ secret }),
+      }).catch(() => {});
+    }
+  }, [loggedIn]);
+
   // Start the schedule-aware poller on mount; check expiry alerts now and after every sync
   useEffect(() => {
     if (!loggedIn) return;

@@ -340,80 +340,45 @@ export function AutoImportSettings() {
       {/* Plan */}
       <section className="card">
         <h3>Plan</h3>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-          <div style={{
-            padding: "14px 16px", borderRadius: 10,
-            border: `2px solid ${(!prefs.isSubscribed && !isInTrial) ? "var(--color-primary)" : "var(--color-border)"}`,
-            background: (!prefs.isSubscribed && !isInTrial) ? "color-mix(in srgb, var(--color-primary) 7%, var(--color-surface))" : "var(--color-surface-2)",
-          }}>
-            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 6 }}>Free</div>
-            <div style={{ fontSize: 11.5, color: "var(--color-text-secondary)", lineHeight: 1.7 }}>
-              5 invoices / day<br />
-              1 email account<br />
-              3-month sync
-            </div>
-            {(!prefs.isSubscribed && !isInTrial) && (
-              <div style={{ marginTop: 8, fontSize: 11, fontWeight: 700, color: "var(--color-primary)" }}>Current plan</div>
-            )}
-          </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          {/* Plan type badge */}
+          {prefs.isSubscribed ? (
+            <span style={{ fontSize: 12, fontWeight: 700, background: "#22c55e", color: "#fff", borderRadius: 5, padding: "2px 10px" }}>Pro</span>
+          ) : isInTrial ? (
+            <span style={{ fontSize: 12, fontWeight: 700, background: "#f59e0b", color: "#fff", borderRadius: 5, padding: "2px 10px" }}>Trial</span>
+          ) : (
+            <span style={{ fontSize: 12, fontWeight: 700, background: "var(--color-border)", color: "var(--color-text-secondary)", borderRadius: 5, padding: "2px 10px" }}>Free</span>
+          )}
 
-          <div style={{
-            padding: "14px 16px", borderRadius: 10,
-            border: `2px solid ${(prefs.isSubscribed || isInTrial) ? "var(--color-primary)" : "var(--color-border)"}`,
-            background: (prefs.isSubscribed || isInTrial) ? "color-mix(in srgb, var(--color-primary) 7%, var(--color-surface))" : "var(--color-surface-2)",
-          }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-              <span style={{ fontWeight: 700, fontSize: 14 }}>Pro</span>
-              {isInTrial && !prefs.isSubscribed && (
-                <span style={{ fontSize: 10, fontWeight: 700, background: "#f59e0b", color: "#fff", borderRadius: 4, padding: "1px 6px" }}>TRIAL</span>
-              )}
-              {prefs.isSubscribed && (
-                <span style={{ fontSize: 10, fontWeight: 700, background: "#22c55e", color: "#fff", borderRadius: 4, padding: "1px 6px" }}>ACTIVE</span>
-              )}
-            </div>
-            <div style={{ fontSize: 11.5, color: "var(--color-text-secondary)", lineHeight: 1.7 }}>
-              Unlimited invoices<br />
-              5 email accounts<br />
-              1-year sync
-            </div>
-            {(!prefs.isSubscribed && !isInTrial) && (
-              <button
-                className="btn-sm"
-                style={{ marginTop: 10, width: "100%", textAlign: "center", fontWeight: 600 }}
-                onClick={handleStartTrial}
-              >
-                Start 14-day free trial
-              </button>
-            )}
-            {isInTrial && !prefs.isSubscribed && (
-              <div style={{ marginTop: 8 }}>
-                <div style={{ fontSize: 11, color: "#f59e0b", fontWeight: 600 }}>{trialDaysLeft} day{trialDaysLeft !== 1 ? "s" : ""} remaining</div>
-                <button className="btn-sm" style={{ marginTop: 6, fontSize: 12, padding: "5px 12px" }} onClick={openProModal}>
-                  Upgrade to Pro
-                </button>
-              </div>
-            )}
-          </div>
+          {/* Dates */}
+          {isInTrial && trialStartedAt && trialEndDate && (
+            <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
+              {new Date(trialStartedAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+              {" → "}
+              {trialEndDate.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+              <span style={{ marginLeft: 6, color: "#f59e0b", fontWeight: 600 }}>({trialDaysLeft}d left)</span>
+            </span>
+          )}
+          {prefs.isSubscribed && prefs.customerAccountCreatedAt && proEndDate && (
+            <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
+              {new Date(prefs.customerAccountCreatedAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+              {" → "}
+              {new Date(proEndDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+            </span>
+          )}
+
+          {/* Actions */}
+          {!prefs.isSubscribed && !isInTrial && (
+            <button className="btn-sm" style={{ marginLeft: "auto", fontWeight: 600 }} onClick={handleStartTrial}>
+              Start free trial
+            </button>
+          )}
+          {isInTrial && !prefs.isSubscribed && (
+            <button className="btn-sm" style={{ marginLeft: "auto", fontWeight: 600 }} onClick={openProModal}>
+              Upgrade
+            </button>
+          )}
         </div>
-
-        {(prefs.isSubscribed || isInTrial) && (
-          <div style={{ marginTop: 10, padding: "10px 14px", background: "var(--color-surface-2)", borderRadius: 8, border: "1px solid var(--color-border)", fontSize: 12, color: "var(--color-text-secondary)", display: "flex", flexDirection: "column", gap: 3 }}>
-            {isInTrial && trialStartedAt && trialEndDate && (
-              <>
-                <span>Trial started: <strong style={{ color: "var(--color-text)" }}>{new Date(trialStartedAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</strong></span>
-                <span>Trial ends: <strong style={{ color: "var(--color-text)" }}>{trialEndDate.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</strong></span>
-              </>
-            )}
-            {prefs.isSubscribed && (
-              <>
-                {prefs.customerName && <span>Name: <strong style={{ color: "var(--color-text)" }}>{prefs.customerName}</strong></span>}
-                {prefs.customerEmail && <span>Email: <strong style={{ color: "var(--color-text)" }}>{prefs.customerEmail}</strong></span>}
-                {prefs.customerAccountCreatedAt && <span>Started: <strong style={{ color: "var(--color-text)" }}>{new Date(prefs.customerAccountCreatedAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</strong></span>}
-                {proEndDate && <span>Expires: <strong style={{ color: "var(--color-text)" }}>{new Date(proEndDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</strong></span>}
-              </>
-            )}
-          </div>
-        )}
       </section>
 
       <section className="card"

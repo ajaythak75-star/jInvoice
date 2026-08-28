@@ -197,6 +197,20 @@ app.get("/api/local-info", (req, res) => {
   });
 });
 
+// ── Secret update (mirrors Electron's /api/set-secret) ───────────────────
+// Updates JINVOICE_SECRET in-memory for the running dyno session.
+// Persists until the next Render redeploy; update the JINVOICE_SECRET env var
+// in the Render dashboard for permanent changes.
+
+app.post("/api/set-secret", (req, res) => {
+  const { secret } = req.body ?? {};
+  if (!secret || typeof secret !== "string" || secret.trim().length < 6) {
+    return res.status(400).json({ error: "Secret must be at least 6 characters." });
+  }
+  process.env.JINVOICE_SECRET = secret.trim();
+  res.json({ ok: true });
+});
+
 // ── Static files + SPA fallback ────────────────────────────────────────────
 
 app.use(express.static(DIST));
