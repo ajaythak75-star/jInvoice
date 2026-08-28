@@ -273,6 +273,25 @@ app.get("/auth/outlook/callback", async (req, res) => {
   } catch { res.redirect(`${LOCAL_APP}/#error=oauth_failed`); }
 });
 
+// ── Gemini proxy (keeps API key server-side, avoids CORS) ────────────────────
+
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || "";
+
+app.post("/api/gemini", async (req, res) => {
+  if (!GEMINI_API_KEY) return res.status(503).json({ error: "GEMINI_API_KEY not configured on server" });
+  const { model = "gemini-3.6-flash", ...body } = req.body ?? {};
+  try {
+    const upstream = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+    );
+    const data = await upstream.json();
+    res.status(upstream.status).json(data);
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
 // ── Health check ──────────────────────────────────────────────────────────────
 
 app.get("/health", (_req, res) => res.send("ok"));
