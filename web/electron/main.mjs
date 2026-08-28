@@ -341,8 +341,27 @@ httpApp.get("/*path", (_req, res) => res.sendFile(join(DIST, "index.html")));
 
 httpApp.listen(PORT, "0.0.0.0", () => {
   console.log(`[jInvoice] LAN mobile access: http://${getLanIp()}:${PORT}/mobile`);
-  console.log(`[jInvoice] GEMINI key loaded: ${!!(process.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY)}`);
+  const geminiKey = process.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY || "";
+  console.log(`[jInvoice] GEMINI key loaded: ${!!geminiKey} (length: ${geminiKey.length})`);
   console.log(`[jInvoice] DIST: ${DIST}`);
+
+  // Quick Gemini connectivity test on startup
+  if (geminiKey) {
+    fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${geminiKey}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contents: [{ parts: [{ text: "Reply: ok" }] }], generationConfig: { maxOutputTokens: 50 } }),
+    })
+      .then((r) => r.json())
+      .then((d) => {
+        const parts = d?.candidates?.[0]?.content?.parts ?? [];
+        const out = parts.find((p) => !p.thought) ?? parts[0];
+        console.log("[jInvoice] Gemini ping:", out?.text ? "OK — " + out.text.trim().slice(0, 40) : "NO OUTPUT — " + JSON.stringify(d).slice(0, 120));
+      })
+      .catch((e) => console.error("[jInvoice] Gemini ping failed:", e.message));
+  } else {
+    console.warn("[jInvoice] Gemini key not found — extraction will fall back to text parser (50% confidence)");
+  }
 });
 
 // ── Electron window ───────────────────────────────────────────────────────────
@@ -407,6 +426,9 @@ function createWindow() {
   });
 
   win.loadURL(BASE);
+
+  // Auto-open DevTools in dev mode so errors are visible without right-click → Inspect
+  if (!app.isPackaged) win.webContents.openDevTools({ mode: "detach" });
 
   // Open OAuth pages in the system browser (not Electron) — Google/Microsoft
   // block OAuth in embedded Chromium views.
