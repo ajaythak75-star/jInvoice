@@ -38,6 +38,7 @@ export interface ExtractedInvoice {
 export type ExtractionResult =
   | { kind: "success"; invoice: ExtractedInvoice }
   | { kind: "lowConfidence"; invoice: ExtractedInvoice; reason: string }
+  | { kind: "duplicate"; invoice: ExtractedInvoice }
   | { kind: "encryptedPdf" }
   | { kind: "dailyLimitReached"; limit: number }
   | { kind: "failure"; reason: string; error?: unknown };

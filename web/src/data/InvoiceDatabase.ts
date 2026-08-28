@@ -150,6 +150,25 @@ export async function insertInvoiceWithItems(
   return invoiceId;
 }
 
+export async function isDuplicateInvoice(
+  merchantName: string | null,
+  grandTotalPaise: number | null,
+  invoiceDate: string | null,
+): Promise<boolean> {
+  if (!merchantName || grandTotalPaise == null || !invoiceDate) return false;
+  const lower = merchantName.toLowerCase();
+  const count = await db.invoices
+    .filter(
+      (inv) =>
+        inv.merchantName?.toLowerCase() === lower &&
+        inv.grandTotalPaise === grandTotalPaise &&
+        inv.invoiceDate === invoiceDate &&
+        (inv.status === "imported" || inv.status === "pending_review"),
+    )
+    .count();
+  return count > 0;
+}
+
 export async function isAlreadyImported(messageId: string): Promise<boolean> {
   return (await db.importRecords.where("messageId").equals(messageId).count()) > 0;
 }

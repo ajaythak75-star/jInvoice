@@ -134,6 +134,7 @@ type DetailView = { inv: ExtractedInvoice; filename: string };
 function uploadResultMessage(r: ExtractionResult): string {
   if (r.kind === "success")            return `Saved — ${r.invoice.merchantName ?? "Invoice"}`;
   if (r.kind === "lowConfidence")      return `Saved for review (${Math.round(r.invoice.confidenceScore * 100)}% confidence)`;
+  if (r.kind === "duplicate")          return `Duplicate — ${r.invoice.merchantName ?? "Invoice"} already saved`;
   if (r.kind === "encryptedPdf")       return "Encrypted PDF — cannot read";
   if (r.kind === "dailyLimitReached")  return `Daily limit reached (${r.limit}/day on Free plan). Upgrade to Pro.`;
   return `Failed: ${r.reason}`;
