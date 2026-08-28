@@ -12,7 +12,7 @@ export interface RenderedPage {
   mimeType: "image/jpeg";
 }
 
-export async function renderPdfToImages(file: File, maxPages = 2): Promise<RenderedPage[]> {
+export async function renderPdfToImages(file: File, maxPages = 4): Promise<RenderedPage[]> {
   const pdfjsLib = await getPdfJs();
   const buffer = await file.arrayBuffer();
   const doc = await pdfjsLib.getDocument({ data: buffer }).promise;

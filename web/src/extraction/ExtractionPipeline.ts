@@ -92,13 +92,17 @@ export async function processFile(
   if ((result.kind === "success" || result.kind === "lowConfidence") && hasGeminiKey()) {
     try {
       let enhanced = result.invoice;
-      if (file.type === "application/pdf" && result.invoice.sourceType === "NATIVE_PDF" && result.invoice.rawText) {
-        console.log("[Pipeline] calling Gemini text (native PDF)");
-        enhanced = await enhanceWithClaude(result.invoice);
-      } else if (file.type === "application/pdf") {
+      if (file.type === "application/pdf") {
+        // Always use vision for PDFs — it reads invoice tables and layout far better
+        // than raw text extraction, regardless of whether the PDF is native or scanned.
         const pages = await renderPdfToImages(file);
         console.log("[Pipeline] calling Gemini vision, pages:", pages.length);
-        enhanced = await enhanceWithClaudeVision(result.invoice, pages);
+        if (pages.length > 0) {
+          enhanced = await enhanceWithClaudeVision(result.invoice, pages);
+        } else if (result.invoice.rawText) {
+          console.log("[Pipeline] vision render failed, falling back to text");
+          enhanced = await enhanceWithClaude(result.invoice);
+        }
       } else {
         enhanced = await enhanceWithClaude(result.invoice);
       }
@@ -271,11 +275,13 @@ export async function extractFilePreview(file: File): Promise<ExtractionResult> 
   if ((result.kind === "success" || result.kind === "lowConfidence") && hasGeminiKey()) {
     try {
       let enhanced = result.invoice;
-      if (file.type === "application/pdf" && result.invoice.sourceType === "NATIVE_PDF" && result.invoice.rawText) {
-        enhanced = await enhanceWithClaude(result.invoice);
-      } else if (file.type === "application/pdf") {
+      if (file.type === "application/pdf") {
         const pages = await renderPdfToImages(file);
-        enhanced = await enhanceWithClaudeVision(result.invoice, pages);
+        if (pages.length > 0) {
+          enhanced = await enhanceWithClaudeVision(result.invoice, pages);
+        } else if (result.invoice.rawText) {
+          enhanced = await enhanceWithClaude(result.invoice);
+        }
       } else {
         enhanced = await enhanceWithClaude(result.invoice);
       }
