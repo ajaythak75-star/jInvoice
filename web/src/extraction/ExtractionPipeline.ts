@@ -124,12 +124,23 @@ export async function processFile(
         }
       }
     } catch (e) {
-      // Any rendering or vision failure — fall back to text extraction only
-      console.warn("[Pipeline] vision-first failed, falling back to text:", e);
+      // Vision failed (render error or Gemini error) — fall back to text + Gemini text
+      console.warn("[Pipeline] vision failed:", e);
       result = await textExtractPdf(file, classification);
+      if ((result.kind === "success" || result.kind === "lowConfidence") && result.invoice.rawText) {
+        try {
+          const enhanced = await enhanceWithClaude(result.invoice);
+          result = enhanced.confidenceScore >= 0.7 && result.kind === "lowConfidence"
+            ? { kind: "success", invoice: enhanced }
+            : { ...result, invoice: enhanced };
+        } catch (e2) {
+          console.warn("[Pipeline] text enhancement also failed:", e2);
+        }
+      }
     }
   } else {
     // No Gemini key: text extraction only
+    console.log("[Pipeline] no Gemini key — using text extraction only");
     result = await textExtractPdf(file, classification);
   }
 
