@@ -422,14 +422,19 @@ const API=window.location.origin;
 let KEY=sessionStorage.getItem('jik')||'';
 async function doAuth(){
   const k=document.getElementById('key-input').value.trim();
-  if(!k)return;
+  if(!k){document.getElementById('auth-err').textContent='Please enter your secret key.';return;}
+  const btn=document.querySelector('#screen-auth .btn');
   document.getElementById('auth-err').textContent='';
+  btn.textContent='Connecting…';btn.disabled=true;
   try{
-    const r=await fetch(API+'/api/mobile/auth',{method:'POST',headers:{'Content-Type':'application/json','x-jinvoice-key':k},body:JSON.stringify({key:k})});
+    const r=await fetch(API+'/api/mobile/auth',{method:'POST',headers:{'Content-Type':'application/json','x-jinvoice-key':k},body:JSON.stringify({key:k}),signal:AbortSignal.timeout(8000)});
     const d=await r.json();
     if(d.ok){KEY=k;sessionStorage.setItem('jik',k);showHome();}
-    else document.getElementById('auth-err').textContent='Invalid key. Try again.';
-  }catch{document.getElementById('auth-err').textContent='Cannot reach server.';}
+    else{document.getElementById('auth-err').textContent='Invalid key. Try again.';btn.textContent='Connect →';btn.disabled=false;}
+  }catch(e){
+    document.getElementById('auth-err').textContent='Cannot reach server: '+(e.message||'network error');
+    btn.textContent='Connect →';btn.disabled=false;
+  }
 }
 function signOut(){sessionStorage.removeItem('jik');KEY='';show('screen-auth');}
 (function init(){
