@@ -91,12 +91,12 @@ export async function processFile(
   if (classification === "encrypted") {
     result = { kind: "encryptedPdf" };
   } else if (hasGeminiKey()) {
-    // Vision-first: render PDF to images immediately so Gemini reads the visual layout —
+    // Vision-first: render PDF to images so Gemini reads the visual layout —
     // table structure, column alignment, GST breakdowns — rather than garbled extracted text.
-    const pages = await renderPdfToImages(file);
-    console.log("[Pipeline] vision-first pages:", pages.length);
-    if (pages.length > 0) {
-      try {
+    try {
+      const pages = await renderPdfToImages(file);
+      console.log("[Pipeline] vision-first pages:", pages.length);
+      if (pages.length > 0) {
         const blank: ExtractedInvoice = {
           merchantName: null, merchantAddress: null, merchantGstin: null,
           merchantPhone: null, merchantPincode: null, invoiceNumber: null,
@@ -113,23 +113,20 @@ export async function processFile(
         } else {
           result = { kind: "failure", reason: "vision-no-data" };
         }
-      } catch (e) {
-        console.warn("[Pipeline] vision-first failed:", e);
-        result = { kind: "failure", reason: "vision-failed", error: e };
-      }
-    } else {
-      // PDF rendering returned no pages — fall back to text extraction + Gemini text
-      result = await textExtractPdf(file, classification);
-      if ((result.kind === "success" || result.kind === "lowConfidence") && result.invoice.rawText) {
-        try {
+      } else {
+        // Rendering returned no pages — fall back to text + Gemini text
+        result = await textExtractPdf(file, classification);
+        if ((result.kind === "success" || result.kind === "lowConfidence") && result.invoice.rawText) {
           const enhanced = await enhanceWithClaude(result.invoice);
           result = enhanced.confidenceScore >= 0.7 && result.kind === "lowConfidence"
             ? { kind: "success", invoice: enhanced }
             : { ...result, invoice: enhanced };
-        } catch (e) {
-          console.warn("[Pipeline] text fallback enhancement failed:", e);
         }
       }
+    } catch (e) {
+      // Any rendering or vision failure — fall back to text extraction only
+      console.warn("[Pipeline] vision-first failed, falling back to text:", e);
+      result = await textExtractPdf(file, classification);
     }
   } else {
     // No Gemini key: text extraction only
@@ -271,9 +268,9 @@ export async function extractFilePreview(file: File): Promise<ExtractionResult> 
   if (classification === "encrypted") return { kind: "encryptedPdf" };
 
   if (hasGeminiKey()) {
-    const pages = await renderPdfToImages(file);
-    if (pages.length > 0) {
-      try {
+    try {
+      const pages = await renderPdfToImages(file);
+      if (pages.length > 0) {
         const blank: ExtractedInvoice = {
           merchantName: null, merchantAddress: null, merchantGstin: null,
           merchantPhone: null, merchantPincode: null, invoiceNumber: null,
@@ -288,11 +285,11 @@ export async function extractFilePreview(file: File): Promise<ExtractionResult> 
             : { kind: "lowConfidence", invoice: enhanced, reason: "vision-only" };
         }
         return { kind: "failure", reason: "vision-no-data" };
-      } catch (e) {
-        console.warn("[Pipeline] preview vision failed:", e);
       }
+    } catch (e) {
+      console.warn("[Pipeline] preview vision failed, falling back to text:", e);
     }
-    // Rendering failed — fall back to text + Gemini text
+    // Rendering failed or returned no pages — fall back to text + Gemini text
     const result = await textExtractPdf(file, classification);
     if ((result.kind === "success" || result.kind === "lowConfidence") && result.invoice.rawText) {
       try {
