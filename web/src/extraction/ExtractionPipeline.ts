@@ -13,6 +13,11 @@ import { detectDocType } from "./DocTypeDetector";
 import { computeSentinelForInvoice } from "../service/ExpirySentinel";
 import { prefs } from "../data/AutoImportPreferences";
 
+function hasGeminiKey(): boolean {
+  if (hasGeminiKey()) return true;
+  try { return !!localStorage.getItem("jinvoice:gemini_api_key"); } catch { return false; }
+}
+
 async function processHtmlFile(
   file: File,
   importSource: string,
@@ -29,7 +34,7 @@ async function processHtmlFile(
   };
 
   let result: ExtractionResult;
-  if (import.meta.env.VITE_GEMINI_API_KEY) {
+  if (hasGeminiKey()) {
     try {
       const enhanced = await enhanceWithClaude(blank);
       console.log("[Pipeline] HTML Gemini result — merchant:", enhanced.merchantName, "total:", enhanced.grandTotalPaise);
@@ -82,9 +87,9 @@ export async function processFile(
       : await extractScannedPdf(file);
   }
 
-  console.log("[Pipeline] gemini key present:", !!import.meta.env.VITE_GEMINI_API_KEY, "result kind:", result.kind);
+  console.log("[Pipeline] gemini key present:", !!hasGeminiKey(), "result kind:", result.kind);
 
-  if ((result.kind === "success" || result.kind === "lowConfidence") && import.meta.env.VITE_GEMINI_API_KEY) {
+  if ((result.kind === "success" || result.kind === "lowConfidence") && hasGeminiKey()) {
     try {
       let enhanced = result.invoice;
       if (file.type === "application/pdf" && result.invoice.sourceType === "NATIVE_PDF" && result.invoice.rawText) {
@@ -107,7 +112,7 @@ export async function processFile(
   }
 
   // Fallback: for PDFs where native/OCR extraction failed entirely, try pure Gemini vision
-  if (result.kind === "failure" && file.type === "application/pdf" && import.meta.env.VITE_GEMINI_API_KEY) {
+  if (result.kind === "failure" && file.type === "application/pdf" && hasGeminiKey()) {
     try {
       const pages = await renderPdfToImages(file);
       console.log("[Pipeline] vision fallback, pages:", pages.length);
@@ -237,7 +242,7 @@ export async function extractFilePreview(file: File): Promise<ExtractionResult> 
       taxPaise: null, grandTotalPaise: null, paymentMode: null,
       sourceType: "HTML_EMAIL", rawText: plainText, confidenceScore: 0,
     };
-    if (!import.meta.env.VITE_GEMINI_API_KEY) return { kind: "lowConfidence", invoice: blank, reason: "html-no-key" };
+    if (!hasGeminiKey()) return { kind: "lowConfidence", invoice: blank, reason: "html-no-key" };
     const enhanced = await enhanceWithClaude(blank);
     return enhanced.grandTotalPaise != null || enhanced.merchantName != null
       ? enhanced.confidenceScore >= 0.7
@@ -263,7 +268,7 @@ export async function extractFilePreview(file: File): Promise<ExtractionResult> 
       : await extractScannedPdf(file);
   }
 
-  if ((result.kind === "success" || result.kind === "lowConfidence") && import.meta.env.VITE_GEMINI_API_KEY) {
+  if ((result.kind === "success" || result.kind === "lowConfidence") && hasGeminiKey()) {
     try {
       let enhanced = result.invoice;
       if (file.type === "application/pdf" && result.invoice.sourceType === "NATIVE_PDF" && result.invoice.rawText) {

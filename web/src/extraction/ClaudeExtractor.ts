@@ -33,7 +33,7 @@ const PROMPT = `You are an invoice data extractor for Indian businesses. Extract
   "gstPercent": <tax rate as string e.g. "18%" or "5%", or null>,
   "gstAmountInr": <total GST/tax/CGST+SGST+IGST amount as number in INR, or null>,
   "subtotalInr": <subtotal before GST and discount as number in INR, or null>,
-  "dateOfPurchase": <purchase/invoice date in YYYY-MM-DD format — if year is not printed on the receipt assume 2025, or null>,
+  "dateOfPurchase": <purchase/invoice date in YYYY-MM-DD format — if year is not printed on the receipt assume ${new Date().getFullYear()}, or null>,
   "discountInr": <total discount amount as number in INR, or null>,
   "finalPaymentInr": <grand total / net payable / amount due as number in INR, or null>,
   "items": [
@@ -125,7 +125,7 @@ async function callGeminiText(rawText: string): Promise<ClaudeInvoiceData> {
 
   const body: Record<string, unknown> = {
     contents: [{ parts: [{ text: `${PROMPT}\n\nInvoice text:\n\n${rawText.slice(0, 6000)}` }] }],
-    generationConfig: { maxOutputTokens: 4096 },
+    generationConfig: { maxOutputTokens: 8192 },
   };
   if (isProxy) body.model = GEMINI_MODEL;
 
@@ -142,7 +142,7 @@ async function callGeminiVision(pages: RenderedPage[]): Promise<ClaudeInvoiceDat
 
   const body: Record<string, unknown> = {
     contents: [{ parts: [...imageParts, { text: PROMPT }] }],
-    generationConfig: { maxOutputTokens: 4096 },
+    generationConfig: { maxOutputTokens: 8192 },
   };
   if (isProxy) body.model = GEMINI_MODEL;
 
