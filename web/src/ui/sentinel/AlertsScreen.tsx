@@ -24,16 +24,6 @@ function urgencyLabel(days: number): string {
   return `${days} days left`;
 }
 
-function formatSource(src: string): string {
-  switch (src) {
-    case "gmail":          return "Gmail";
-    case "outlook":        return "Outlook";
-    case "manual_upload":  return "Manual";
-    case "desktop_folder": return "Desktop";
-    default:               return src;
-  }
-}
-
 function formatDate(iso: string | null | undefined): string {
   if (!iso) return "—";
   const d = new Date(iso);
@@ -43,34 +33,39 @@ function formatDate(iso: string | null | undefined): string {
 function AlertCard({ record, inv, onDismiss }: { record: SentinelRecord; inv?: InvoiceMeta; onDismiss: () => void }) {
   const days = daysUntilExpiry(record.expiresAt);
   const icon = TYPE_ICON[record.type] ?? "🔔";
+  const title = inv?.subject ?? record.label;
+  const metaStyle: React.CSSProperties = { fontSize: 11.5, color: "var(--color-text-secondary)" };
+  const labelStyle: React.CSSProperties = { fontSize: 10.5, fontWeight: 600, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.04em", marginRight: 3 };
 
   return (
-    <div className="sentinel-card">
-      <div className="sentinel-card-left">
-        <span className="sentinel-icon">{icon}</span>
-        <div className="sentinel-info">
-          <div className="sentinel-label">{record.label}</div>
-          <div className="sentinel-date">
-            {new Date(record.expiresAt).toLocaleDateString("en-IN", {
-              day: "numeric", month: "short", year: "numeric",
-            })}
-          </div>
-          {inv && (
-            <div className="sentinel-meta">
-              <span className="sentinel-meta-item">{formatSource(inv.importSource)}</span>
-              {inv.senderEmail && <span className="sentinel-meta-item">{inv.senderEmail}</span>}
-              {(inv.receivedAt || inv.createdAt) && (
-                <span className="sentinel-meta-item">{formatDate(inv.receivedAt ?? inv.createdAt)}</span>
-              )}
-            </div>
-          )}
-        </div>
+    <div className="sentinel-card" style={{ flexDirection: "column", gap: 4, alignItems: "stretch" }}>
+      {/* Line 1: icon + subject/title + urgency badge + dismiss */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <span className="sentinel-icon" style={{ flexShrink: 0 }}>{icon}</span>
+        <span className="sentinel-label" style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</span>
+        <span className={urgencyClass(days)} style={{ flexShrink: 0 }}>{urgencyLabel(days)}</span>
+        <button className="sentinel-dismiss" onClick={onDismiss} aria-label="Dismiss">✕</button>
       </div>
-      <div className="sentinel-card-right">
-        <span className={urgencyClass(days)}>{urgencyLabel(days)}</span>
-        <button className="sentinel-dismiss" onClick={onDismiss} aria-label="Dismiss">
-          ✕
-        </button>
+      {/* Line 2: File name + sender */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, paddingLeft: 30, ...metaStyle }}>
+        <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <span style={labelStyle}>File</span>
+          {inv?.sourceFilename ?? record.label}
+        </span>
+        <span style={{ flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "45%" }}>
+          <span style={labelStyle}>Sender</span>{inv?.senderEmail ?? "—"}
+        </span>
+      </div>
+      {/* Line 3: Received + Expiry */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, paddingLeft: 30, ...metaStyle }}>
+        <span style={{ flex: 1 }}>
+          <span style={labelStyle}>Received</span>
+          {inv ? formatDate(inv.receivedAt ?? inv.createdAt) : "—"}
+        </span>
+        <span style={{ flexShrink: 0 }}>
+          <span style={labelStyle}>Expiry</span>
+          {formatDate(record.expiresAt)}
+        </span>
       </div>
     </div>
   );
@@ -80,6 +75,7 @@ export function AlertsScreen() {
   const [records, setRecords] = useState<SentinelRecord[]>([]);
   const [invoiceMap, setInvoiceMap] = useState<Map<number, InvoiceMeta>>(new Map());
   const [loaded, setLoaded]   = useState(false);
+  const [query, setQuery]     = useState("");
 
   const load = async () => {
     const data = await getActiveSentinels();
@@ -116,22 +112,55 @@ export function AlertsScreen() {
         <span>🛡️</span>
         <p>No active alerts</p>
         <p style={{ fontSize: 13 }}>Warranty and policy expiry reminders appear here.</p>
+        <button className="btn-sm" style={{ marginTop: 12 }} onClick={load}>Refresh</button>
       </div>
     );
   }
 
-  const expired = records.filter((r) => daysUntilExpiry(r.expiresAt) < 0);
-  const active  = records.filter((r) => daysUntilExpiry(r.expiresAt) >= 0);
+  const matchesQuery = (r: SentinelRecord): boolean => {
+    if (!query.trim()) return true;
+    const q = query.toLowerCase();
+    const inv = invoiceMap.get(r.invoiceId);
+    return (
+      r.label?.toLowerCase().includes(q) ||
+      inv?.subject?.toLowerCase().includes(q) ||
+      inv?.sourceFilename?.toLowerCase().includes(q) ||
+      inv?.senderEmail?.toLowerCase().includes(q) ||
+      false
+    );
+  };
+
+  const visible  = records.filter(matchesQuery);
+  const expired  = visible.filter((r) => daysUntilExpiry(r.expiresAt) < 0);
+  const active   = visible.filter((r) => daysUntilExpiry(r.expiresAt) >= 0);
 
   return (
     <div className="sentinel-screen">
       <div className="invoice-list-header">
         <h2>Expiry Alerts</h2>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>{records.length} active</span>
+          <span style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>
+            {visible.length}{query.trim() ? `/${records.length}` : ""} active
+          </span>
+          <button className="btn-sm" onClick={load}>Refresh</button>
           <button className="btn-sm btn-danger" onClick={handleClearAll}>Clear All</button>
         </div>
       </div>
+
+      <input
+        className="view-search"
+        type="search"
+        placeholder="Search subject, file, sender…"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        style={{ marginBottom: 10 }}
+      />
+
+      {visible.length === 0 && query.trim() && (
+        <p style={{ fontSize: 13, color: "var(--color-text-secondary)", textAlign: "center", marginTop: 24 }}>
+          No results for "{query}"
+        </p>
+      )}
 
       {active.length > 0 && (
         <>

@@ -1,10 +1,13 @@
 import { createRequire } from "module";
-const { app, BrowserWindow, shell } = createRequire(import.meta.url)("electron");
+const { app, BrowserWindow, shell, dialog } = createRequire(import.meta.url)("electron");
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { randomBytes, createHash } from "crypto";
+import { readFileSync, existsSync, writeFileSync, mkdirSync } from "fs";
+import { networkInterfaces } from "os";
 import express from "express";
 import { credentials } from "./credentials.mjs";
+import { mobileRouter } from "../server/mobile.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -15,6 +18,49 @@ const DIST = app.isPackaged
 const PORT = 7823;
 const BASE = `http://127.0.0.1:${PORT}`;
 
+// Read ANTHROPIC_API_KEY + JINVOICE_SECRET from .env for mobile extraction
+(function loadEnv() {
+  const envFile = join(__dirname, "..", ".env");
+  if (!existsSync(envFile)) return;
+  try {
+    for (const line of readFileSync(envFile, "utf8").split("\n")) {
+      const m = line.match(/^([A-Z_]+)\s*=\s*(.+)$/);
+      if (!m) continue;
+      const [, k, v] = m;
+      if (!process.env[k]) process.env[k] = v.trim().replace(/^['"]|['"]$/g, "");
+    }
+    // also expose Vite-prefixed key under bare name
+    if (!process.env.ANTHROPIC_API_KEY && process.env.VITE_ANTHROPIC_API_KEY)
+      process.env.ANTHROPIC_API_KEY = process.env.VITE_ANTHROPIC_API_KEY;
+  } catch {}
+})();
+
+// Load persisted jInvoice secret (set by user in Settings) — overrides env var
+const SECRET_CONFIG_FILE = join(__dirname, "..", "jinvoice-secret.json");
+(function loadPersistedSecret() {
+  if (!existsSync(SECRET_CONFIG_FILE)) return;
+  try {
+    const { secret } = JSON.parse(readFileSync(SECRET_CONFIG_FILE, "utf8"));
+    if (secret) process.env.JINVOICE_SECRET = secret;
+  } catch {}
+})();
+
+function getLanIp() {
+  for (const ifaces of Object.values(networkInterfaces())) {
+    for (const iface of (ifaces ?? [])) {
+      if (iface.family === "IPv4" && !iface.internal) return iface.address;
+    }
+  }
+  return "127.0.0.1";
+}
+
+const DESKTOP_FOLDER_FILE = join(__dirname, "..", "desktop-folder.json");
+
+function getDesktopFolderConfig() {
+  if (!existsSync(DESKTOP_FOLDER_FILE)) return null;
+  try { return JSON.parse(readFileSync(DESKTOP_FOLDER_FILE, "utf8")); } catch { return null; }
+}
+
 const { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET } = credentials;
 
 const GMAIL_SCOPE        = "https://www.googleapis.com/auth/gmail.readonly email openid";
@@ -22,6 +68,162 @@ const GOOGLE_LOGIN_SCOPE = "openid email profile";
 const OUTLOOK_SCOPE      = "openid email Mail.Read offline_access";
 
 const httpApp = express();
+httpApp.use(express.json({ limit: "20mb" }));
+httpApp.use(mobileRouter);
+
+// CORS for all LAN-accessible endpoints called cross-origin from the mobile browser
+httpApp.use(["/api/receive-invoice", "/api/pick-desktop-folder", "/api/desktop-folder"], (req, res, next) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, x-jinvoice-key, x-filename");
+  if (req.method === "OPTIONS") return res.status(204).end();
+  next();
+});
+
+// Renderer-callable folder picker — no secret required (desktop-app only).
+// Called by DesktopFolderConnector running inside the Electron renderer.
+httpApp.post("/api/pick-folder-local", async (req, res) => {
+  if (!win) return res.status(503).json({ error: "no window" });
+  const result = await dialog.showOpenDialog(win, {
+    properties: ["openDirectory"],
+    title: "Choose folder for invoice saves",
+    buttonLabel: "Select Folder",
+  });
+  if (result.canceled || !result.filePaths.length) return res.json({ canceled: true });
+  const folderPath = result.filePaths[0];
+  const name = folderPath.split(/[\\/]/).pop() || folderPath;
+  writeFileSync(DESKTOP_FOLDER_FILE, JSON.stringify({ path: folderPath, name }), "utf8");
+  res.json({ ok: true, path: folderPath, name });
+});
+
+// Open system folder-picker dialog → persist path to desktop-folder.json
+httpApp.post("/api/pick-desktop-folder", async (req, res) => {
+  const secret = process.env.JINVOICE_SECRET || "jinvoice-change-me";
+  const key = req.headers["x-jinvoice-key"] ?? req.query.key;
+  if (key !== secret) return res.status(401).json({ error: "unauthorized" });
+  if (!win) return res.status(503).json({ error: "no window" });
+  const result = await dialog.showOpenDialog(win, {
+    properties: ["openDirectory"],
+    title: "Choose folder for invoice saves",
+    buttonLabel: "Select Folder",
+  });
+  if (result.canceled || !result.filePaths.length) return res.json({ canceled: true });
+  const folderPath = result.filePaths[0];
+  const name = folderPath.split(/[\\/]/).pop() || folderPath;
+  writeFileSync(DESKTOP_FOLDER_FILE, JSON.stringify({ path: folderPath, name }), "utf8");
+  res.json({ ok: true, path: folderPath, name });
+});
+
+// Return current desktop folder config
+httpApp.get("/api/desktop-folder", (_req, res) => {
+  const cfg = getDesktopFolderConfig();
+  if (!cfg) return res.json({ configured: false });
+  res.json({ configured: true, path: cfg.path, name: cfg.name });
+});
+
+// Receive an invoice PDF from mobile over LAN and save it to the desktop folder
+httpApp.post(
+  "/api/receive-invoice",
+  express.raw({ type: "application/pdf", limit: "20mb" }),
+  (req, res) => {
+    const secret = process.env.JINVOICE_SECRET || "jinvoice-change-me";
+    const key = req.headers["x-jinvoice-key"] ?? req.query.key;
+    if (key !== secret) return res.status(401).json({ error: "unauthorized" });
+
+    const cfg = getDesktopFolderConfig();
+    if (!cfg?.path) {
+      return res.status(409).json({ error: "No desktop folder configured. Open jInvoice desktop first." });
+    }
+
+    const raw = String(req.headers["x-filename"] || `invoice-${Date.now()}.pdf`);
+    // Support subdirectory in filename (e.g. "ShopName/ShopName_Date.pdf")
+    const segments = raw.split("/").filter(Boolean).map((s) => s.replace(/[\\:*?"<>|]/g, "_").slice(0, 200));
+    const relPath = segments.join("/") || `invoice-${Date.now()}.pdf`;
+    const outPath = join(cfg.path, relPath);
+    try {
+      mkdirSync(dirname(outPath), { recursive: true });
+      writeFileSync(outPath, req.body);
+      res.json({ ok: true, saved: relPath });
+    } catch (e) {
+      res.status(500).json({ error: String(e) });
+    }
+  }
+);
+
+httpApp.get("/api/local-info", (_req, res) => {
+  const ip = getLanIp();
+  const secret = process.env.JINVOICE_SECRET || "jinvoice-change-me";
+  const renderUrl = process.env.RENDER_URL || "https://jinvoice-proxy.onrender.com";
+  const folderCfg = getDesktopFolderConfig();
+  res.json({
+    url: `http://${ip}:${PORT}`,
+    secret,
+    mobileUrl: `http://${ip}:${PORT}/mobile?key=${encodeURIComponent(secret)}`,
+    renderUrl,
+    renderMobileUrl: `${renderUrl}/mobile?key=${encodeURIComponent(secret)}`,
+    desktopFolder: folderCfg ? { configured: true, name: folderCfg.name } : { configured: false },
+  });
+});
+
+// Update the jInvoice secret at runtime — called from the Settings UI
+httpApp.post("/api/set-secret", (req, res) => {
+  const { secret } = req.body ?? {};
+  if (!secret || typeof secret !== "string" || secret.trim().length < 6) {
+    return res.status(400).json({ error: "Secret must be at least 6 characters." });
+  }
+  const trimmed = secret.trim();
+  process.env.JINVOICE_SECRET = trimmed;
+  try {
+    writeFileSync(SECRET_CONFIG_FILE, JSON.stringify({ secret: trimmed }), "utf8");
+  } catch (e) {
+    console.error("[set-secret] Failed to persist", e);
+  }
+  res.json({ ok: true });
+});
+
+// // Proxy Anthropic API calls — browser renderer can't call api.anthropic.com directly (CORS)
+// httpApp.post("/api/claude", async (req, res) => {
+//   const apiKey = process.env.VITE_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY;
+//   console.log("[Claude proxy] hit, key present:", !!apiKey);
+//   if (!apiKey) { console.log("[Claude proxy] ERROR: no API key"); return res.status(503).json({ error: "ANTHROPIC_API_KEY not configured" }); }
+//   try {
+//     const upstream = await fetch("https://api.anthropic.com/v1/messages", {
+//       method: "POST",
+//       headers: {
+//         "Content-Type": "application/json",
+//         "x-api-key": apiKey,
+//         "anthropic-version": "2023-06-01",
+//       },
+//       body: JSON.stringify(req.body),
+//     });
+//     const data = await upstream.json();
+//     console.log("[Claude proxy] response status:", upstream.status);
+//     res.status(upstream.status).json(data);
+//   } catch (e) {
+//     console.log("[Claude proxy] fetch error:", String(e));
+//     res.status(500).json({ error: String(e) });
+//   }
+// });
+
+// Proxy Gemini API calls — browser renderer can't call generativelanguage.googleapis.com directly (CORS)
+httpApp.post("/api/gemini", async (req, res) => {
+  const apiKey = process.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+  console.log("[Gemini proxy] hit, key present:", !!apiKey);
+  if (!apiKey) { console.log("[Gemini proxy] ERROR: no API key"); return res.status(503).json({ error: "GEMINI_API_KEY not configured" }); }
+  const { model = "gemini-1.5-flash", ...body } = req.body;
+  try {
+    const upstream = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+    );
+    const data = await upstream.json();
+    console.log("[Gemini proxy] response status:", upstream.status);
+    res.status(upstream.status).json(data);
+  } catch (e) {
+    console.log("[Gemini proxy] fetch error:", String(e));
+    res.status(500).json({ error: String(e) });
+  }
+});
 
 // PKCE helpers
 const pkceVerifiers = new Map();
@@ -137,7 +339,11 @@ httpApp.get("/auth/outlook/callback", async (req, res) => {
 httpApp.use(express.static(DIST));
 httpApp.get("/*path", (_req, res) => res.sendFile(join(DIST, "index.html")));
 
-httpApp.listen(PORT, "127.0.0.1", () => {});
+httpApp.listen(PORT, "0.0.0.0", () => {
+  console.log(`[jInvoice] LAN mobile access: http://${getLanIp()}:${PORT}/mobile`);
+  console.log(`[jInvoice] GEMINI key loaded: ${!!(process.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY)}`);
+  console.log(`[jInvoice] DIST: ${DIST}`);
+});
 
 // ── Electron window ───────────────────────────────────────────────────────────
 

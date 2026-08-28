@@ -51,6 +51,20 @@ function ResultBanner({ result, onRetry }: { result: ExtractionResult; onRetry: 
     );
   }
 
+  if (result.kind === "dailyLimitReached") {
+    return (
+      <div className="camera-result camera-result--err">
+        <div className="camera-result-title">Daily limit reached</div>
+        <p className="camera-result-sub">
+          Free plan allows {result.limit} invoices per day. Upgrade to Pro for unlimited.
+        </p>
+        <button className="btn-primary" style={{ marginTop: 16 }} onClick={onRetry}>
+          OK
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="camera-result camera-result--err">
       <div className="camera-result-title">No text found</div>

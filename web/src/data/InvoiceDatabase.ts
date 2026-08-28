@@ -19,6 +19,13 @@ export interface InvoiceMeta {
   docType?: string;
   docTypes?: string[];
   sourceFilename?: string;
+  isRenamed?: boolean;
+  merchantPhone?: string | null;
+  merchantPincode?: string | null;
+  invoiceNumber?: string | null;
+  subtotalPaise?: number | null;
+  clientTags?: string[];
+  projectTag?: string | null;
   subject?: string;
   senderEmail?: string;
   receivedAt?: string;
@@ -54,11 +61,32 @@ export interface ImportRecord {
   importedAt: string;
 }
 
+export interface InvoiceRawText {
+  id?: number;
+  invoiceId: number;
+  rawText: string;
+}
+
+export interface SecurityAlertRecord {
+  id?: number;
+  messageId: string;
+  importSource: string;
+  subject: string;
+  senderEmail: string;
+  receivedAt: string;
+  riskLevel: "medium" | "high";
+  reason: string;
+  flaggedAt: string;
+  dismissed: boolean;
+}
+
 class JInvoiceDB extends Dexie {
   invoices!: Table<InvoiceMeta>;
   lineItems!: Table<LineItemRow>;
   importRecords!: Table<ImportRecord>;
   sentinelRecords!: Table<SentinelRecord>;
+  rawTexts!: Table<InvoiceRawText>;
+  securityAlerts!: Table<SecurityAlertRecord>;
 
   constructor() {
     super("jInvoice");
@@ -71,23 +99,55 @@ class JInvoiceDB extends Dexie {
       invoices: "++id, merchantName, invoiceDate, status, importSource, category",
       sentinelRecords: "++id, invoiceId, status, expiresAt",
     });
+    this.version(3).stores({
+      rawTexts: "++id, &invoiceId",
+    });
+    this.version(4).stores({
+      securityAlerts: "++id, &messageId, importSource, dismissed, flaggedAt",
+    });
+    this.version(5).stores({
+      invoices: "++id, merchantName, invoiceDate, status, importSource, category, clientTag",
+    });
+    this.version(6).stores({
+      invoices: "++id, merchantName, invoiceDate, status, importSource, category, *clientTags",
+    }).upgrade((tx) =>
+      tx.table("invoices").toCollection().modify((inv: any) => {
+        if (inv.clientTag && !inv.clientTags?.length) {
+          inv.clientTags = [inv.clientTag];
+        } else if (!inv.clientTags) {
+          inv.clientTags = [];
+        }
+        delete inv.clientTag;
+      })
+    );
+    this.version(7).stores({
+      invoices: "++id, merchantName, invoiceDate, status, importSource, category, *clientTags, projectTag",
+    });
   }
 }
 
 export const db = new JInvoiceDB();
 
+type AfterInsertHook = (invoiceId: number) => void;
+const afterInsertHooks: AfterInsertHook[] = [];
+export function registerAfterInsertHook(fn: AfterInsertHook): void {
+  afterInsertHooks.push(fn);
+}
+
 export async function insertInvoiceWithItems(
   invoice: Omit<InvoiceMeta, "id">,
   items: Omit<LineItemRow, "id" | "invoiceId">[]
 ): Promise<number> {
-  return db.transaction("rw", db.invoices, db.lineItems, async () => {
+  const invoiceId = await db.transaction("rw", db.invoices, db.lineItems, async () => {
     const id = await db.invoices.add(invoice as InvoiceMeta);
-    const invoiceId = id as number;
+    const iid = id as number;
     for (const item of items) {
-      await db.lineItems.add({ ...item, invoiceId });
+      await db.lineItems.add({ ...item, invoiceId: iid });
     }
-    return invoiceId;
+    return iid;
   });
+  afterInsertHooks.forEach((fn) => fn(invoiceId));
+  return invoiceId;
 }
 
 export async function isAlreadyImported(messageId: string): Promise<boolean> {
@@ -152,12 +212,27 @@ export async function deduplicateInvoices(): Promise<number> {
 }
 
 export async function clearAllData(): Promise<void> {
-  await db.transaction("rw", db.invoices, db.lineItems, db.importRecords, db.sentinelRecords, async () => {
+  await db.transaction("rw", [db.invoices, db.lineItems, db.importRecords, db.sentinelRecords, db.rawTexts, db.securityAlerts], async () => {
     await db.invoices.clear();
     await db.lineItems.clear();
     await db.importRecords.clear();
     await db.sentinelRecords.clear();
+    await db.rawTexts.clear();
+    await db.securityAlerts.clear();
   });
+}
+
+export async function addSecurityAlert(alert: Omit<SecurityAlertRecord, "id">): Promise<void> {
+  const exists = await db.securityAlerts.where("messageId").equals(alert.messageId).count();
+  if (!exists) await db.securityAlerts.add(alert);
+}
+
+export async function getActiveSecurityAlerts(): Promise<SecurityAlertRecord[]> {
+  return db.securityAlerts.where("dismissed").equals(0).reverse().sortBy("flaggedAt");
+}
+
+export async function dismissSecurityAlert(id: number): Promise<void> {
+  await db.securityAlerts.update(id, { dismissed: true });
 }
 
 export async function searchByMerchant(query: string): Promise<InvoiceMeta[]> {

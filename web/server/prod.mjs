@@ -1,6 +1,7 @@
 import express from "express";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
+import { mobileRouter } from "./mobile.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DIST = join(__dirname, "..", "dist");
@@ -22,6 +23,9 @@ function appOrigin(req) {
 }
 
 const app = express();
+
+app.use(express.json());
+app.use(mobileRouter);
 
 // ── Google login ───────────────────────────────────────────────────────────
 
@@ -77,6 +81,7 @@ app.get("/auth/gmail/start", (req, res) => {
     prompt:        "consent",
     state:         "gmail",
   });
+  if (req.query.login_hint) params.set("login_hint", req.query.login_hint);
   res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
 });
 
@@ -143,6 +148,7 @@ app.get("/auth/outlook/start", (req, res) => {
     response_mode: "query",
     state:         "outlook",
   });
+  if (req.query.login_hint) params.set("login_hint", req.query.login_hint);
   res.redirect(`https://login.microsoftonline.com/common/oauth2/v2.0/authorize?${params}`);
 });
 
@@ -173,6 +179,22 @@ app.get("/auth/outlook/callback", async (req, res) => {
   } catch {
     res.redirect("/#error=oauth_failed");
   }
+});
+
+// ── Local info (used by Settings → Mobile Sync) ───────────────────────────
+
+app.get("/api/local-info", (req, res) => {
+  const origin = appOrigin(req);
+  const secret = process.env.JINVOICE_SECRET || "jinvoice-change-me";
+  const renderUrl  = process.env.RENDER_URL ?? null;
+  res.json({
+    url:              origin,
+    secret,
+    mobileUrl:        `${origin}/mobile?key=${encodeURIComponent(secret)}`,
+    renderUrl,
+    renderMobileUrl:  renderUrl ? `${renderUrl}/mobile?key=${encodeURIComponent(secret)}` : undefined,
+    desktopFolder:    { configured: false },
+  });
 });
 
 // ── Static files + SPA fallback ────────────────────────────────────────────

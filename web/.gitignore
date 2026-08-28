@@ -16,5 +16,14 @@ release/
 electron/credentials.json
 electron/credentials.mjs
 
+# Persisted jInvoice secret (set by user in Settings, contains secret key)
+jinvoice-secret.json
+
 # Vite cache
 .vite/
+
+# Local invoice database export (contains real personal financial data)
+cloud-db.json
+
+# Mobile relay server (not ready for production)
+server/mobile.mjs

@@ -17,3 +17,9 @@ services:
         sync: false
       - key: AZURE_CLIENT_SECRET
         sync: false
+      - key: JINVOICE_SECRET
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false

@@ -112,7 +112,8 @@ export function authPlugin(env: Record<string, string>): Plugin {
         }
 
         // ── Gmail start ────────────────────────────────────────────────────
-        if (url === "/auth/gmail/start") {
+        if (url.startsWith("/auth/gmail/start")) {
+          const qs = new URLSearchParams(url.split("?")[1] ?? "");
           const params = new URLSearchParams({
             client_id:     GOOGLE_CLIENT_ID,
             redirect_uri:  gmailRedirectUri(origin),
@@ -122,6 +123,8 @@ export function authPlugin(env: Record<string, string>): Plugin {
             prompt:        "consent",
             state:         "gmail",
           });
+          const hint = qs.get("login_hint");
+          if (hint) params.set("login_hint", hint);
           res.writeHead(302, {
             Location: `https://accounts.google.com/o/oauth2/v2/auth?${params}`,
           });
@@ -173,7 +176,8 @@ export function authPlugin(env: Record<string, string>): Plugin {
         }
 
         // ── Outlook start ──────────────────────────────────────────────────
-        if (url === "/auth/outlook/start") {
+        if (url.startsWith("/auth/outlook/start")) {
+          const qs = new URLSearchParams(url.split("?")[1] ?? "");
           const params = new URLSearchParams({
             client_id:     AZURE_CLIENT_ID,
             redirect_uri:  outlookRedirectUri(origin),
@@ -182,6 +186,8 @@ export function authPlugin(env: Record<string, string>): Plugin {
             response_mode: "query",
             state:         "outlook",
           });
+          const hint = qs.get("login_hint");
+          if (hint) params.set("login_hint", hint);
           res.writeHead(302, {
             Location: `https://login.microsoftonline.com/common/oauth2/v2.0/authorize?${params}`,
           });

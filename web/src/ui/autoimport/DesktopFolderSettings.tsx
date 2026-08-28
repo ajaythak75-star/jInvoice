@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
 import { desktopConnector } from "../../service/AutoImportService";
-import { isFsAccessSupported } from "../../autoimport/DesktopFolderConnector";
 
 interface Props {
   folderName: string | null;
@@ -9,12 +8,13 @@ interface Props {
 }
 
 export function DesktopFolderSettings({ folderName, onFolderSet }: Props) {
-  const [supported, setSupported] = useState<boolean | null>(null);
-  const [safariInput, setSafariInput] = useState("");
-
-  useEffect(() => {
-    isFsAccessSupported().then(setSupported);
-  }, []);
+  // Electron (127.0.0.1) uses /api/pick-folder-local for a native OS dialog.
+  // Desktop browsers use showDirectoryPicker. Everything else → text input.
+  const [supported] = useState<boolean>(() =>
+    typeof window !== "undefined" &&
+    (window.location.hostname === "127.0.0.1" || "showDirectoryPicker" in window)
+  );
+  const [safariInput, setSafariInput] = useState(folderName ?? "");
 
   useEffect(() => {
     setSafariInput(folderName ?? "");
@@ -31,8 +31,6 @@ export function DesktopFolderSettings({ folderName, onFolderSet }: Props) {
   };
 
   const handleRemove = () => { onFolderSet(null); setSafariInput(""); };
-
-  if (supported === null) return null;
 
   return (
     <div className="folder-row">

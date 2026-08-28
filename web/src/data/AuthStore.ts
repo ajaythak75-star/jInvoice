@@ -24,22 +24,31 @@ export const auth = {
   },
 
   get isLoggedIn(): boolean {
-    return sessionStorage.getItem("jinvoice:session") === "1";
+    if (localStorage.getItem("jinvoice:session") === "1") return true;
+    // Auto-restore session on desktop: if the user has an account and never
+    // explicitly signed out, treat them as still logged in.
+    if (localStorage.getItem("jinvoice:signed_out") !== "1" && this.hasAccount) {
+      localStorage.setItem("jinvoice:session", "1");
+      return true;
+    }
+    return false;
   },
 
   signInWithGoogle(email: string, name: string): void {
+    localStorage.removeItem("jinvoice:signed_out");
     localStorage.setItem("jinvoice:auth_email", email);
     localStorage.setItem("jinvoice:auth_name", name);
     localStorage.setItem("jinvoice:auth_provider", "google");
-    sessionStorage.setItem("jinvoice:session", "1");
+    localStorage.setItem("jinvoice:session", "1");
   },
 
   async createAccount(email: string, password: string): Promise<void> {
     const hash = await hashPassword(password);
+    localStorage.removeItem("jinvoice:signed_out");
     localStorage.setItem("jinvoice:auth_email", email);
     localStorage.setItem("jinvoice:auth_hash", hash);
     localStorage.removeItem("jinvoice:auth_provider");
-    sessionStorage.setItem("jinvoice:session", "1");
+    localStorage.setItem("jinvoice:session", "1");
   },
 
   async signIn(password: string): Promise<boolean> {
@@ -47,7 +56,8 @@ export const auth = {
     if (!stored) return false;
     const hash = await hashPassword(password);
     if (hash !== stored) return false;
-    sessionStorage.setItem("jinvoice:session", "1");
+    localStorage.removeItem("jinvoice:signed_out");
+    localStorage.setItem("jinvoice:session", "1");
     return true;
   },
 
@@ -60,6 +70,7 @@ export const auth = {
   },
 
   signOut(): void {
-    sessionStorage.removeItem("jinvoice:session");
+    localStorage.removeItem("jinvoice:session");
+    localStorage.setItem("jinvoice:signed_out", "1");
   },
 };

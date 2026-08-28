@@ -36,7 +36,12 @@ async function loadHandle(): Promise<FileSystemDirectoryHandle | null> {
   });
 }
 
+function isElectronRenderer(): boolean {
+  return typeof window !== "undefined" && window.location.hostname === "127.0.0.1";
+}
+
 export async function isFsAccessSupported(): Promise<boolean> {
+  if (isElectronRenderer()) return true;
   return "showDirectoryPicker" in window;
 }
 
@@ -44,7 +49,27 @@ export class DesktopFolderConnector {
   private handle: FileSystemDirectoryHandle | null = null;
 
   async requestFolder(): Promise<string | null> {
-    if (!(await isFsAccessSupported())) return null;
+    // On localhost, try the Electron native-dialog API first (works in Electron
+    // where showDirectoryPicker may be restricted). Falls through to the File
+    // System Access API when the endpoint doesn't exist (plain browser + prod.mjs).
+    if (isElectronRenderer()) {
+      try {
+        const resp = await fetch("/api/pick-folder-local", { method: "POST" });
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data.canceled) return null; // user dismissed the dialog
+          if (data.name) {
+            prefs.desktopFolderName = data.name;
+            return data.name;
+          }
+          return null;
+        }
+        // Non-OK (e.g. 404 — plain prod.mjs, not Electron): fall through to FSAPI
+      } catch {
+        // Network error: fall through to FSAPI
+      }
+    }
+    if (!("showDirectoryPicker" in window)) return null;
     try {
       const handle = await (window as any).showDirectoryPicker({
         mode: "readwrite",
@@ -95,7 +120,8 @@ export class DesktopFolderConnector {
       for await (const entry of (this.handle as any).values()) {
         if (entry.kind !== "file") continue;
         const file: File = await (entry as any).getFile();
-        if (!file.name.toLowerCase().endsWith(".pdf")) continue;
+        const fname = file.name.toLowerCase();
+        if (!fname.endsWith(".pdf") && !fname.endsWith(".html")) continue;
 
         const key = `desktop:${file.name}:${file.lastModified}`;
         if (await isAlreadyImported(key)) continue;
@@ -123,5 +149,85 @@ export class DesktopFolderConnector {
       console.error("[jInvoice] saveInvoiceToFolder failed:", err);
       return false;
     }
+  }
+
+  // Renames a PDF file in the desktop folder (searches root + all known subfolders).
+  // Returns true if the file was found and renamed.
+  async deleteFileFromFolder(filename: string): Promise<boolean> {
+    if (!filename) return false;
+    const restored = await this.restoreFolder();
+    if (!restored) return false;
+    const bareFilename = filename.includes("/") ? filename.split("/").pop()! : filename;
+    const SUBFOLDERS = ["Invoices", "Tax", "Coupons", "Travel", "Other"];
+    const dirsToSearch: FileSystemDirectoryHandle[] = [this.handle as unknown as FileSystemDirectoryHandle];
+    for (const sub of SUBFOLDERS) {
+      try {
+        const d = await (this.handle as any).getDirectoryHandle(sub, { create: false });
+        dirsToSearch.push(d);
+      } catch { /* subfolder doesn't exist */ }
+    }
+    // Also search dynamically-created per-shop subdirectories
+    try {
+      for await (const entry of (this.handle as any).values()) {
+        if (entry.kind !== "directory") continue;
+        if (SUBFOLDERS.includes(entry.name)) continue;
+        dirsToSearch.push(entry as FileSystemDirectoryHandle);
+      }
+    } catch { /* permission revoked */ }
+    for (const dir of dirsToSearch) {
+      try {
+        await (dir as any).removeEntry(bareFilename);
+        return true;
+      } catch { /* file not in this dir */ }
+    }
+    return false;
+  }
+
+  async renameFileInFolder(oldName: string, newName: string): Promise<boolean> {
+    if (!oldName || !newName || oldName === newName) return false;
+    const restored = await this.restoreFolder();
+    if (!restored) return false;
+
+    // Strip any subdirectory prefix from the stored filename so we can
+    // search for the bare file name across all directories.
+    const bareOldName = oldName.includes("/") ? oldName.split("/").pop()! : oldName;
+
+    const SUBFOLDERS = ["Invoices", "Tax", "Coupons", "Travel", "Other"];
+    const dirsToSearch: FileSystemDirectoryHandle[] = [this.handle as unknown as FileSystemDirectoryHandle];
+    for (const sub of SUBFOLDERS) {
+      try {
+        const d = await (this.handle as any).getDirectoryHandle(sub, { create: false });
+        dirsToSearch.push(d);
+      } catch { /* subfolder doesn't exist */ }
+    }
+
+    // Also search any dynamically-created subdirectories (e.g. per-shop folders
+    // created when mobile pushes a file with a ShopName/ prefix).
+    try {
+      for await (const entry of (this.handle as any).values()) {
+        if (entry.kind !== "directory") continue;
+        if (SUBFOLDERS.includes(entry.name)) continue; // already added above
+        dirsToSearch.push(entry as FileSystemDirectoryHandle);
+      }
+    } catch { /* permission revoked */ }
+
+    for (const dir of dirsToSearch) {
+      try {
+        const oldHandle = await (dir as any).getFileHandle(bareOldName, { create: false });
+        const file: File = await oldHandle.getFile();
+        const bytes = new Uint8Array(await file.arrayBuffer());
+
+        // Write with new name
+        const newHandle = await (dir as any).getFileHandle(newName, { create: true });
+        const writable = await newHandle.createWritable();
+        await writable.write(bytes);
+        await writable.close();
+
+        // Delete old file
+        await (dir as any).removeEntry(bareOldName);
+        return true;
+      } catch { /* file not in this dir */ }
+    }
+    return false;
   }
 }

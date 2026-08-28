@@ -1,6 +1,7 @@
 import { prefs } from "../data/AutoImportPreferences";
 import { isAlreadyImported } from "../data/InvoiceDatabase";
 import { AUTH_BASE } from "../config";
+import { looksLikeInvoice } from "../extraction/HtmlExtractor";
 
 function gmailAfterDate(months: number): string {
   const d = new Date();
@@ -15,20 +16,52 @@ function buildGmailQuery(): string {
 }
 
 export class GmailConnector {
-  async startSignIn(): Promise<void> {
-    window.location.href = `${AUTH_BASE}/auth/gmail/start`;
+  private acct?: { email: string; accessToken: string; refreshToken: string | null };
+
+  constructor(acct?: { email: string; accessToken: string; refreshToken: string | null }) {
+    this.acct = acct;
   }
 
-  async pollAndDownload(): Promise<{ file: File; messageId: string; subject: string; senderEmail: string; receivedAt: string }[]> {
-    if (!prefs.gmailAccessToken) throw new Error("Not authenticated");
+  private getToken(): string {
+    return this.acct?.accessToken ?? prefs.gmailAccessToken ?? "";
+  }
+
+  private storeToken(newToken: string): void {
+    if (this.acct) {
+      this.acct.accessToken = newToken;
+      const accounts = prefs.gmailAccounts;
+      const idx = accounts.findIndex((a) => a.email === this.acct!.email);
+      if (idx >= 0) { accounts[idx].accessToken = newToken; prefs.gmailAccounts = accounts; }
+    } else {
+      prefs.gmailAccessToken = newToken;
+    }
+  }
+
+  async startSignIn(loginHint?: string): Promise<void> {
+    const qs = loginHint ? `?login_hint=${encodeURIComponent(loginHint)}` : "";
+    window.location.href = `${AUTH_BASE}/auth/gmail/start${qs}`;
+  }
+
+  async pollAndDownload(
+    onEmail?: (meta: { id: string; subject: string; senderEmail: string; receivedAt: string }) => Promise<"allow" | "block">
+  ): Promise<{ file: File; messageId: string; subject: string; senderEmail: string; receivedAt: string }[]> {
+    if (!this.getToken()) throw new Error("Not authenticated");
 
     const query = buildGmailQuery();
-    console.log("[Gmail] Query:", query);
+    const labelIds = prefs.gmailLabelIds;
+    console.log("[Gmail] Query:", query, "| Labels:", labelIds);
 
-    const messages = await this.get<{ messages?: any[] }>(
-      `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(query)}&maxResults=200`
-    );
-    const list = messages.messages ?? [];
+    // Fetch per label and deduplicate — multiple labelIds in one call is AND, not OR
+    const seenIds = new Set<string>();
+    const list: any[] = [];
+    for (const labelId of labelIds) {
+      const res = await this.get<{ messages?: any[] }>(
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(query)}&labelIds=${encodeURIComponent(labelId)}&maxResults=200`
+      );
+      for (const msg of res.messages ?? []) {
+        if (!seenIds.has(msg.id)) { seenIds.add(msg.id); list.push(msg); }
+      }
+    }
     console.log("[Gmail] Messages found:", list.length);
 
     const results: { file: File; messageId: string; subject: string; senderEmail: string; receivedAt: string }[] = [];
@@ -49,9 +82,19 @@ export class GmailConnector {
       const senderEmail = hdr("From");
       const receivedAt  = hdr("Date");
 
+      // Allow caller to inspect metadata before attachment download
+      if (onEmail) {
+        const decision = await onEmail({ id: `${id}:gmail`, subject, senderEmail, receivedAt });
+        if (decision === "block") {
+          console.log("[Gmail] Blocked by caller:", id, subject);
+          continue;
+        }
+      }
+
       const parts: any[] = this.flattenParts(detail?.payload);
       console.log("[Gmail]", id, "subject:", subject, "| parts with pdf:", parts.filter((p) => p.filename?.toLowerCase().endsWith(".pdf")).length);
 
+      let addedForMsg = 0;
       for (const part of parts) {
         if (!part.filename?.toLowerCase().endsWith(".pdf")) continue;
 
@@ -78,14 +121,39 @@ export class GmailConnector {
 
         results.push({ file: new File([data], part.filename, { type: "application/pdf" }), messageId: `${id}:gmail`, subject, senderEmail, receivedAt });
         console.log("[Gmail] Ready:", part.filename, `(${data.byteLength} bytes)`);
+        addedForMsg++;
+      }
+
+      // No PDF attachment — try HTML email body as an inline invoice
+      if (addedForMsg === 0) {
+        const htmlPart = parts.find((p) => p.mimeType === "text/html" && !p.filename && p.body?.data);
+        if (htmlPart) {
+          const b64 = (htmlPart.body.data as string).replace(/-/g, "+").replace(/_/g, "/");
+          const html = atob(b64);
+          if (looksLikeInvoice(html)) {
+            const bytes = new TextEncoder().encode(html);
+            results.push({ file: new File([bytes], `${id}.html`, { type: "text/html" }), messageId: `${id}:gmail`, subject, senderEmail, receivedAt });
+            console.log("[Gmail] HTML body queued as invoice:", id, subject);
+          }
+        }
       }
     }
-    console.log("[Gmail] Total PDFs ready to process:", results.length);
+    console.log("[Gmail] Total files ready to process:", results.length);
     return results;
   }
 
+  async fetchLabels(): Promise<{ id: string; name: string }[]> {
+    const data = await this.get<{ labels?: any[] }>(
+      "https://gmail.googleapis.com/gmail/v1/users/me/labels"
+    );
+    return (data.labels ?? [])
+      .filter((l: any) => l.type === "system" || l.type === "user")
+      .map((l: any) => ({ id: l.id as string, name: l.name as string }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
   private async get<T>(url: string, retried = false): Promise<T> {
-    const token = prefs.gmailAccessToken;
+    const token = this.getToken();
     if (!token) throw new Error("Not authenticated");
 
     const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
@@ -105,14 +173,14 @@ export class GmailConnector {
   }
 
   private async refreshToken(): Promise<boolean> {
-    const refreshToken = prefs.gmailRefreshToken;
+    const refreshToken = this.acct?.refreshToken ?? prefs.gmailRefreshToken;
     if (!refreshToken) return false;
     try {
       const res = await fetch(`${AUTH_BASE}/auth/gmail/refresh?refresh_token=${encodeURIComponent(refreshToken)}`);
       if (!res.ok) return false;
       const { access_token } = await res.json() as { access_token?: string };
       if (!access_token) return false;
-      prefs.gmailAccessToken = access_token;
+      this.storeToken(access_token);
       return true;
     } catch {
       return false;

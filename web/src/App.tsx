@@ -3,11 +3,23 @@ import { MainLayout } from "./ui/layout/MainLayout";
 import { AutoImportSettings } from "./ui/autoimport/AutoImportSettings";
 import { ViewScreen } from "./ui/view/ViewScreen";
 import { AlertsScreen } from "./ui/sentinel/AlertsScreen";
+import { ReportScreen } from "./ui/gst/ReportScreen";
+import { BuyScreen } from "./ui/buy/BuyScreen";
+import { RewardsScreen } from "./ui/rewards/RewardsScreen";
 import { SettingsScreen } from "./ui/settings/SettingsScreen";
+import { SecurityScreen } from "./ui/security/SecurityScreen";
+import { PricingScreen } from "./ui/pricing/PricingScreen";
+import { FAQScreen } from "./ui/help/FAQScreen";
+import { SupportScreen } from "./ui/help/SupportScreen";
+import { AboutScreen } from "./ui/help/AboutScreen";
 import { LoginScreen } from "./ui/auth/LoginScreen";
 import { prefs } from "./data/AutoImportPreferences";
 import { auth } from "./data/AuthStore";
 import { schedulePolling } from "./service/AutoImportService";
+import { checkAndNotify } from "./service/NotificationService";
+import { startMobileSync } from "./service/MobileSyncService";
+import { getActiveSentinels } from "./service/ExpirySentinel";
+import { getActiveSecurityAlerts } from "./data/InvoiceDatabase";
 
 // Process OAuth hash params — called at module init AND on hashchange.
 // Returns true if the user is now signed in.
@@ -31,16 +43,28 @@ function applyOAuthHash(): boolean {
     return true;
   }
   if (gmailToken) {
+    // Upsert into gmailAccounts array (primary slot stays in prefs for backward compat)
     prefs.gmailAccessToken  = gmailToken;
     if (gmailRefresh) prefs.gmailRefreshToken = gmailRefresh;
     prefs.gmailEmail        = gmailEmail ?? "";
     prefs.gmailEnabled      = true;
+    const gAccounts = prefs.gmailAccounts;
+    const gIdx = gAccounts.findIndex((a) => a.email === (gmailEmail ?? ""));
+    const gEntry = { email: gmailEmail ?? "", accessToken: gmailToken, refreshToken: gmailRefresh ?? null, enabled: true };
+    if (gIdx >= 0) gAccounts[gIdx] = gEntry; else gAccounts.push(gEntry);
+    prefs.gmailAccounts = gAccounts;
     schedulePolling();
   }
   if (outlookToken) {
+    // Upsert into outlookAccounts array
     prefs.outlookAccessToken = outlookToken;
     prefs.outlookEmail       = outlookEmail ?? "";
     prefs.outlookEnabled     = true;
+    const oAccounts = prefs.outlookAccounts;
+    const oIdx = oAccounts.findIndex((a) => a.email === (outlookEmail ?? ""));
+    const oEntry = { email: outlookEmail ?? "", accessToken: outlookToken, enabled: true };
+    if (oIdx >= 0) oAccounts[oIdx] = oEntry; else oAccounts.push(oEntry);
+    prefs.outlookAccounts = oAccounts;
     schedulePolling();
   }
   return false;
@@ -49,9 +73,11 @@ function applyOAuthHash(): boolean {
 // Handle hash present on initial page load (e.g. after a full reload via loadURL).
 applyOAuthHash();
 
+
 export function App() {
   const [loggedIn, setLoggedIn] = useState(import.meta.env.DEV || auth.isLoggedIn);
   const [tab, setTab] = useState("import");
+  const [alertCount, setAlertCount] = useState(0);
 
   // Handle hash set by executeJavaScript (same-page navigation — no reload).
   useEffect(() => {
@@ -62,16 +88,44 @@ export function App() {
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
 
+  // Start the schedule-aware poller on mount; check expiry alerts now and after every sync
+  useEffect(() => {
+    if (!loggedIn) return;
+    schedulePolling();
+    checkAndNotify();
+    startMobileSync();
+
+    const refreshAlertCount = async () => {
+      try {
+        const [sentinels, security] = await Promise.all([getActiveSentinels(), getActiveSecurityAlerts()]);
+        setAlertCount(sentinels.length + security.length);
+      } catch {}
+    };
+    refreshAlertCount();
+
+    const onSync = () => { checkAndNotify(); refreshAlertCount(); };
+    window.addEventListener("jinvoice:sync-complete", onSync);
+    return () => window.removeEventListener("jinvoice:sync-complete", onSync);
+  }, [loggedIn]);
+
   if (!loggedIn) {
     return <LoginScreen onLogin={() => setLoggedIn(true)} />;
   }
 
   return (
-    <MainLayout active={tab} onNav={setTab}>
+    <MainLayout active={tab} onNav={setTab} alertCount={alertCount}>
       {tab === "import"   && <AutoImportSettings />}
       {tab === "view"     && <ViewScreen />}
+      {tab === "buy"      && <BuyScreen />}
+      {tab === "gst"      && <ReportScreen />}
       {tab === "alerts"   && <AlertsScreen />}
+      {tab === "rewards"  && <RewardsScreen />}
+      {tab === "security" && <SecurityScreen />}
+      {tab === "pricing"  && <PricingScreen />}
       {tab === "settings" && <SettingsScreen onSignOut={() => setLoggedIn(false)} />}
+      {tab === "faq"      && <FAQScreen />}
+      {tab === "support"  && <SupportScreen />}
+      {tab === "about"    && <AboutScreen />}
     </MainLayout>
   );
 }
