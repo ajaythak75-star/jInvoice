@@ -36,6 +36,69 @@ const lblStyle: React.CSSProperties = {
 };
 const errStyle: React.CSSProperties = { fontSize: 11.5, color: "#ef4444", marginTop: 3 };
 
+function GeminiApiKeyModal({ onConfirm, onClose }: { onConfirm: (key: string) => void; onClose: () => void }) {
+  const [apiKey, setApiKey] = useState(() => prefs.geminiApiKey ?? "");
+  const [error, setError] = useState<string | null>(null);
+  const [visible, setVisible] = useState(false);
+
+  const handleSubmit = () => {
+    const trimmed = apiKey.trim();
+    if (!trimmed) { setError("API key is required for the Own API Key plan."); return; }
+    if (!trimmed.startsWith("AIza")) { setError('Gemini keys start with "AIza". Check your key.'); return; }
+    prefs.geminiApiKey = trimmed;
+    onConfirm(trimmed);
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.52)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <div style={{ background: "var(--color-surface)", borderRadius: 14, padding: "28px 24px", maxWidth: 440, width: "100%", border: "1px solid var(--color-border)", boxShadow: "0 8px 40px rgba(0,0,0,0.3)" }}>
+        <h2 style={{ fontSize: 18, fontWeight: 800, color: "var(--color-text)", margin: "0 0 6px" }}>Add Your Gemini API Key</h2>
+        <p style={{ fontSize: 13, color: "var(--color-text-secondary)", marginBottom: 20, lineHeight: 1.55 }}>
+          The Own API Key plan uses your personal Gemini key — your own quota, lower price.
+          Get a free key at{" "}
+          <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer" style={{ color: "#7c3aed" }}>
+            aistudio.google.com
+          </a>.
+        </p>
+
+        <label style={lblStyle}>Gemini API Key <span style={{ color: "#ef4444" }}>*</span></label>
+        <div style={{ display: "flex", gap: 8, marginBottom: 4 }}>
+          <input
+            type={visible ? "text" : "password"}
+            value={apiKey}
+            onChange={(e) => { setApiKey(e.target.value); setError(null); }}
+            placeholder="AIza…"
+            autoComplete="off"
+            style={{ ...inpStyle, flex: 1, fontFamily: "monospace", fontSize: 12 }}
+            autoFocus
+          />
+          <button
+            type="button"
+            onClick={() => setVisible((v) => !v)}
+            style={{ padding: "8px 12px", borderRadius: 6, border: "1px solid var(--color-border)", background: "var(--color-surface-2)", color: "var(--color-text-secondary)", fontSize: 12, cursor: "pointer", flexShrink: 0 }}
+          >
+            {visible ? "Hide" : "Show"}
+          </button>
+        </div>
+        {error && <div style={errStyle}>{error}</div>}
+
+        <p style={{ fontSize: 11, color: "var(--color-text-tertiary)", marginTop: 8, lineHeight: 1.5 }}>
+          Your key is stored only in your browser (localStorage). It never leaves your device.
+        </p>
+
+        <div style={{ display: "flex", gap: 10, marginTop: 22 }}>
+          <button onClick={onClose} style={{ flex: 1, padding: "10px", borderRadius: 8, border: "1px solid var(--color-border)", background: "var(--color-surface-2)", color: "var(--color-text-secondary)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+            Cancel
+          </button>
+          <button onClick={handleSubmit} style={{ flex: 2, padding: "10px", borderRadius: 8, border: "none", background: "#7c3aed", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+            Save &amp; Start Trial →
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function BusinessProfileModal({ onConfirm, onClose }: { onConfirm: () => void; onClose: () => void }) {
   const [profile, setProfile] = useState<BusinessProfile>(() => {
     try { return JSON.parse(localStorage.getItem("jinvoice:business_profile") ?? "null") ?? { businessType: "", address: "", pin: "", state: "", country: "India", licenses: "" }; }
@@ -173,6 +236,7 @@ export function PricingScreen() {
   const [apiOption, setApiOption]     = useState<ApiOption>(() => prefs.planApiOption);
   const [, forceUpdate]               = useState(0);
   const [showProfileModal, setShowProfileModal] = useState(false);
+  const [showApiKeyModal,  setShowApiKeyModal]  = useState(false);
 
   const isSubscribed = prefs.isSubscribed;
   const isInTrial    = prefs.isInTrial;
@@ -500,8 +564,22 @@ export function PricingScreen() {
 
       {showProfileModal && (
         <BusinessProfileModal
-          onConfirm={() => { setShowProfileModal(false); handleStartTrial(); }}
+          onConfirm={() => {
+            setShowProfileModal(false);
+            if (apiOption === "own") {
+              setShowApiKeyModal(true);
+            } else {
+              handleStartTrial();
+            }
+          }}
           onClose={() => setShowProfileModal(false)}
+        />
+      )}
+
+      {showApiKeyModal && (
+        <GeminiApiKeyModal
+          onConfirm={() => { setShowApiKeyModal(false); handleStartTrial(); }}
+          onClose={() => setShowApiKeyModal(false)}
         />
       )}
     </div>
