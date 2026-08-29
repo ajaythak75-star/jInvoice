@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { prefs } from "./AutoImportPreferences";
 
 const P = "jinvoice:rewards:";
 
@@ -46,6 +47,8 @@ async function pushToSupabase(): Promise<void> {
 
 function award(points: number, reason: string): void {
   if (rewards.isDisabled) return;
+  // Paid/Pro users have no reward model
+  if (prefs.isProActive) return;
 
   const prev = parseInt(ls("pts") ?? "0", 10);
   lsSet("pts", String(prev + points));
@@ -55,12 +58,11 @@ function award(points: number, reason: string): void {
   hist.unshift({ points, reason, at: new Date().toISOString() });
   lsSet("hist", JSON.stringify(hist.slice(0, 200)));
 
-  // Update lastUsedAt on every award
   lsSet("last_used", new Date().toISOString());
-  // Clear disabled state if user is active again
   lsDel("disabled_at");
 
   pushToSupabase().catch(() => {});
+  try { window.dispatchEvent(new CustomEvent("jinvoice:rewards-updated")); } catch {}
 }
 
 export const rewards = {

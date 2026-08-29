@@ -12,6 +12,7 @@ import { PricingScreen } from "./ui/pricing/PricingScreen";
 import { FAQScreen } from "./ui/help/FAQScreen";
 import { SupportScreen } from "./ui/help/SupportScreen";
 import { AboutScreen } from "./ui/help/AboutScreen";
+import { FeedbackScreen } from "./ui/help/FeedbackScreen";
 import { LoginScreen } from "./ui/auth/LoginScreen";
 import { prefs } from "./data/AutoImportPreferences";
 import { auth } from "./data/AuthStore";
@@ -141,6 +142,7 @@ export function App() {
       {tab === "faq"      && <FAQScreen />}
       {tab === "support"  && <SupportScreen />}
       {tab === "about"    && <AboutScreen />}
+      {tab === "feedback" && <FeedbackScreen />}
     </MainLayout>
   );
 }

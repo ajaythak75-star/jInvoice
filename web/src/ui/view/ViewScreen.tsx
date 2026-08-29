@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import { db, type InvoiceMeta, type LineItemRow, insertInvoiceWithItems } from "../../data/InvoiceDatabase";
 import { syncNewInvoice } from "../../service/SupabaseSync";
 import { runBillChecksForAll, type BillIssue } from "../../service/BillFraudDetector";
@@ -830,17 +830,21 @@ export function ViewScreen() {
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const [billIssues, setBillIssues] = useState<Map<number, BillIssue[]>>(new Map());
   const [syncingId, setSyncingId] = useState<number | null>(null);
+  const hasLoadedRef = useRef(false);
 
-  const load = () => {
-    setLoading(true);
+  const load = useCallback(() => {
+    // Only show the full-page loading screen on the very first load.
+    // Subsequent refreshes keep the existing list visible.
+    if (!hasLoadedRef.current) setLoading(true);
     db.invoices.orderBy("id").reverse().limit(200).toArray()
       .then((recs) => {
+        hasLoadedRef.current = true;
         setRecords(recs);
         runBillChecksForAll(recs).then(setBillIssues).catch(console.error);
       })
       .catch(console.error)
       .finally(() => setLoading(false));
-  };
+  }, []);
 
   useEffect(() => {
     load();

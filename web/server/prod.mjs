@@ -1,3 +1,8 @@
+// ╔══════════════════════════════════════════════════════════╗
+// ║  prod.mjs — DESKTOP server (local Electron / dev)        ║
+// ║  Serves the React SPA + desktop OAuth callbacks.         ║
+// ║  NOT deployed to Render. Mobile relay lives in proxy.mjs ║
+// ╚══════════════════════════════════════════════════════════╝
 import express from "express";
 import multer from "multer";
 import { fileURLToPath } from "url";

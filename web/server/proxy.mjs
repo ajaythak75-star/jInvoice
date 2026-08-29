@@ -1,9 +1,12 @@
-/**
- * jInvoice OAuth proxy + mobile relay — deploy this to Render (free tier).
- * Holds Google + Azure secrets server-side. After each OAuth dance,
- * redirects the user back to the local binary at http://localhost:7823.
- * Also serves the mobile upload UI and relays invoices to the desktop.
- */
+// ╔══════════════════════════════════════════════════════════╗
+// ║  proxy.mjs — deployed to Render (render.yaml)            ║
+// ║                                                          ║
+// ║  [DESKTOP]  OAuth proxy — Google login / Gmail / Outlook ║
+// ║             Holds secrets; redirects back to localhost   ║
+// ║                                                          ║
+// ║  [MOBILE]   Relay + extraction + mobile web UI           ║
+// ║             Supabase JWT auth, in-memory queue, 5-day TTL║
+// ╚══════════════════════════════════════════════════════════╝
 import express from "express";
 import multer from "multer";
 
@@ -41,7 +44,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// ── Per-user relay — in-memory, no cloud writes ───────────────────────────────
+// ── [MOBILE] Per-user relay — in-memory, no cloud writes ──────────────────────
 // Mobile saves invoices in phone localStorage; taps "Send to Desktop" to queue
 // here; desktop polls and acks. 5-day TTL, max 5 per user.
 
@@ -157,7 +160,7 @@ app.post("/api/mobile/ack", async (req, res) => {
   res.json({ ok: true });
 });
 
-// ── Gemini extraction ─────────────────────────────────────────────────────────
+// ── [MOBILE] Gemini extraction ────────────────────────────────────────────────
 
 const GEMINI_MODEL = "gemini-3.6-flash";
 const EXTRACTION_PROMPT = `You are an invoice data extractor for Indian businesses. Extract the following fields and respond ONLY with valid JSON, no explanation or markdown.
@@ -221,7 +224,7 @@ function base(req) {
   return `${proto}://${host}`;
 }
 
-// ── Google login ──────────────────────────────────────────────────────────────
+// ── [DESKTOP] Google login ────────────────────────────────────────────────────
 
 app.get("/auth/google/login/start", (req, res) => {
   const returnTo = sanitizeReturnTo(req.query.return_to ?? LOCAL_APP);
@@ -254,7 +257,7 @@ app.get("/auth/google/login/callback", async (req, res) => {
   } catch { res.redirect(`${returnTo}/#error=oauth_failed`); }
 });
 
-// ── Gmail ─────────────────────────────────────────────────────────────────────
+// ── [DESKTOP] Gmail ───────────────────────────────────────────────────────────
 
 app.get("/auth/gmail/start", (req, res) => {
   const returnTo = sanitizeReturnTo(req.query.return_to ?? LOCAL_APP);
@@ -306,7 +309,7 @@ app.get("/auth/gmail/refresh", async (req, res) => {
   } catch { res.status(401).end(); }
 });
 
-// ── Outlook ───────────────────────────────────────────────────────────────────
+// ── [DESKTOP] Outlook ─────────────────────────────────────────────────────────
 
 app.get("/auth/outlook/start", (req, res) => {
   const returnTo = sanitizeReturnTo(req.query.return_to ?? LOCAL_APP);
@@ -341,7 +344,7 @@ app.get("/auth/outlook/callback", async (req, res) => {
   } catch { res.redirect(`${returnTo}/#error=oauth_failed`); }
 });
 
-// ── Gemini proxy (keeps API key server-side, avoids CORS) ────────────────────
+// ── [DESKTOP] Gemini proxy (keeps API key server-side, avoids CORS) ──────────
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || "";
 
@@ -383,7 +386,7 @@ app.get("/health", (_req, res) => res.send("ok"));
 
 app.listen(PORT, () => console.log(`jInvoice proxy+relay running on port ${PORT}`));
 
-// ── Mobile HTML ───────────────────────────────────────────────────────────────
+// ── [MOBILE] HTML — auth UI + invoice list + upload + sync ───────────────────
 // SB_URL and SB_ANON are injected so the client can call Supabase REST directly.
 // Invoices are saved to phone localStorage only; relay holds them for desktop pickup.
 
@@ -476,6 +479,35 @@ header h1 span{color:var(--accent)}
 .loading-row{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:32px;color:var(--text2);font-size:14px;text-align:center}
 .loading-label{font-size:13px;color:var(--text3)}
 .cam-preview{width:100%;max-height:220px;object-fit:cover;border-radius:10px;margin-bottom:14px;border:1.5px solid var(--border);display:none}
+/* Bottom nav */
+.bottom-nav{position:fixed;bottom:0;left:0;right:0;background:var(--surface);border-top:1.5px solid var(--border);z-index:30;display:none;padding-bottom:env(safe-area-inset-bottom)}
+.bottom-nav.visible{display:flex}
+.nb{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:8px 2px 10px;border:none;background:none;cursor:pointer;color:var(--text3);font-size:9.5px;font-weight:600;letter-spacing:.02em;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+.nb.active{color:var(--accent)}
+.nb-icon{font-size:21px;line-height:1}
+body.nav-visible{padding-bottom:calc(env(safe-area-inset-bottom)+60px)}
+body.nav-visible .fab{bottom:calc(72px + env(safe-area-inset-bottom))}
+.info-scroll{flex:1;overflow-y:auto;padding-bottom:8px}
+/* More drawer */
+.more-ov{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:31;display:none}
+.more-ov.open{display:block}
+.more-drw{position:fixed;bottom:0;left:0;right:0;background:var(--surface);border-radius:20px 20px 0 0;z-index:32;transform:translateY(100%);transition:transform .3s ease;padding-bottom:calc(env(safe-area-inset-bottom)+8px)}
+.more-drw.open{transform:translateY(0)}
+.more-hnd{width:36px;height:4px;background:var(--border);border-radius:4px;margin:12px auto 8px}
+.more-grd{display:grid;grid-template-columns:1fr 1fr;border-top:1px solid var(--border)}
+.more-itm{display:flex;flex-direction:column;align-items:center;gap:6px;padding:18px 12px;background:var(--surface);border:none;cursor:pointer;color:var(--text2);font-size:12.5px;font-weight:600;border-bottom:1px solid var(--border);-webkit-tap-highlight-color:transparent}
+.more-itm:nth-child(odd){border-right:1px solid var(--border)}
+.more-itm:active{background:var(--accent-light)}
+.more-mi{font-size:28px;line-height:1}
+/* FAQ */
+.faq-item{border-bottom:1px solid var(--border)}
+.faq-q{width:100%;display:flex;justify-content:space-between;align-items:center;gap:8px;padding:14px 16px;background:none;border:none;cursor:pointer;text-align:left;font-size:13.5px;font-weight:600;color:var(--text);-webkit-tap-highlight-color:transparent}
+.faq-chev{font-size:16px;transition:transform .2s;flex-shrink:0}
+.faq-a{padding:0 16px 14px;font-size:13px;color:var(--text2);line-height:1.6;display:none}
+.faq-item.open .faq-a{display:block}
+/* Stars */
+.star-btn{font-size:30px;border:none;background:none;cursor:pointer;padding:0 2px;color:var(--border);-webkit-tap-highlight-color:transparent}
+.star-btn.on{color:#f59e0b}
 </style>
 </head>
 <body>
@@ -513,6 +545,147 @@ header h1 span{color:var(--accent)}
   </div>
   <button class="fab" onclick="openSheet()" aria-label="Add invoice">+</button>
 </div>
+
+<!-- ── Rewards screen ─────────────────── -->
+<div class="screen" id="screen-rewards">
+  <header><h1>j<span>Invoice</span></h1><span style="font-size:13px;font-weight:600;color:var(--text2)">Rewards</span></header>
+  <div class="info-scroll" id="rewards-body"><div class="loading-row"><div class="spinner"></div><div>Loading rewards&hellip;</div></div></div>
+</div>
+
+<!-- ── Price screen ───────────────────── -->
+<div class="screen" id="screen-price">
+  <header><h1>j<span>Invoice</span></h1><span style="font-size:13px;font-weight:600;color:var(--text2)">Pricing</span></header>
+  <div class="info-scroll"><div style="padding:16px;display:flex;flex-direction:column;gap:12px">
+    <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:14px;padding:20px">
+      <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Free</div>
+      <div style="font-size:28px;font-weight:800;color:var(--text);line-height:1">&#x20B9;0</div>
+      <div style="font-size:12px;color:var(--text2);margin:4px 0 14px">forever</div>
+      <div style="display:flex;flex-direction:column;gap:7px;font-size:13px;color:var(--text)">
+        <div>&#x2713; 5 invoices per day</div><div>&#x2713; 3 months data history</div>
+        <div>&#x2713; Mobile invoice capture</div><div>&#x2713; Cloud sync</div>
+        <div>&#x2713; Rewards program</div><div>&#x2713; 7-day support response</div>
+      </div>
+    </div>
+    <div style="background:var(--surface);border:2px solid var(--accent);border-radius:14px;padding:20px;position:relative">
+      <div style="position:absolute;top:12px;right:12px;background:var(--accent);color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;text-transform:uppercase;letter-spacing:.05em">PRO</div>
+      <div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Shared API</div>
+      <div style="font-size:28px;font-weight:800;color:var(--text);line-height:1">&#x20B9;399</div>
+      <div style="font-size:12px;color:var(--text2);margin:4px 0 14px">per month</div>
+      <div style="display:flex;flex-direction:column;gap:7px;font-size:13px;color:var(--text)">
+        <div>&#x2713; Unlimited invoices/day</div><div>&#x2713; 6+ months data history</div>
+        <div>&#x2713; Up to 5 email accounts</div><div>&#x2713; Advanced GST reports</div>
+        <div>&#x2713; AI via shared Gemini quota</div><div>&#x2713; 48-hour support response</div>
+      </div>
+    </div>
+    <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:14px;padding:20px;position:relative">
+      <div style="position:absolute;top:12px;right:12px;background:var(--accent);color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;text-transform:uppercase;letter-spacing:.05em">PRO</div>
+      <div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Own API Key</div>
+      <div style="font-size:28px;font-weight:800;color:var(--text);line-height:1">&#x20B9;249</div>
+      <div style="font-size:12px;color:var(--text2);margin:4px 0 14px">per month</div>
+      <div style="display:flex;flex-direction:column;gap:7px;font-size:13px;color:var(--text)">
+        <div>&#x2713; Everything in Shared plan</div><div>&#x2713; Your own Gemini API key</div><div>&#x2713; No shared quota limits</div>
+      </div>
+    </div>
+    <div style="font-size:11.5px;color:var(--text3);text-align:center;line-height:1.5;padding:4px 8px">Prices in INR inclusive of all taxes. Upgrade via the desktop app.</div>
+  </div></div>
+</div>
+
+<!-- ── Settings screen ────────────────── -->
+<div class="screen" id="screen-settings">
+  <header><h1>j<span>Invoice</span></h1><span style="font-size:13px;font-weight:600;color:var(--text2)">Settings</span></header>
+  <div class="info-scroll"><div style="padding:16px;display:flex;flex-direction:column;gap:14px">
+    <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:14px;padding:18px">
+      <div style="font-size:12px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px">AI Settings</div>
+      <label style="display:block;font-size:12px;font-weight:600;color:var(--text2);margin-bottom:6px">Gemini API Key <span style="font-weight:400;color:var(--text3)">(optional)</span></label>
+      <input type="password" id="settings-gemini" class="inp" placeholder="Leave blank to use server key" autocomplete="off">
+      <div id="settings-msg" style="font-size:12px;margin-top:6px;min-height:18px"></div>
+      <button class="btn btn-secondary" onclick="saveGeminiKey()" style="margin-top:10px">Save Key</button>
+      <div style="font-size:11px;color:var(--text3);margin-top:8px;line-height:1.5">Used for invoice extraction. Leave blank to use the shared server key.</div>
+    </div>
+    <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:14px;padding:18px">
+      <div style="font-size:12px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px">Account</div>
+      <button class="btn" style="background:#fee2e2;color:#dc2626;border:1.5px solid #fca5a5" onclick="signOut()">Sign Out</button>
+    </div>
+  </div></div>
+</div>
+
+<!-- ── FAQ screen ─────────────────────── -->
+<div class="screen" id="screen-faq">
+  <header><h1>j<span>Invoice</span></h1><span style="font-size:13px;font-weight:600;color:var(--text2)">FAQ</span></header>
+  <div class="info-scroll"><div style="padding:16px">
+    <div style="border:1.5px solid var(--border);border-radius:14px;overflow:hidden">
+      <div class="faq-item"><button class="faq-q" onclick="faqToggle(this)">What file types can I import?<span class="faq-chev">&#x2303;</span></button><div class="faq-a">jInvoice supports PDF invoices (text-based and scanned) and images captured via the camera. Gmail and Outlook attachments are handled automatically on the desktop app.</div></div>
+      <div class="faq-item"><button class="faq-q" onclick="faqToggle(this)">What is the jInvoice Secret?<span class="faq-chev">&#x2303;</span></button><div class="faq-a">The jInvoice Secret is a password you set in Settings &rarr; API Keys on the desktop. It secures the mobile sync endpoint so only your devices can push invoices.</div></div>
+      <div class="faq-item"><button class="faq-q" onclick="faqToggle(this)">What is the Cloud URL for mobile sync?<span class="faq-chev">&#x2303;</span></button><div class="faq-a">The Cloud URL lets your phone send invoices from anywhere &mdash; on mobile data or any Wi-Fi. Find it in Settings &rarr; Mobile Sync &rarr; Copy Cloud URL on the desktop app.</div></div>
+      <div class="faq-item"><button class="faq-q" onclick="faqToggle(this)">What is the Local URL for mobile sync?<span class="faq-chev">&#x2303;</span></button><div class="faq-a">The Local URL works only when your phone and desktop are on the same Wi-Fi network. It is faster because it transfers directly without going through the internet.</div></div>
+      <div class="faq-item"><button class="faq-q" onclick="faqToggle(this)">Is my data stored on the cloud?<span class="faq-chev">&#x2303;</span></button><div class="faq-a">Invoices are stored locally on your desktop using IndexedDB. Cloud sync (Supabase) is available on both Free and Pro plans as a backup and for mobile access.</div></div>
+      <div class="faq-item" style="border-bottom:none"><button class="faq-q" onclick="faqToggle(this)">How do I contact support?<span class="faq-chev">&#x2303;</span></button><div class="faq-a">Use the Feedback screen or email support@jinvoice.app. Pro users receive a response within 48 hours; Free users within 7 days.</div></div>
+    </div>
+  </div></div>
+</div>
+
+<!-- ── About screen ───────────────────── -->
+<div class="screen" id="screen-about">
+  <header><h1>j<span>Invoice</span></h1><span style="font-size:13px;font-weight:600;color:var(--text2)">About</span></header>
+  <div class="info-scroll"><div style="padding:16px">
+    <div style="text-align:center;padding:24px 0 20px">
+      <div style="width:72px;height:72px;background:var(--accent);border-radius:20px;display:flex;align-items:center;justify-content:center;font-size:34px;font-weight:800;color:#fff;margin:0 auto 14px;box-shadow:0 6px 24px rgba(92,62,240,.3)">j</div>
+      <div style="font-size:22px;font-weight:800;color:var(--text);letter-spacing:-.3px">jInvoice</div>
+      <div style="font-size:13px;color:var(--text2);margin-top:3px">Version 1.0.0 &bull; Mobile</div>
+    </div>
+    <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:14px;padding:18px;margin-bottom:12px">
+      <p style="font-size:14px;color:var(--text);line-height:1.7;margin:0">jInvoice is a private, AI-powered invoice manager for individuals and small businesses in India. Import invoices from email, camera, or file &mdash; jInvoice extracts the details automatically.</p>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:12px;padding:14px 16px;display:flex;gap:12px">
+        <span style="font-size:20px">&#x1F512;</span>
+        <div><div style="font-size:13px;font-weight:700;color:var(--text)">Privacy First</div><div style="font-size:12px;color:var(--text2);margin-top:2px;line-height:1.5">Your invoices are stored on your device. Cloud sync is opt-in.</div></div>
+      </div>
+      <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:12px;padding:14px 16px;display:flex;gap:12px">
+        <span style="font-size:20px">&#x1F1EE;&#x1F1F3;</span>
+        <div><div style="font-size:13px;font-weight:700;color:var(--text)">Built for India</div><div style="font-size:12px;color:var(--text2);margin-top:2px;line-height:1.5">GST extraction, INR amounts, and Indian tax categories handled natively.</div></div>
+      </div>
+    </div>
+    <div style="text-align:center;font-size:11.5px;color:var(--text3);margin-top:20px;line-height:1.6">&copy; 2025 jInvoice. Built with care in India.</div>
+  </div></div>
+</div>
+
+<!-- ── Feedback screen ────────────────── -->
+<div class="screen" id="screen-feedback">
+  <header><h1>j<span>Invoice</span></h1><span style="font-size:13px;font-weight:600;color:var(--text2)">Feedback</span></header>
+  <div class="info-scroll"><div style="padding:16px">
+    <div id="fb-thanks" style="display:none;text-align:center;padding:48px 0">
+      <div style="font-size:48px;margin-bottom:16px">&#x1F64F;</div>
+      <div style="font-size:20px;font-weight:700;color:var(--text);margin-bottom:8px">Thank you!</div>
+      <div style="font-size:14px;color:var(--text2);line-height:1.6">Your feedback helps make jInvoice better for everyone.</div>
+      <button class="btn btn-primary" onclick="resetFeedback()" style="margin-top:20px">Send Another</button>
+    </div>
+    <div id="fb-form">
+      <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:14px;padding:18px;margin-bottom:14px">
+        <div style="font-size:12px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Overall Rating</div>
+        <div style="display:flex;gap:4px" id="star-row">
+          <button class="star-btn" onclick="setFbRating(1)">&#x2606;</button>
+          <button class="star-btn" onclick="setFbRating(2)">&#x2606;</button>
+          <button class="star-btn" onclick="setFbRating(3)">&#x2606;</button>
+          <button class="star-btn" onclick="setFbRating(4)">&#x2606;</button>
+          <button class="star-btn" onclick="setFbRating(5)">&#x2606;</button>
+        </div>
+      </div>
+      <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:14px;padding:18px;margin-bottom:14px">
+        <div style="font-size:12px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Category</div>
+        <select id="fb-cat" class="inp"><option>Bug report</option><option>Feature request</option><option>Suggestion</option><option>Compliment</option><option>Other</option></select>
+      </div>
+      <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:14px;padding:18px;margin-bottom:14px">
+        <div style="font-size:12px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Message <span style="color:var(--danger)">*</span></div>
+        <textarea id="fb-message" class="inp" rows="4" placeholder="Tell us what you think&hellip;" style="resize:vertical;font-family:inherit"></textarea>
+        <div id="fb-err" style="font-size:12px;color:var(--danger);margin-top:6px;min-height:18px"></div>
+      </div>
+      <button class="btn btn-primary" onclick="submitFeedback()">Send Feedback &#x2192;</button>
+      <div style="font-size:11px;color:var(--text3);margin-top:10px;text-align:center;line-height:1.5">Opens your email client with the message pre-filled.</div>
+    </div>
+  </div></div>
+</div>
+
 <div class="overlay" id="overlay" onclick="closeSheet()"></div>
 <div class="sheet" id="upload-sheet">
   <div class="sheet-handle"></div>
@@ -576,7 +749,7 @@ async function doAuth(){
 async function signOut(){
   try{await fetch(SB_URL+'/auth/v1/logout',{method:'POST',headers:{apikey:SB_ANON,Authorization:'Bearer '+TOKEN}});}catch{}
   sessionStorage.removeItem('sb_token');sessionStorage.removeItem('sb_email');
-  TOKEN='';_authBusy=false;show('screen-auth');
+  TOKEN='';_authBusy=false;show('screen-auth');hideNav();
 }
 function toggleGeminiField(){var s=document.getElementById('gemini-section');s.style.display=s.style.display==='none'?'block':'none';}
 (function init(){
@@ -586,7 +759,29 @@ function toggleGeminiField(){var s=document.getElementById('gemini-section');s.s
   }
 })();
 function show(id){document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));document.getElementById(id).classList.add('active');}
-function showHome(){show('screen-home');loadInvoices();}
+function showNav(){var n=document.getElementById('bottom-nav');if(n){n.classList.add('visible');document.body.classList.add('nav-visible');}}
+function hideNav(){var n=document.getElementById('bottom-nav');if(n){n.classList.remove('visible');document.body.classList.remove('nav-visible');}}
+function showHome(){show('screen-home');loadInvoices();showNav();setNavActive('home');}
+function navTo(id){
+  show('screen-'+id);
+  setNavActive(id);
+  if(id==='home')loadInvoices();
+  else if(id==='rewards')loadRewardsScreen();
+  else if(id==='settings')initSettingsScreen();
+}
+function setNavActive(id){
+  var primary=['home','rewards','price'];
+  document.querySelectorAll('.nb[data-nav]').forEach(function(b){
+    var isMore=!primary.includes(id)&&b.dataset.nav==='more';
+    b.classList.toggle('active',b.dataset.nav===id||isMore);
+  });
+}
+function openMore(){
+  document.getElementById('more-ov').classList.add('open');
+  setTimeout(function(){document.getElementById('more-drw').classList.add('open');},10);
+}
+function closeMore(){document.getElementById('more-drw').classList.remove('open');document.getElementById('more-ov').classList.remove('open');}
+function navMore(id){closeMore();navTo(id);}
 function listKey(){return'jinvoice_list_'+(sessionStorage.getItem('sb_email')||'anon');}
 function saveList(list){try{localStorage.setItem(listKey(),JSON.stringify(list));}catch{}}
 function readList(){try{return JSON.parse(localStorage.getItem(listKey())||'[]');}catch{return[];}}
@@ -726,6 +921,108 @@ async function doSyncAndClose(id){
   }
   closeSheet();loadInvoices();
 }
+
+// ── Rewards screen ──────────────────────────────────────────────────────────
+function loadRewardsScreen(){
+  var P='jinvoice:rewards:';
+  var pts=parseInt(localStorage.getItem(P+'pts')||'0',10);
+  var cnt=parseInt(localStorage.getItem(P+'cnt')||'0',10);
+  var hist=[];try{hist=JSON.parse(localStorage.getItem(P+'hist')||'[]');}catch{}
+  var earn=[
+    ['&#x2601;&#xFE0F;','Save invoice to cloud','+5 pts'],
+    ['&#x1F525;','Every 5 invoices (streak bonus)','+25 pts'],
+    ['&#x1F3C6;','Every 25 invoices (champion bonus)','+100 pts']
+  ];
+  var howHtml=earn.map(function(r){
+    return '<div style="display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--surface);border:1.5px solid var(--border);border-radius:12px;margin-bottom:8px"><span style="font-size:22px">'+r[0]+'</span><span style="flex:1;font-size:13px;color:var(--text)">'+r[1]+'</span><span style="font-size:13px;font-weight:700;color:var(--accent)">'+r[2]+'</span></div>';
+  }).join('');
+  var histHtml=hist.length
+    ?'<div style="font-size:12px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin:16px 0 10px">Recent Activity</div>'+
+      hist.slice(0,10).map(function(ev){
+        return '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)"><div><div style="font-size:13px;color:var(--text)">'+esc(ev.reason)+'</div><div style="font-size:11px;color:var(--text3)">'+fmtDate(ev.at)+'</div></div><span style="font-size:13px;font-weight:700;color:#16a34a">+'+ev.points+'</span></div>';
+      }).join('')
+    :'<div style="padding:20px;text-align:center;color:var(--text3);font-size:13px">No activity yet. Upload an invoice to start earning!</div>';
+  document.getElementById('rewards-body').innerHTML=
+    '<div style="background:linear-gradient(135deg,#5c3ef0 0%,#7c3aed 100%);padding:28px 20px;color:#fff">'
+    +'<div style="font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;opacity:.8;margin-bottom:4px">Your Rewards</div>'
+    +'<div style="font-size:48px;font-weight:800;line-height:1">'+pts.toLocaleString('en-IN')+'</div>'
+    +'<div style="font-size:14px;font-weight:600;opacity:.9;margin-top:4px">points &bull; '+cnt+' invoice'+(cnt!==1?'s':'')+'</div>'
+    +'</div>'
+    +'<div style="padding:16px"><div style="font-size:12px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">How to Earn</div>'
+    +howHtml+histHtml+'</div>';
+}
+
+// ── Settings screen ─────────────────────────────────────────────────────────
+function initSettingsScreen(){
+  var gk=sessionStorage.getItem('jgk')||'';
+  var el=document.getElementById('settings-gemini');
+  if(el)el.value=gk;
+  var msg=document.getElementById('settings-msg');
+  if(msg)msg.textContent='';
+}
+function saveGeminiKey(){
+  var k=(document.getElementById('settings-gemini').value||'').trim();
+  GEMINI_KEY=k;
+  if(k)sessionStorage.setItem('jgk',k);else sessionStorage.removeItem('jgk');
+  var msg=document.getElementById('settings-msg');
+  if(msg){msg.textContent='Saved!';msg.style.color='var(--success)';setTimeout(function(){if(msg)msg.textContent='';},2000);}
+}
+
+// ── FAQ screen ──────────────────────────────────────────────────────────────
+function faqToggle(btn){
+  var item=btn.closest('.faq-item');
+  item.classList.toggle('open');
+  btn.querySelector('.faq-chev').style.transform=item.classList.contains('open')?'rotate(180deg)':'rotate(0)';
+}
+
+// ── Feedback screen ─────────────────────────────────────────────────────────
+var _fbRating=0;
+function setFbRating(n){
+  _fbRating=n;
+  document.querySelectorAll('#star-row .star-btn').forEach(function(s,i){
+    s.innerHTML=i<n?'&#x2B50;':'&#x2606;';
+    s.classList.toggle('on',i<n);
+  });
+}
+function submitFeedback(){
+  var msg=(document.getElementById('fb-message').value||'').trim();
+  var errEl=document.getElementById('fb-err');
+  if(!msg){if(errEl)errEl.textContent='Please write your feedback.';return;}
+  if(errEl)errEl.textContent='';
+  var cat=(document.getElementById('fb-cat').value)||'General';
+  var rating=_fbRating?(_fbRating+'/5 stars'):'Not rated';
+  var body=encodeURIComponent('Rating: '+rating+'\nCategory: '+cat+'\n\n'+msg);
+  var sub=encodeURIComponent('jInvoice Mobile Feedback');
+  window.open('mailto:feedback@jinvoice.app?subject='+sub+'&body='+body,'_blank');
+  document.getElementById('fb-thanks').style.display='block';
+  document.getElementById('fb-form').style.display='none';
+}
+function resetFeedback(){
+  _fbRating=0;
+  document.querySelectorAll('#star-row .star-btn').forEach(function(s){s.innerHTML='&#x2606;';s.classList.remove('on');});
+  var msg=document.getElementById('fb-message');if(msg)msg.value='';
+  var err=document.getElementById('fb-err');if(err)err.textContent='';
+  document.getElementById('fb-thanks').style.display='none';
+  document.getElementById('fb-form').style.display='block';
+}
 </script>
+
+<!-- ── Bottom nav ─────────────────────── -->
+<nav class="bottom-nav" id="bottom-nav">
+  <button class="nb active" data-nav="home" onclick="navTo('home')"><span class="nb-icon">&#x1F3E0;</span>Home</button>
+  <button class="nb" data-nav="rewards" onclick="navTo('rewards')"><span class="nb-icon">&#x2B50;</span>Rewards</button>
+  <button class="nb" data-nav="price" onclick="navTo('price')"><span class="nb-icon">&#x1F48E;</span>Price</button>
+  <button class="nb" data-nav="more" onclick="openMore()"><span class="nb-icon">&#x22EF;</span>More</button>
+</nav>
+<div class="more-ov" id="more-ov" onclick="closeMore()"></div>
+<div class="more-drw" id="more-drw">
+  <div class="more-hnd"></div>
+  <div class="more-grd">
+    <button class="more-itm" onclick="navMore('settings')"><span class="more-mi">&#x2699;&#xFE0F;</span>Settings</button>
+    <button class="more-itm" onclick="navMore('faq')"><span class="more-mi">&#x2753;</span>FAQ</button>
+    <button class="more-itm" onclick="navMore('about')"><span class="more-mi">&#x2139;&#xFE0F;</span>About Us</button>
+    <button class="more-itm" onclick="navMore('feedback')"><span class="more-mi">&#x1F44D;</span>Feedback</button>
+  </div>
+</div>
 </body>
 </html>`;

@@ -79,6 +79,13 @@ const AboutIcon = () => (
   </svg>
 );
 
+const FeedbackIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M14 9V5a3 3 0 00-3-3l-4 9v11h11.28a2 2 0 002-1.7l1.38-9a2 2 0 00-2-2.3H14z" />
+    <path d="M7 22H4a2 2 0 01-2-2v-7a2 2 0 012-2h3" />
+  </svg>
+);
+
 const NAV_ITEMS = [
   { id: "import",   label: "Import",   Icon: ImportIcon   },
   { id: "view",     label: "View",     Icon: ViewIcon     },
@@ -91,6 +98,7 @@ const NAV_ITEMS = [
   { id: "faq",      label: "FAQ",      Icon: FAQIcon      },
   { id: "support",  label: "Support",  Icon: SupportIcon  },
   { id: "about",    label: "About",    Icon: AboutIcon    },
+  { id: "feedback", label: "Feedback", Icon: FeedbackIcon },
 ];
 
 // Primary tabs always visible in the mobile bottom bar
@@ -103,6 +111,7 @@ const MORE_ITEMS = [
   { id: "faq",      label: "FAQ",      Icon: FAQIcon      },
   { id: "support",  label: "Support",  Icon: SupportIcon  },
   { id: "about",    label: "About",    Icon: AboutIcon    },
+  { id: "feedback", label: "Feedback", Icon: FeedbackIcon },
   { id: "gst",      label: "Report",   Icon: ReportIcon   },
   { id: "security", label: "Security", Icon: SecurityIcon },
 ];

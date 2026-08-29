@@ -47,7 +47,7 @@ const FAQS: { q: string; a: string }[] = [
   },
   {
     q: "How do I contact support?",
-    a: "Open the Support screen from the menu. You can reach us by email and we aim to respond within 2 business days.",
+    a: "Open the Support screen from the menu. Pro plan users receive a response within 48 hours. Free plan users receive a response within 7 days.",
   },
 ];
 
