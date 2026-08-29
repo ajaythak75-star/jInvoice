@@ -106,6 +106,24 @@ async function extractWithGemini(fileBuf, mimeType, apiKey) {
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
+// ── In-memory relay (mobile→desktop, never persisted to cloud) ────────────────
+// Holds up to MAX_RELAY_PER_USER invoices per user for up to RELAY_TTL_MS.
+// Survives Render restarts only while the dyno is running; user taps
+// "Send to Desktop" again if the server was restarted in the interim.
+const relay = new Map(); // Map<userId, [{id,ts,...snakeCaseFields}]>
+let _relayId = 0;
+const RELAY_TTL_MS      = 5 * 24 * 60 * 60 * 1000; // 5 days
+const MAX_RELAY_PER_USER = 5;
+
+function pruneRelay() {
+  const cutoff = Date.now() - RELAY_TTL_MS;
+  for (const [uid, rows] of relay) {
+    const fresh = rows.filter(r => r.ts > cutoff);
+    if (fresh.length) relay.set(uid, fresh); else relay.delete(uid);
+  }
+}
+setInterval(pruneRelay, 60 * 60 * 1000).unref(); // hourly sweep
+
 const app = express();
 
 app.use(express.json());
@@ -128,7 +146,7 @@ app.get("/mobile", (_req, res) => {
   res.send(MOBILE_HTML);
 });
 
-// Upload: validate Supabase JWT → Gemini extraction → insert to Supabase with user_id
+// Upload: validate Supabase JWT → Gemini extraction → return data (no cloud storage)
 app.post("/api/mobile/upload", upload.single("file"), async (req, res) => {
   const token = (req.headers.authorization ?? "").replace(/^Bearer\s+/i, "");
   const userId = await validateSupabaseJWT(token);
@@ -140,46 +158,71 @@ app.post("/api/mobile/upload", upload.single("file"), async (req, res) => {
 
   try {
     const data = await extractWithGemini(req.file.buffer, req.file.mimetype, apiKey);
-
-    // Insert to Supabase using the user's own token so RLS applies
-    const insertRes = await fetch(`${SUPABASE_URL}/rest/v1/mobile_invoices`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        apikey: SUPABASE_ANON_KEY,
-        Authorization: `Bearer ${token}`,
-        Prefer: "return=representation",
-      },
-      body: JSON.stringify({
-        user_id:          userId,
-        filename:         req.file.originalname || "upload",
-        shop_name:        data.shopName        ?? null,
-        address:          data.address         ?? null,
-        pincode:          data.pincode         ?? null,
-        phone:            data.phone           ?? null,
-        invoice_number:   data.invoiceNumber   ?? null,
-        gst_number:       data.gstNumber       ?? null,
-        gst_percent:      data.gstPercent      ?? null,
-        gst_amount_inr:   data.gstAmountInr    ?? null,
-        subtotal_inr:     data.subtotalInr     ?? null,
-        discount_inr:     data.discountInr     ?? null,
-        final_payment_inr: data.finalPaymentInr ?? null,
-        date_of_purchase: data.dateOfPurchase  ?? null,
-        items:            data.items           ?? null,
-      }),
-    });
-
-    if (!insertRes.ok) {
-      const errText = await insertRes.text().catch(() => insertRes.statusText);
-      throw new Error(`Supabase insert failed: ${errText}`);
-    }
-
-    const rows = await insertRes.json();
-    res.json({ ok: true, invoice: Array.isArray(rows) ? rows[0] : rows });
+    const inv = {
+      id:               ++_relayId,
+      user_id:          userId,
+      filename:         req.file.originalname || "upload",
+      shop_name:        data.shopName        ?? null,
+      address:          data.address         ?? null,
+      pincode:          data.pincode         ?? null,
+      phone:            data.phone           ?? null,
+      invoice_number:   data.invoiceNumber   ?? null,
+      gst_number:       data.gstNumber       ?? null,
+      gst_percent:      data.gstPercent      ?? null,
+      gst_amount_inr:   data.gstAmountInr    ?? null,
+      subtotal_inr:     data.subtotalInr     ?? null,
+      discount_inr:     data.discountInr     ?? null,
+      final_payment_inr: data.finalPaymentInr ?? null,
+      date_of_purchase: data.dateOfPurchase  ?? null,
+      items:            data.items           ?? null,
+      uploaded_at:      new Date().toISOString(),
+      pending_sync:     false,
+      synced_at:        null,
+    };
+    res.json({ ok: true, invoice: inv });
   } catch (e) {
     console.error("[mobile upload]", e);
     res.status(500).json({ error: e.message });
   }
+});
+
+// Queue an invoice for desktop pickup (called when user taps "Send to Desktop")
+app.post("/api/mobile/queue", express.json(), async (req, res) => {
+  const token = (req.headers.authorization ?? "").replace(/^Bearer\s+/i, "");
+  const userId = await validateSupabaseJWT(token);
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+  const inv = req.body;
+  if (!inv || typeof inv !== "object") return res.status(400).json({ error: "no data" });
+  const entry = { ...inv, id: ++_relayId, ts: Date.now(), user_id: userId, pending_sync: true, synced_at: null };
+  const existing = relay.get(userId) ?? [];
+  // Drop oldest entries if at cap so newest always fits
+  const trimmed = existing.length >= MAX_RELAY_PER_USER
+    ? existing.slice(existing.length - MAX_RELAY_PER_USER + 1)
+    : existing;
+  relay.set(userId, [...trimmed, entry]);
+  res.json({ ok: true, id: entry.id });
+});
+
+// Desktop polls this to get invoices waiting to sync
+app.get("/api/mobile/pending", async (req, res) => {
+  const token = (req.headers.authorization ?? "").replace(/^Bearer\s+/i, "");
+  const userId = await validateSupabaseJWT(token);
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+  pruneRelay();
+  res.json({ invoices: relay.get(userId) ?? [] });
+});
+
+// Desktop calls this after saving invoices locally
+app.post("/api/mobile/ack", express.json(), async (req, res) => {
+  const token = (req.headers.authorization ?? "").replace(/^Bearer\s+/i, "");
+  const userId = await validateSupabaseJWT(token);
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+  const { ids } = req.body ?? {};
+  if (Array.isArray(ids) && ids.length) {
+    const rows = relay.get(userId) ?? [];
+    relay.set(userId, rows.filter(r => !ids.includes(r.id)));
+  }
+  res.json({ ok: true });
 });
 
 // ── Google login ───────────────────────────────────────────────────────────
@@ -612,13 +655,10 @@ function showHome(){show('screen-home');loadInvoices();}
 async function sbFetch(path,opts){
   return fetch(SB_URL+path,{...opts,headers:{...(opts&&opts.headers),apikey:SB_ANON,Authorization:'Bearer '+TOKEN}});
 }
-async function loadInvoices(){
-  try{
-    const r=await sbFetch('/rest/v1/mobile_invoices?select=*&order=uploaded_at.desc');
-    const list=await r.json();
-    renderList(Array.isArray(list)?list:[]);
-  }catch{}
-}
+function listKey(){return'jinvoice_list_'+(sessionStorage.getItem('sb_email')||'anon');}
+function saveList(list){try{localStorage.setItem(listKey(),JSON.stringify(list));}catch{}}
+function readList(){try{return JSON.parse(localStorage.getItem(listKey())||'[]');}catch{return[];}}
+function loadInvoices(){renderList(readList());}
 function fmt(v){return v!=null&&v!==''?'₹'+Number(v).toFixed(2):'—';}
 function fmtDate(s){if(!s)return'—';try{return new Date(s).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});}catch{return s;}}
 function esc(s){return s?String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'):'—';}
@@ -658,9 +698,14 @@ function renderList(list){
 function toggleCard(i){const c=document.getElementById('inv-'+i);c.querySelector('.toggle-row').textContent=c.classList.toggle('open')?'Hide ▴':'Details ▾';}
 async function markSync(id,btn){
   btn.disabled=true;btn.textContent='Sending…';
+  const list=readList();
+  const inv=list.find(i=>i.id===id);
+  if(!inv){btn.disabled=false;btn.textContent='Send to Desktop →';return;}
   try{
-    await sbFetch('/rest/v1/mobile_invoices?id=eq.'+id,{method:'PATCH',headers:{'Content-Type':'application/json',Prefer:'return=minimal'},body:JSON.stringify({pending_sync:true})});
-    loadInvoices();
+    const r=await fetch(API+'/api/mobile/queue',{method:'POST',headers:{Authorization:'Bearer '+TOKEN,'Content-Type':'application/json'},body:JSON.stringify(inv)});
+    const d=await r.json();
+    if(!d.ok)throw new Error(d.error||'failed');
+    inv.pending_sync=true;saveList(list);loadInvoices();
   }catch{btn.disabled=false;btn.textContent='Send to Desktop →';}
 }
 function openSheet(){renderChoiceStep();document.getElementById('overlay').classList.add('open');setTimeout(()=>document.getElementById('upload-sheet').classList.add('open'),10);}
@@ -702,7 +747,9 @@ async function doUpload(file){
     const r=await fetch(API+'/api/mobile/upload',{method:'POST',headers:uploadHeaders,body:fd});
     const d=await r.json();
     if(!d.ok)throw new Error(d.error||'Upload failed');
-    renderResult(d.invoice,file);
+    const inv=d.invoice;
+    const list=readList();list.unshift(inv);saveList(list);
+    renderResult(inv,file);
   }catch(e){
     document.getElementById('sheet-body').innerHTML=
       '<div class="sheet-title">Error</div>'+
@@ -717,7 +764,7 @@ function renderResult(inv,file){
   const items=(inv.items||[]).map(it=>'<tr><td>'+esc(it.name)+'</td><td style="text-align:right">'+fmt(it.amountInr)+'</td></tr>').join('');
   document.getElementById('sheet-body').innerHTML=
     '<div class="sheet-title">&#x2705; Extracted</div>'+
-    '<div class="sheet-sub">Saved to cloud. Send to desktop when ready.</div>'+
+    '<div class="sheet-sub">Saved on your device. Send to desktop when ready.</div>'+
     (previewUrl?'<img id="cam-prev" style="width:100%;max-height:220px;object-fit:cover;border-radius:10px;margin-bottom:14px;border:1.5px solid var(--border)" src="'+previewUrl+'">':'')+
     '<div class="result-card">'+
       '<div class="result-name">'+esc(inv.shop_name||inv.filename||'Invoice')+'</div>'+
@@ -736,9 +783,15 @@ function renderResult(inv,file){
   if(previewUrl){const img=document.getElementById('cam-prev');if(img){img.onload=()=>URL.revokeObjectURL(previewUrl);}}
 }
 async function doSyncAndClose(id){
-  try{
-    await sbFetch('/rest/v1/mobile_invoices?id=eq.'+id,{method:'PATCH',headers:{'Content-Type':'application/json',Prefer:'return=minimal'},body:JSON.stringify({pending_sync:true})});
-  }catch{}
+  const list=readList();
+  const inv=list.find(i=>i.id===id);
+  if(inv){
+    try{
+      const r=await fetch(API+'/api/mobile/queue',{method:'POST',headers:{Authorization:'Bearer '+TOKEN,'Content-Type':'application/json'},body:JSON.stringify(inv)});
+      const d=await r.json();
+      if(d.ok){inv.pending_sync=true;saveList(list);}
+    }catch{}
+  }
   closeSheet();loadInvoices();
 }
 </script>

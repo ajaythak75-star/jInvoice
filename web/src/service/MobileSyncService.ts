@@ -3,6 +3,7 @@ import { detectCategory } from "../core/extraction/CategoryDetector";
 import { detectDocType } from "../extraction/DocTypeDetector";
 import { prefs } from "../data/AutoImportPreferences";
 import { supabase } from "../data/supabase";
+import { AUTH_BASE } from "../config";
 
 const POLL_INTERVAL_MS = 30_000;
 let timerId: ReturnType<typeof setInterval> | null = null;
@@ -36,15 +37,16 @@ interface MobileInvoiceRow {
   uploaded_at: string;
 }
 
-async function ackInvoice(id: number): Promise<void> {
-  if (!supabase) return;
-  await supabase
-    .from("mobile_invoices")
-    .update({ pending_sync: false, synced_at: new Date().toISOString() })
-    .eq("id", id);
+async function ackInvoices(ids: number[], token: string): Promise<void> {
+  const base = AUTH_BASE || window.location.origin;
+  await fetch(`${base}/api/mobile/ack`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ ids }),
+  });
 }
 
-async function saveAndAck(inv: MobileInvoiceRow): Promise<void> {
+async function saveInvoice(inv: MobileInvoiceRow): Promise<void> {
   const lineItemNames = (inv.items ?? []).map((i) => i.name);
   const category = detectCategory(inv.shop_name ?? null, lineItemNames);
   const docTypes = detectDocType(inv.shop_name ?? null, lineItemNames, inv.filename ?? undefined, undefined);
@@ -86,39 +88,52 @@ async function saveAndAck(inv: MobileInvoiceRow): Promise<void> {
       discountPaise:   it.discountInr != null ? Math.round(it.discountInr * 100) : 0,
     })),
   );
-
-  await ackInvoice(inv.id);
 }
 
 async function syncOnce(): Promise<void> {
   if (!prefs.mobileSyncEnabled) return;
-  if (!supabase) return;
+
+  const base = AUTH_BASE || "";
+  if (!base) {
+    console.warn("[MobileSync] skipped — VITE_AUTH_BASE not configured");
+    return;
+  }
+
+  // Use Supabase session for auth (auth only, data never touches Supabase)
+  const token = supabase
+    ? (await supabase.auth.getSession()).data.session?.access_token
+    : null;
+  if (!token) {
+    console.warn("[MobileSync] no auth session — sign out and sign back in");
+    return;
+  }
 
   try {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) return;
+    const r = await fetch(`${base}/api/mobile/pending`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!r.ok) {
+      console.error("[MobileSync] relay error:", r.status);
+      return;
+    }
+    const { invoices: pending } = await r.json() as { invoices: MobileInvoiceRow[] };
+    console.log(`[MobileSync] found ${pending?.length ?? 0} pending invoice(s)`);
+    if (!pending?.length) return;
 
-    const { data: pending, error } = await supabase
-      .from("mobile_invoices")
-      .select("*")
-      .eq("pending_sync", true)
-      .is("synced_at", null);
-
-    if (error || !pending?.length) return;
-
-    let count = 0;
+    const saved: number[] = [];
     for (const inv of pending) {
       try {
-        await saveAndAck(inv as MobileInvoiceRow);
-        count++;
+        await saveInvoice(inv);
+        saved.push(inv.id);
       } catch (e) {
         console.warn("[MobileSync] failed to save invoice", inv.id, e);
       }
     }
 
-    if (count > 0) {
+    if (saved.length) {
+      await ackInvoices(saved, token);
       window.dispatchEvent(new CustomEvent("jinvoice:sync-complete"));
-      console.log(`[MobileSync] pulled ${count} invoice(s)`);
+      console.log(`[MobileSync] pulled ${saved.length} invoice(s)`);
     }
   } catch (e) {
     console.warn("[MobileSync] poll error:", e);
