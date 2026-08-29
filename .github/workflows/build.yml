@@ -48,7 +48,7 @@ jobs:
         working-directory: web
 
       - name: Upload Mac artifacts
-        uses: actions/upload-artifact@v4.6.2
+        uses: actions/upload-artifact@v4
         with:
           name: jInvoice-mac
           path: web/release/electron/*.dmg
@@ -78,10 +78,10 @@ jobs:
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
       - name: Upload Windows artifact
-        uses: actions/upload-artifact@v4.6.2
+        uses: actions/upload-artifact@v4
         with:
           name: jInvoice-windows
-          path: web/release/pkg/jInvoice-windows.zip
+          path: web/release/pkg/stage/
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')

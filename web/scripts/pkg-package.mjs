@@ -39,18 +39,15 @@ if (platform === "win") {
   ].join("\r\n"));
 }
 
-// Zip
-const zipPath = join(outDir, zipName);
-if (process.platform === "win32") {
-  execSync(`powershell -Command "Compress-Archive -Path '${stageDir}\\*' -DestinationPath '${zipPath}' -Force"`, { stdio: "inherit" });
-} else {
+// On Windows, GitHub Actions upload-artifact already zips the folder,
+// so skip creating our own zip to avoid a zip-inside-zip.
+if (process.platform !== "win32") {
+  const zipPath = join(outDir, zipName);
   execSync(`cd "${stageDir}" && zip -r "${zipPath}" .`, { stdio: "inherit" });
-}
-rmSync(stageDir, { recursive: true });
-
-console.log(`\nDone! Distributable: release/pkg/${zipName}`);
-if (platform === "win") {
-  console.log("Users: unzip, then double-click 'Start jInvoice.bat' (not jInvoice.exe directly).");
-} else {
+  rmSync(stageDir, { recursive: true });
+  console.log(`\nDone! Distributable: release/pkg/${zipName}`);
   console.log("Users: unzip, then double-click the binary to launch jInvoice in their browser.");
+} else {
+  console.log(`\nDone! Staged files in: release/pkg/stage/`);
+  console.log("Users: unzip the downloaded artifact, then double-click 'Start jInvoice.bat'.");
 }
