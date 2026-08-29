@@ -312,6 +312,23 @@ app.post("/api/gemini", async (req, res) => {
   }
 });
 
+// ── Root: auto-detect mobile and redirect ─────────────────────────────────────
+
+app.get("/", (req, res) => {
+  const ua = req.headers["user-agent"] ?? "";
+  const isMobile = /android|iphone|ipad|ipod|mobile/i.test(ua);
+  if (isMobile) return res.redirect("/mobile");
+  res.send(`<!DOCTYPE html><html><head><title>jInvoice</title>
+<meta charset="utf-8"><style>body{font-family:sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#f0eeff}
+.box{text-align:center;padding:40px}.h1{font-size:28px;font-weight:800;color:#5c3ef0;margin-bottom:8px}
+.sub{color:#4a4a6a;margin-bottom:32px}a.btn{display:inline-block;padding:14px 28px;background:#5c3ef0;color:#fff;border-radius:12px;text-decoration:none;font-weight:600;margin:8px}
+</style></head><body><div class="box"><div class="h1">jInvoice</div>
+<div class="sub">Run the desktop app with <code>npm start</code> in the web folder, or open on your phone.</div>
+<a class="btn" href="/mobile">Open Mobile UI</a>
+<a class="btn" href="/health" style="background:#e0daf8;color:#5c3ef0">Status</a>
+</div></body></html>`);
+});
+
 // ── Health check ──────────────────────────────────────────────────────────────
 
 app.get("/health", (_req, res) => res.send("ok"));
