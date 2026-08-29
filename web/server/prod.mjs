@@ -120,8 +120,8 @@ app.post("/api/mobile/auth", (req, res) => {
 
 app.post("/api/mobile/upload", mobileAuth, upload.single("file"), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "no file attached" });
-  const apiKey = process.env.GEMINI_API_KEY ?? process.env.VITE_GEMINI_API_KEY;
-  if (!apiKey) return res.status(503).json({ error: "GEMINI_API_KEY not configured on server" });
+  const apiKey = req.headers["x-gemini-key"] || process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
+  if (!apiKey) return res.status(503).json({ error: "No Gemini API key. Enter your Gemini key on the Connect screen." });
   try {
     const data = await extractWithGemini(req.file.buffer, req.file.mimetype, apiKey);
     const inv = { id: mobileDb.nextId++, filename: req.file.originalname || "upload", uploadedAt: new Date().toISOString(), pendingSync: false, syncedAt: null, ...data };
@@ -476,9 +476,13 @@ header h1 span{color:var(--accent)}
   <div class="auth-wrap">
     <div class="logo">j</div>
     <div class="auth-title">jInvoice Mobile</div>
-    <div class="auth-sub">Enter your jInvoice secret key to connect.</div>
+    <div class="auth-sub">Enter your jInvoice secret key to connect.<br>Optionally add your Gemini AI key for invoice extraction.</div>
     <form onsubmit="event.preventDefault();doAuth()" style="width:100%">
-      <input id="key-input" class="inp" type="password" placeholder="Secret key" autocomplete="off" inputmode="text" enterkeyhint="go">
+      <input id="key-input" class="inp" type="password" placeholder="jInvoice secret key" autocomplete="off" inputmode="text" enterkeyhint="go">
+      <div style="margin-top:12px;position:relative">
+        <input id="gemini-input" class="inp" type="password" placeholder="Gemini AI key (optional)" autocomplete="off" inputmode="text" enterkeyhint="go">
+        <span style="position:absolute;right:12px;top:50%;transform:translateY(-50%);font-size:11px;color:var(--text3);pointer-events:none">optional</span>
+      </div>
       <div id="auth-err" class="err"></div>
       <button type="submit" class="btn btn-primary">Connect &#x2192;</button>
     </form>
@@ -504,8 +508,10 @@ header h1 span{color:var(--accent)}
 <script>
 const API=window.location.origin;
 let KEY=sessionStorage.getItem('jik')||'';
+let GEMINI_KEY=sessionStorage.getItem('jgk')||'';
 async function doAuth(){
   const k=document.getElementById('key-input').value.trim();
+  const gk=document.getElementById('gemini-input').value.trim();
   if(!k){document.getElementById('auth-err').textContent='Please enter your secret key.';return;}
   const btn=document.querySelector('#screen-auth .btn');
   document.getElementById('auth-err').textContent='';
@@ -515,18 +521,21 @@ async function doAuth(){
     const r=await fetch(API+'/api/mobile/auth',{method:'POST',headers:{'Content-Type':'application/json','x-jinvoice-key':k},body:JSON.stringify({key:k}),signal:ac.signal});
     clearTimeout(tid);
     const d=await r.json();
-    if(d.ok){KEY=k;sessionStorage.setItem('jik',k);showHome();}
-    else{document.getElementById('auth-err').textContent='Invalid key. Try again.';btn.textContent='Connect →';btn.disabled=false;}
+    if(d.ok){
+      KEY=k;sessionStorage.setItem('jik',k);
+      if(gk){GEMINI_KEY=gk;sessionStorage.setItem('jgk',gk);}else{GEMINI_KEY=sessionStorage.getItem('jgk')||'';}
+      showHome();
+    }else{document.getElementById('auth-err').textContent='Invalid key. Try again.';btn.textContent='Connect →';btn.disabled=false;}
   }catch(e){
     document.getElementById('auth-err').textContent='Cannot reach server: '+(e.message||'network error');
     btn.textContent='Connect →';btn.disabled=false;
   }
 }
-function signOut(){sessionStorage.removeItem('jik');KEY='';show('screen-auth');}
+function signOut(){sessionStorage.removeItem('jik');sessionStorage.removeItem('jgk');KEY='';GEMINI_KEY='';show('screen-auth');}
 (function init(){
   const k=new URLSearchParams(location.search).get('key');
   if(k){document.getElementById('key-input').value=k;doAuth();}
-  else if(KEY)showHome();
+  else if(KEY){if(GEMINI_KEY)document.getElementById('gemini-input').value=GEMINI_KEY;showHome();}
 })();
 // form onsubmit handles Enter/Go key — no extra keydown listener needed
 function show(id){document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));document.getElementById(id).classList.add('active');}
@@ -608,7 +617,9 @@ function renderProcessing(name){
 async function doUpload(file){
   const fd=new FormData();fd.append('file',file,file.name);
   try{
-    const r=await fetch(API+'/api/mobile/upload',{method:'POST',headers:{'x-jinvoice-key':KEY},body:fd});
+    const uploadHeaders={'x-jinvoice-key':KEY};
+    if(GEMINI_KEY)uploadHeaders['x-gemini-key']=GEMINI_KEY;
+    const r=await fetch(API+'/api/mobile/upload',{method:'POST',headers:uploadHeaders,body:fd});
     const d=await r.json();
     if(!d.ok)throw new Error(d.error||'Upload failed');
     renderResult(d.invoice,file);
