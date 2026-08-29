@@ -476,16 +476,19 @@ header h1 span{color:var(--accent)}
   <div class="auth-wrap">
     <div class="logo">j</div>
     <div class="auth-title">jInvoice Mobile</div>
-    <div class="auth-sub">Enter your jInvoice secret key to connect.<br>Optionally add your Gemini AI key for invoice extraction.</div>
+    <div class="auth-sub">Enter your jInvoice secret key to connect.</div>
     <form onsubmit="event.preventDefault();doAuth()" style="width:100%">
       <input id="key-input" class="inp" type="password" placeholder="jInvoice secret key" autocomplete="off" inputmode="text" enterkeyhint="go">
-      <div style="margin-top:12px;position:relative">
-        <input id="gemini-input" class="inp" type="password" placeholder="Gemini AI key (optional)" autocomplete="off" inputmode="text" enterkeyhint="go">
-        <span style="position:absolute;right:12px;top:50%;transform:translateY(-50%);font-size:11px;color:var(--text3);pointer-events:none">optional</span>
-      </div>
       <div id="auth-err" class="err"></div>
       <button type="submit" class="btn btn-primary">Connect &#x2192;</button>
     </form>
+    <div style="margin-top:16px;text-align:center">
+      <button type="button" onclick="toggleGeminiField()" style="background:none;border:none;color:var(--accent);font-size:13px;cursor:pointer;padding:4px 8px">&#x2699; Gemini AI key (optional)</button>
+      <div id="gemini-section" style="display:none;margin-top:8px">
+        <input id="gemini-input" class="inp" type="password" placeholder="Paste your Gemini API key" autocomplete="off">
+        <div style="font-size:11px;color:var(--text3);margin-top:6px;text-align:center">Used for invoice extraction. Leave blank to use server key.</div>
+      </div>
+    </div>
   </div>
 </div>
 <div class="screen" id="screen-home">
@@ -532,10 +535,14 @@ async function doAuth(){
   }
 }
 function signOut(){sessionStorage.removeItem('jik');sessionStorage.removeItem('jgk');KEY='';GEMINI_KEY='';show('screen-auth');}
+function toggleGeminiField(){const s=document.getElementById('gemini-section');s.style.display=s.style.display==='none'?'block':'none';}
 (function init(){
   const k=new URLSearchParams(location.search).get('key');
   if(k){document.getElementById('key-input').value=k;doAuth();}
-  else if(KEY){if(GEMINI_KEY)document.getElementById('gemini-input').value=GEMINI_KEY;showHome();}
+  else if(KEY){
+    if(GEMINI_KEY){document.getElementById('gemini-section').style.display='block';document.getElementById('gemini-input').value=GEMINI_KEY;}
+    showHome();
+  }
 })();
 // form onsubmit handles Enter/Go key — no extra keydown listener needed
 function show(id){document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));document.getElementById(id).classList.add('active');}
