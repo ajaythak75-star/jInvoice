@@ -1,3 +1,5 @@
+import { supabase } from "./supabase";
+
 const SALT = "jinvoice_v1_";
 
 async function hashPassword(password: string): Promise<string> {
@@ -25,8 +27,6 @@ export const auth = {
 
   get isLoggedIn(): boolean {
     if (localStorage.getItem("jinvoice:session") === "1") return true;
-    // Auto-restore session on desktop: if the user has an account and never
-    // explicitly signed out, treat them as still logged in.
     if (localStorage.getItem("jinvoice:signed_out") !== "1" && this.hasAccount) {
       localStorage.setItem("jinvoice:session", "1");
       return true;
@@ -43,6 +43,18 @@ export const auth = {
   },
 
   async createAccount(email: string, password: string): Promise<void> {
+    if (supabase) {
+      const { error: signUpErr } = await supabase.auth.signUp({ email, password });
+      if (signUpErr && !signUpErr.message.toLowerCase().includes("already registered")) {
+        throw new Error(signUpErr.message);
+      }
+      // If user already exists in Supabase, sign in instead
+      if (signUpErr) {
+        const { error: signInErr } = await supabase.auth.signInWithPassword({ email, password });
+        if (signInErr) throw new Error(signInErr.message);
+      }
+    }
+    // Also store locally for offline use and backward compat
     const hash = await hashPassword(password);
     localStorage.removeItem("jinvoice:signed_out");
     localStorage.setItem("jinvoice:auth_email", email);
@@ -52,10 +64,25 @@ export const auth = {
   },
 
   async signIn(password: string): Promise<boolean> {
-    const stored = localStorage.getItem("jinvoice:auth_hash");
-    if (!stored) return false;
-    const hash = await hashPassword(password);
-    if (hash !== stored) return false;
+    const email = this.email;
+    if (!email) return false;
+
+    if (supabase) {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) {
+        // Fall back to local hash for accounts created before Supabase was added
+        const stored = localStorage.getItem("jinvoice:auth_hash");
+        if (!stored) return false;
+        const hash = await hashPassword(password);
+        if (hash !== stored) return false;
+      }
+    } else {
+      const stored = localStorage.getItem("jinvoice:auth_hash");
+      if (!stored) return false;
+      const hash = await hashPassword(password);
+      if (hash !== stored) return false;
+    }
+
     localStorage.removeItem("jinvoice:signed_out");
     localStorage.setItem("jinvoice:session", "1");
     return true;
@@ -64,12 +91,16 @@ export const auth = {
   async changePassword(oldPassword: string, newPassword: string): Promise<boolean> {
     const ok = await this.signIn(oldPassword);
     if (!ok) return false;
+    if (supabase) {
+      await supabase.auth.updateUser({ password: newPassword });
+    }
     const hash = await hashPassword(newPassword);
     localStorage.setItem("jinvoice:auth_hash", hash);
     return true;
   },
 
   signOut(): void {
+    supabase?.auth.signOut().catch(() => {});
     localStorage.removeItem("jinvoice:session");
     localStorage.setItem("jinvoice:signed_out", "1");
   },

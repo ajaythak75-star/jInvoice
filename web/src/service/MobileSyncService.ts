@@ -2,62 +2,68 @@ import { insertInvoiceWithItems } from "../data/InvoiceDatabase";
 import { detectCategory } from "../core/extraction/CategoryDetector";
 import { detectDocType } from "../extraction/DocTypeDetector";
 import { prefs } from "../data/AutoImportPreferences";
+import { supabase } from "../data/supabase";
 
 const POLL_INTERVAL_MS = 30_000;
 let timerId: ReturnType<typeof setInterval> | null = null;
 
-// Render relay info — loaded once on startMobileSync
-let renderInfo: { renderUrl: string; secret: string } | null = null;
-
-async function loadRenderInfo(): Promise<void> {
-  try {
-    const r = await fetch("/api/local-info");
-    if (!r.ok) return;
-    const data = await r.json();
-    if (data.renderUrl && data.secret) {
-      renderInfo = { renderUrl: data.renderUrl, secret: data.secret };
-    }
-  } catch {}
-}
-
-interface CloudInvoice {
+interface MobileInvoiceRow {
   id: number;
-  filename?: string;
-  shopName?: string | null;
+  user_id: string;
+  filename?: string | null;
+  shop_name?: string | null;
   address?: string | null;
   pincode?: string | null;
   phone?: string | null;
-  invoiceNumber?: string | null;
-  gstNumber?: string | null;
-  gstPercent?: string | null;
-  gstAmountInr?: number | null;
-  subtotalInr?: number | null;
-  discountInr?: number | null;
-  finalPaymentInr?: number | null;
-  dateOfPurchase?: string | null;
-  items?: Array<{ name: string; quantity?: number; unitPriceInr?: number | null; amountInr?: number }>;
+  invoice_number?: string | null;
+  gst_number?: string | null;
+  gst_percent?: string | null;
+  gst_amount_inr?: number | null;
+  subtotal_inr?: number | null;
+  discount_inr?: number | null;
+  final_payment_inr?: number | null;
+  date_of_purchase?: string | null;
+  // items stored as camelCase JSONB from Gemini extraction
+  items?: Array<{
+    name: string;
+    quantity?: number;
+    unitPriceInr?: number | null;
+    discountInr?: number | null;
+    amountInr?: number | null;
+  }> | null;
+  pending_sync: boolean;
+  synced_at: string | null;
+  uploaded_at: string;
 }
 
-async function saveAndAck(inv: CloudInvoice, ackUrl: string, headers: Record<string, string>): Promise<void> {
+async function ackInvoice(id: number): Promise<void> {
+  if (!supabase) return;
+  await supabase
+    .from("mobile_invoices")
+    .update({ pending_sync: false, synced_at: new Date().toISOString() })
+    .eq("id", id);
+}
+
+async function saveAndAck(inv: MobileInvoiceRow): Promise<void> {
   const lineItemNames = (inv.items ?? []).map((i) => i.name);
-  const category = detectCategory(inv.shopName ?? null, lineItemNames);
-  const docTypes = detectDocType(inv.shopName ?? null, lineItemNames, inv.filename, undefined);
+  const category = detectCategory(inv.shop_name ?? null, lineItemNames);
+  const docTypes = detectDocType(inv.shop_name ?? null, lineItemNames, inv.filename ?? undefined, undefined);
   const docType = docTypes[0] ?? "other";
   const now = new Date().toISOString();
 
   await insertInvoiceWithItems(
     {
-      merchantName:    inv.shopName    ?? null,
-      merchantAddress: inv.address     ?? null,
-      merchantGstin:   inv.gstNumber   ?? null,
-      merchantPhone:   inv.phone       ?? null,
-      merchantPincode: inv.pincode     ?? null,
-      invoiceNumber:   inv.invoiceNumber ?? null,
-      invoiceDate:     inv.dateOfPurchase ?? null,
-      subtotalPaise:   inv.subtotalInr   != null ? Math.round(inv.subtotalInr * 100)   : null,
-      taxPaise:        inv.gstAmountInr  != null ? Math.round(inv.gstAmountInr * 100)  : null,
-      discountPaise:   inv.discountInr   != null ? Math.round(inv.discountInr * 100)   : 0,
-      grandTotalPaise: inv.finalPaymentInr != null ? Math.round(inv.finalPaymentInr * 100) : null,
+      merchantName:    inv.shop_name        ?? null,
+      merchantAddress: inv.address          ?? null,
+      merchantGstin:   inv.gst_number       ?? null,
+      merchantPhone:   inv.phone            ?? null,
+      merchantPincode: inv.pincode          ?? null,
+      invoiceNumber:   inv.invoice_number   ?? null,
+      invoiceDate:     inv.date_of_purchase ?? null,
+      subtotalPaise:   inv.subtotal_inr     != null ? Math.round(inv.subtotal_inr * 100)     : null,
+      taxPaise:        inv.gst_amount_inr   != null ? Math.round(inv.gst_amount_inr * 100)   : null,
+      discountPaise:   inv.discount_inr     != null ? Math.round(inv.discount_inr * 100)     : 0,
+      grandTotalPaise: inv.final_payment_inr != null ? Math.round(inv.final_payment_inr * 100) : null,
       paymentMode:     null,
       importSource:    "mobile_sync",
       pdfSourceType:   "SCANNED_PDF",
@@ -66,7 +72,7 @@ async function saveAndAck(inv: CloudInvoice, ackUrl: string, headers: Record<str
       category,
       docType,
       docTypes,
-      sourceFilename:  inv.filename,
+      sourceFilename:  inv.filename ?? undefined,
       createdAt: now,
       updatedAt: now,
     },
@@ -77,54 +83,42 @@ async function saveAndAck(inv: CloudInvoice, ackUrl: string, headers: Record<str
         ? Math.round(it.unitPriceInr * 100)
         : it.amountInr != null ? Math.round(it.amountInr * 100) : 0,
       totalPricePaise: it.amountInr != null ? Math.round(it.amountInr * 100) : 0,
-      discountPaise:   0,
+      discountPaise:   it.discountInr != null ? Math.round(it.discountInr * 100) : 0,
     })),
   );
 
-  await fetch(ackUrl, { method: "POST", headers });
-}
-
-async function pullFrom(pendingUrl: string, ackBase: string, headers: Record<string, string>): Promise<number> {
-  const resp = await fetch(pendingUrl, { headers });
-  if (!resp.ok) return 0;
-  const pending: CloudInvoice[] = await resp.json();
-  let count = 0;
-  for (const inv of pending) {
-    try {
-      await saveAndAck(inv, `${ackBase}/${inv.id}`, headers);
-      count++;
-    } catch (e) {
-      console.warn("[MobileSync] failed to save invoice", inv.id, e);
-    }
-  }
-  return count;
+  await ackInvoice(inv.id);
 }
 
 async function syncOnce(): Promise<void> {
   if (!prefs.mobileSyncEnabled) return;
+  if (!supabase) return;
+
   try {
-    let total = 0;
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
 
-    // LAN source — localhost bypass, no key needed
-    try {
-      total += await pullFrom("/api/desktop/pending", "/api/desktop/ack", {});
-    } catch {}
+    const { data: pending, error } = await supabase
+      .from("mobile_invoices")
+      .select("*")
+      .eq("pending_sync", true)
+      .is("synced_at", null);
 
-    // Render relay source — requires secret key header
-    if (renderInfo) {
+    if (error || !pending?.length) return;
+
+    let count = 0;
+    for (const inv of pending) {
       try {
-        const h = { "x-jinvoice-key": renderInfo.secret };
-        total += await pullFrom(
-          `${renderInfo.renderUrl}/api/desktop/pending`,
-          `${renderInfo.renderUrl}/api/desktop/ack`,
-          h,
-        );
-      } catch {}
+        await saveAndAck(inv as MobileInvoiceRow);
+        count++;
+      } catch (e) {
+        console.warn("[MobileSync] failed to save invoice", inv.id, e);
+      }
     }
 
-    if (total > 0) {
+    if (count > 0) {
       window.dispatchEvent(new CustomEvent("jinvoice:sync-complete"));
-      console.log(`[MobileSync] pulled ${total} invoice(s)`);
+      console.log(`[MobileSync] pulled ${count} invoice(s)`);
     }
   } catch (e) {
     console.warn("[MobileSync] poll error:", e);
@@ -133,7 +127,6 @@ async function syncOnce(): Promise<void> {
 
 export async function startMobileSync(): Promise<void> {
   if (timerId) return;
-  await loadRenderInfo();
   syncOnce();
   timerId = setInterval(syncOnce, POLL_INTERVAL_MS);
 }
