@@ -609,60 +609,74 @@ body.nav-visible .fab{bottom:calc(72px + env(safe-area-inset-bottom))}
   </div></div>
 </div>
 
-<!-- ── FAQ screen ─────────────────────── -->
+<!-- ── FAQ & Support screen ──────────────── -->
 <div class="screen" id="screen-faq">
-  <header><h1>j<span>Invoice</span></h1><span style="font-size:13px;font-weight:600;color:var(--text2)">FAQ</span></header>
+  <header><h1>j<span>Invoice</span></h1><span style="font-size:13px;font-weight:600;color:var(--text2)">FAQ &amp; Support</span></header>
   <div class="info-scroll"><div style="padding:16px">
-    <div style="border:1.5px solid var(--border);border-radius:14px;overflow:hidden">
+    <div style="border:1.5px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:20px">
       <div class="faq-item"><button class="faq-q" onclick="faqToggle(this)">What file types can I import?<span class="faq-chev">&#x2303;</span></button><div class="faq-a">jInvoice supports PDF invoices (text-based and scanned) and images captured via the camera. Gmail and Outlook attachments are handled automatically on the desktop app.</div></div>
       <div class="faq-item"><button class="faq-q" onclick="faqToggle(this)">What is the jInvoice Secret?<span class="faq-chev">&#x2303;</span></button><div class="faq-a">The jInvoice Secret is a password you set in Settings &rarr; API Keys on the desktop. It secures the mobile sync endpoint so only your devices can push invoices.</div></div>
       <div class="faq-item"><button class="faq-q" onclick="faqToggle(this)">What is the Cloud URL for mobile sync?<span class="faq-chev">&#x2303;</span></button><div class="faq-a">The Cloud URL lets your phone send invoices from anywhere &mdash; on mobile data or any Wi-Fi. Find it in Settings &rarr; Mobile Sync &rarr; Copy Cloud URL on the desktop app.</div></div>
       <div class="faq-item"><button class="faq-q" onclick="faqToggle(this)">What is the Local URL for mobile sync?<span class="faq-chev">&#x2303;</span></button><div class="faq-a">The Local URL works only when your phone and desktop are on the same Wi-Fi network. It is faster because it transfers directly without going through the internet.</div></div>
       <div class="faq-item"><button class="faq-q" onclick="faqToggle(this)">Is my data stored on the cloud?<span class="faq-chev">&#x2303;</span></button><div class="faq-a">Invoices are stored locally on your desktop using IndexedDB. Cloud sync (Supabase) is available on both Free and Pro plans as a backup and for mobile access.</div></div>
-      <div class="faq-item" style="border-bottom:none"><button class="faq-q" onclick="faqToggle(this)">How do I contact support?<span class="faq-chev">&#x2303;</span></button><div class="faq-a">Use the Feedback screen or email support@jinvoice.app. Pro users receive a response within 48 hours; Free users within 7 days.</div></div>
+      <div class="faq-item" style="border-bottom:none"><button class="faq-q" onclick="faqToggle(this)">What is the daily invoice limit?<span class="faq-chev">&#x2303;</span></button><div class="faq-a">Free plan: up to 5 invoices per day (resets at midnight). Pro plan: unlimited.</div></div>
+    </div>
+    <!-- Support -->
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+      <div style="flex:1;height:1px;background:var(--border)"></div>
+      <span style="font-size:10.5px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.07em">Support</span>
+      <div style="flex:1;height:1px;background:var(--border)"></div>
+    </div>
+    <a href="mailto:support@jinvoice.app" style="display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:12px;border:1.5px solid var(--border);background:var(--surface);text-decoration:none;color:var(--text);margin-bottom:10px">
+      <span style="font-size:20px">&#x2709;&#xFE0F;</span>
+      <div><div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.05em">Email</div><div style="font-size:13px;font-weight:600;margin-top:2px">support@jinvoice.app</div></div>
+    </a>
+    <div style="display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:12px;border:1.5px solid var(--border);background:var(--surface);margin-bottom:16px">
+      <span style="font-size:20px">&#x1F550;</span>
+      <div><div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.05em">Response time</div><div style="font-size:13px;font-weight:600;margin-top:2px">Pro: 48 hrs &bull; Free: 7 days</div></div>
     </div>
   </div></div>
 </div>
 
-<!-- ── About screen ───────────────────── -->
+<!-- ── About & Feedback screen ───────────── -->
 <div class="screen" id="screen-about">
   <header><h1>j<span>Invoice</span></h1><span style="font-size:13px;font-weight:600;color:var(--text2)">About</span></header>
   <div class="info-scroll"><div style="padding:16px">
-    <div style="text-align:center;padding:24px 0 20px">
-      <div style="width:72px;height:72px;background:var(--accent);border-radius:20px;display:flex;align-items:center;justify-content:center;font-size:34px;font-weight:800;color:#fff;margin:0 auto 14px;box-shadow:0 6px 24px rgba(92,62,240,.3)">j</div>
+    <div style="text-align:center;padding:20px 0 16px">
+      <div style="width:68px;height:68px;background:var(--accent);border-radius:20px;display:flex;align-items:center;justify-content:center;font-size:32px;font-weight:800;color:#fff;margin:0 auto 12px;box-shadow:0 6px 24px rgba(92,62,240,.3)">j</div>
       <div style="font-size:22px;font-weight:800;color:var(--text);letter-spacing:-.3px">jInvoice</div>
       <div style="font-size:13px;color:var(--text2);margin-top:3px">Version 1.0.0 &bull; Mobile</div>
     </div>
-    <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:14px;padding:18px;margin-bottom:12px">
-      <p style="font-size:14px;color:var(--text);line-height:1.7;margin:0">jInvoice is a private, AI-powered invoice manager for individuals and small businesses in India. Import invoices from email, camera, or file &mdash; jInvoice extracts the details automatically.</p>
+    <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:14px;padding:16px;margin-bottom:10px">
+      <p style="font-size:13.5px;color:var(--text);line-height:1.7;margin:0">jInvoice is a private, AI-powered invoice manager for individuals and small businesses in India. Import invoices from email, camera, or file &mdash; jInvoice extracts the details automatically.</p>
     </div>
-    <div style="display:flex;flex-direction:column;gap:8px">
-      <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:12px;padding:14px 16px;display:flex;gap:12px">
-        <span style="font-size:20px">&#x1F512;</span>
+    <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:10px">
+      <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:12px;padding:12px 14px;display:flex;gap:12px">
+        <span style="font-size:18px">&#x1F512;</span>
         <div><div style="font-size:13px;font-weight:700;color:var(--text)">Privacy First</div><div style="font-size:12px;color:var(--text2);margin-top:2px;line-height:1.5">Your invoices are stored on your device. Cloud sync is opt-in.</div></div>
       </div>
-      <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:12px;padding:14px 16px;display:flex;gap:12px">
-        <span style="font-size:20px">&#x1F1EE;&#x1F1F3;</span>
+      <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:12px;padding:12px 14px;display:flex;gap:12px">
+        <span style="font-size:18px">&#x1F1EE;&#x1F1F3;</span>
         <div><div style="font-size:13px;font-weight:700;color:var(--text)">Built for India</div><div style="font-size:12px;color:var(--text2);margin-top:2px;line-height:1.5">GST extraction, INR amounts, and Indian tax categories handled natively.</div></div>
       </div>
     </div>
-    <div style="text-align:center;font-size:11.5px;color:var(--text3);margin-top:20px;line-height:1.6">&copy; 2025 jInvoice. Built with care in India.</div>
-  </div></div>
-</div>
+    <div style="text-align:center;font-size:11px;color:var(--text3);margin-bottom:20px;line-height:1.6">&copy; 2025 jInvoice. Built with care in India.</div>
 
-<!-- ── Feedback screen ────────────────── -->
-<div class="screen" id="screen-feedback">
-  <header><h1>j<span>Invoice</span></h1><span style="font-size:13px;font-weight:600;color:var(--text2)">Feedback</span></header>
-  <div class="info-scroll"><div style="padding:16px">
-    <div id="fb-thanks" style="display:none;text-align:center;padding:48px 0">
-      <div style="font-size:48px;margin-bottom:16px">&#x1F64F;</div>
-      <div style="font-size:20px;font-weight:700;color:var(--text);margin-bottom:8px">Thank you!</div>
-      <div style="font-size:14px;color:var(--text2);line-height:1.6">Your feedback helps make jInvoice better for everyone.</div>
-      <button class="btn btn-primary" onclick="resetFeedback()" style="margin-top:20px">Send Another</button>
+    <!-- Feedback section -->
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+      <div style="flex:1;height:1px;background:var(--border)"></div>
+      <span style="font-size:10.5px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.07em">Feedback</span>
+      <div style="flex:1;height:1px;background:var(--border)"></div>
+    </div>
+    <div id="fb-thanks" style="display:none;text-align:center;padding:32px 0">
+      <div style="font-size:44px;margin-bottom:12px">&#x1F64F;</div>
+      <div style="font-size:18px;font-weight:700;color:var(--text);margin-bottom:8px">Thank you!</div>
+      <div style="font-size:13.5px;color:var(--text2);line-height:1.6">Your feedback helps make jInvoice better for everyone.</div>
+      <button class="btn btn-primary" onclick="resetFeedback()" style="margin-top:16px">Send Another</button>
     </div>
     <div id="fb-form">
-      <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:14px;padding:18px;margin-bottom:14px">
-        <div style="font-size:12px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Overall Rating</div>
+      <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:14px;padding:16px;margin-bottom:10px">
+        <div style="font-size:11.5px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Overall Rating</div>
         <div style="display:flex;gap:4px" id="star-row">
           <button class="star-btn" onclick="setFbRating(1)">&#x2606;</button>
           <button class="star-btn" onclick="setFbRating(2)">&#x2606;</button>
@@ -671,14 +685,14 @@ body.nav-visible .fab{bottom:calc(72px + env(safe-area-inset-bottom))}
           <button class="star-btn" onclick="setFbRating(5)">&#x2606;</button>
         </div>
       </div>
-      <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:14px;padding:18px;margin-bottom:14px">
-        <div style="font-size:12px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Category</div>
+      <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:14px;padding:16px;margin-bottom:10px">
+        <div style="font-size:11.5px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Category</div>
         <select id="fb-cat" class="inp"><option>Bug report</option><option>Feature request</option><option>Suggestion</option><option>Compliment</option><option>Other</option></select>
       </div>
-      <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:14px;padding:18px;margin-bottom:14px">
-        <div style="font-size:12px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Message <span style="color:var(--danger)">*</span></div>
+      <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:14px;padding:16px;margin-bottom:10px">
+        <div style="font-size:11.5px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Message <span style="color:var(--danger)">*</span></div>
         <textarea id="fb-message" class="inp" rows="4" placeholder="Tell us what you think&hellip;" style="resize:vertical;font-family:inherit"></textarea>
-        <div id="fb-err" style="font-size:12px;color:var(--danger);margin-top:6px;min-height:18px"></div>
+        <div id="fb-err" style="font-size:12px;color:var(--danger);margin-top:6px;min-height:16px"></div>
       </div>
       <button class="btn btn-primary" onclick="submitFeedback()">Send Feedback &#x2192;</button>
       <div style="font-size:11px;color:var(--text3);margin-top:10px;text-align:center;line-height:1.5">Opens your email client with the message pre-filled.</div>
@@ -1019,9 +1033,8 @@ function resetFeedback(){
   <div class="more-hnd"></div>
   <div class="more-grd">
     <button class="more-itm" onclick="navMore('settings')"><span class="more-mi">&#x2699;&#xFE0F;</span>Settings</button>
-    <button class="more-itm" onclick="navMore('faq')"><span class="more-mi">&#x2753;</span>FAQ</button>
-    <button class="more-itm" onclick="navMore('about')"><span class="more-mi">&#x2139;&#xFE0F;</span>About Us</button>
-    <button class="more-itm" onclick="navMore('feedback')"><span class="more-mi">&#x1F44D;</span>Feedback</button>
+    <button class="more-itm" onclick="navMore('faq')"><span class="more-mi">&#x2753;</span>FAQ &amp; Support</button>
+    <button class="more-itm" onclick="navMore('about')"><span class="more-mi">&#x2139;&#xFE0F;</span>About &amp; Feedback</button>
   </div>
 </div>
 </body>

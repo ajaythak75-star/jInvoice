@@ -66,23 +66,10 @@ const FAQIcon = () => (
   </svg>
 );
 
-const SupportIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
-  </svg>
-);
-
 const AboutIcon = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
     <circle cx="12" cy="12" r="10" />
     <path d="M12 16v-4M12 8h.01" />
-  </svg>
-);
-
-const FeedbackIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M14 9V5a3 3 0 00-3-3l-4 9v11h11.28a2 2 0 002-1.7l1.38-9a2 2 0 00-2-2.3H14z" />
-    <path d="M7 22H4a2 2 0 01-2-2v-7a2 2 0 012-2h3" />
   </svg>
 );
 
@@ -94,11 +81,9 @@ const NAV_ITEMS = [
   { id: "rewards",  label: "Rewards",  Icon: RewardsIcon  },
   { id: "security", label: "Security", Icon: SecurityIcon },
   { id: "pricing",  label: "Price",    Icon: PricingIcon  },
-  { id: "settings", label: "Settings", Icon: SettingsIcon },
-  { id: "faq",      label: "FAQ",      Icon: FAQIcon      },
-  { id: "support",  label: "Support",  Icon: SupportIcon  },
-  { id: "about",    label: "About",    Icon: AboutIcon    },
-  { id: "feedback", label: "Feedback", Icon: FeedbackIcon },
+  { id: "settings", label: "Settings",    Icon: SettingsIcon },
+  { id: "faq",      label: "FAQ & Support", Icon: FAQIcon   },
+  { id: "about",    label: "About",         Icon: AboutIcon },
 ];
 
 // Primary tabs always visible in the mobile bottom bar
@@ -106,14 +91,12 @@ const BOTTOM_PRIMARY = ["import", "view", "alerts", "settings"];
 
 // Items that live in the "More" drawer
 const MORE_ITEMS = [
-  { id: "rewards",  label: "Rewards",  Icon: RewardsIcon  },
-  { id: "pricing",  label: "Price",    Icon: PricingIcon  },
-  { id: "faq",      label: "FAQ",      Icon: FAQIcon      },
-  { id: "support",  label: "Support",  Icon: SupportIcon  },
-  { id: "about",    label: "About",    Icon: AboutIcon    },
-  { id: "feedback", label: "Feedback", Icon: FeedbackIcon },
-  { id: "gst",      label: "Report",   Icon: ReportIcon   },
-  { id: "security", label: "Security", Icon: SecurityIcon },
+  { id: "rewards",  label: "Rewards",      Icon: RewardsIcon  },
+  { id: "pricing",  label: "Price",        Icon: PricingIcon  },
+  { id: "faq",      label: "FAQ & Support", Icon: FAQIcon     },
+  { id: "about",    label: "About",         Icon: AboutIcon   },
+  { id: "gst",      label: "Report",       Icon: ReportIcon   },
+  { id: "security", label: "Security",     Icon: SecurityIcon },
 ];
 
 const MoreIcon = () => (
