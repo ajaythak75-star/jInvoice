@@ -324,7 +324,7 @@ app.get("/auth/outlook/callback", async (req, res) => {
 app.get("/api/local-info", (req, res) => {
   const origin = appOrigin(req);
   const secret = process.env.JINVOICE_SECRET || "jinvoice-change-me";
-  const renderUrl  = process.env.RENDER_URL ?? null;
+  const renderUrl  = process.env.RENDER_EXTERNAL_URL ?? process.env.RENDER_URL ?? null;
   res.json({
     url:              origin,
     secret,
