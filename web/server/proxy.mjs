@@ -707,6 +707,24 @@ body.nav-visible .fab{bottom:calc(72px + env(safe-area-inset-bottom))}
 </div>
 <input type="file" id="camera-input" accept="image/*" capture="environment" style="display:none" onchange="onFileChosen(event)">
 <input type="file" id="folder-input" accept="application/pdf,image/*" style="display:none" onchange="onFileChosen(event)">
+
+<!-- ── Bottom nav ─────────────────────── -->
+<nav class="bottom-nav" id="bottom-nav">
+  <button class="nb active" data-nav="home" onclick="navTo('home')"><span class="nb-icon">&#x1F3E0;</span>Home</button>
+  <button class="nb" data-nav="rewards" onclick="navTo('rewards')"><span class="nb-icon">&#x2B50;</span>Rewards</button>
+  <button class="nb" data-nav="price" onclick="navTo('price')"><span class="nb-icon">&#x1F48E;</span>Price</button>
+  <button class="nb" data-nav="more" onclick="openMore()"><span class="nb-icon">&#x22EF;</span>More</button>
+</nav>
+<div class="more-ov" id="more-ov" onclick="closeMore()"></div>
+<div class="more-drw" id="more-drw">
+  <div class="more-hnd"></div>
+  <div class="more-grd">
+    <button class="more-itm" onclick="navMore('settings')"><span class="more-mi">&#x2699;&#xFE0F;</span>Settings</button>
+    <button class="more-itm" onclick="navMore('faq')"><span class="more-mi">&#x2753;</span>FAQ &amp; Support</button>
+    <button class="more-itm" onclick="navMore('about')"><span class="more-mi">&#x2139;&#xFE0F;</span>About &amp; Feedback</button>
+  </div>
+</div>
+
 <script>
 const API=window.location.origin;
 const SB_URL='${SUPABASE_URL}';
@@ -766,12 +784,12 @@ async function signOut(){
   TOKEN='';_authBusy=false;show('screen-auth');hideNav();
 }
 function toggleGeminiField(){var s=document.getElementById('gemini-section');s.style.display=s.style.display==='none'?'block':'none';}
-window.addEventListener('DOMContentLoaded',function(){
+(function(){
   if(TOKEN){
     if(GEMINI_KEY){document.getElementById('gemini-section').style.display='block';document.getElementById('gemini-input').value=GEMINI_KEY;}
     showHome();
   }
-});
+})();
 function show(id){document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));document.getElementById(id).classList.add('active');}
 function showNav(){var n=document.getElementById('bottom-nav');if(n){n.classList.add('visible');document.body.classList.add('nav-visible');}}
 function hideNav(){var n=document.getElementById('bottom-nav');if(n){n.classList.remove('visible');document.body.classList.remove('nav-visible');}}
@@ -1020,22 +1038,5 @@ function resetFeedback(){
   document.getElementById('fb-form').style.display='block';
 }
 </script>
-
-<!-- ── Bottom nav ─────────────────────── -->
-<nav class="bottom-nav" id="bottom-nav">
-  <button class="nb active" data-nav="home" onclick="navTo('home')"><span class="nb-icon">&#x1F3E0;</span>Home</button>
-  <button class="nb" data-nav="rewards" onclick="navTo('rewards')"><span class="nb-icon">&#x2B50;</span>Rewards</button>
-  <button class="nb" data-nav="price" onclick="navTo('price')"><span class="nb-icon">&#x1F48E;</span>Price</button>
-  <button class="nb" data-nav="more" onclick="openMore()"><span class="nb-icon">&#x22EF;</span>More</button>
-</nav>
-<div class="more-ov" id="more-ov" onclick="closeMore()"></div>
-<div class="more-drw" id="more-drw">
-  <div class="more-hnd"></div>
-  <div class="more-grd">
-    <button class="more-itm" onclick="navMore('settings')"><span class="more-mi">&#x2699;&#xFE0F;</span>Settings</button>
-    <button class="more-itm" onclick="navMore('faq')"><span class="more-mi">&#x2753;</span>FAQ &amp; Support</button>
-    <button class="more-itm" onclick="navMore('about')"><span class="more-mi">&#x2139;&#xFE0F;</span>About &amp; Feedback</button>
-  </div>
-</div>
 </body>
 </html>`;
