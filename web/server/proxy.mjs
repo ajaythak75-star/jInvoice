@@ -10,12 +10,15 @@ import multer from "multer";
 const PORT = process.env.PORT ?? 3000;
 const LOCAL_APP = "http://localhost:7823";
 
+const RENDER_URL = process.env.RENDER_EXTERNAL_URL ?? process.env.RENDER_URL ?? null;
+
 function sanitizeReturnTo(raw) {
   try {
     const url = new URL(raw);
     if (url.hostname === "localhost" || url.hostname === "127.0.0.1") return raw;
+    if (RENDER_URL && raw.startsWith(RENDER_URL)) return raw;
   } catch {}
-  return LOCAL_APP;
+  return RENDER_URL ?? LOCAL_APP;
 }
 
 const { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET } = process.env;
