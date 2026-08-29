@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useLiveQuery } from "dexie-react-hooks";
 import { db, type InvoiceMeta, type LineItemRow } from "../../data/InvoiceDatabase";
 import { desktopConnector } from "../../service/AutoImportService";
 import { prefs } from "../../data/AutoImportPreferences";
@@ -179,26 +180,18 @@ function SourceTooltip({ inv }: { inv: InvoiceMeta }) {
 }
 
 export function InvoiceList() {
-  const [invoices, setInvoices]   = useState<InvoiceMeta[]>([]);
-  const [loading, setLoading]     = useState(true);
+  const invoices = useLiveQuery(
+    () => db.invoices.orderBy("id").reverse().limit(100).toArray().then((rows) => rows.filter((r) => r.status !== "downloaded")),
+    [],
+    [] as InvoiceMeta[],
+  );
+  const loading = invoices === undefined;
   const [selected, setSelected]   = useState<{ inv: InvoiceMeta; items: LineItemRow[] } | null>(null);
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
   const [saveResult, setSaveResult] = useState<{ id: number; msg: string; ok: boolean } | null>(null);
   const [downloadingAll, setDownloadingAll] = useState(false);
   const [bulkMsg, setBulkMsg] = useState<string | null>(null);
   const [hoveredId, setHoveredId] = useState<number | null>(null);
-
-  const load = async () => {
-    setLoading(true);
-    try {
-      const rows = await db.invoices.orderBy("id").reverse().limit(100).toArray();
-      setInvoices(rows.filter((r) => r.status !== "downloaded"));
-    } catch (e) {
-      console.error("[jInvoice] Failed to load invoices:", e);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const openDetail = async (inv: InvoiceMeta) => {
     const items = inv.id != null
@@ -221,7 +214,6 @@ export function InvoiceList() {
       const items  = await db.lineItems.where("invoiceId").equals(id).toArray();
       const result = await downloadInvoicePdf(inv, items, folderReady);
       await db.invoices.update(id, { status: "downloaded", updatedAt: new Date().toISOString() });
-      setInvoices((prev) => prev.filter((i) => i.id !== id));
       const msg = result === "folder"
         ? `Saved to ${prefs.desktopFolderName}`
         : "Downloaded to browser";
@@ -259,7 +251,6 @@ export function InvoiceList() {
         await downloadInvoicePdf(inv, items, folderReady);
         await db.invoices.update(id, { status: "downloaded", updatedAt: new Date().toISOString() });
         successCount++;
-        setInvoices((prev) => prev.filter((i) => i.id !== id));
       } catch (err) {
         console.error("[jInvoice] bulk download failed for id", id, err);
       }
@@ -276,7 +267,6 @@ export function InvoiceList() {
   };
 
   useEffect(() => {
-    load();
     if (prefs.desktopFolderName) desktopConnector.preloadHandle();
   }, []);
 
@@ -307,7 +297,6 @@ export function InvoiceList() {
                 {downloadingAll ? "Downloading…" : "↓ Download All"}
               </button>
             )}
-            <button className="btn-sm" onClick={load} disabled={downloadingAll}>Refresh</button>
           </div>
         </div>
         {invoices.map((inv) => {

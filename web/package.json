@@ -18,6 +18,7 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.112.4",
     "dexie": "^3.2.7",
+    "dexie-react-hooks": "^4.4.0",
     "express": "^5.2.1",
     "jspdf": "^4.2.1",
     "multer": "^1.4.5-lts.2",
