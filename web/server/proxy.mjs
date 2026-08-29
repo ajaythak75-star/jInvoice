@@ -22,6 +22,8 @@ function sanitizeReturnTo(raw) {
 }
 
 const { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET } = process.env;
+const SUPABASE_URL      = process.env.SUPABASE_URL      ?? "";
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY ?? "";
 
 const GMAIL_SCOPE        = "https://www.googleapis.com/auth/gmail.readonly email openid";
 const GOOGLE_LOGIN_SCOPE = "openid email profile";
@@ -33,23 +35,42 @@ app.use(express.json({ limit: "1mb" }));
 // CORS for desktop app (http://localhost:7823) calling cross-origin Render endpoints
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", LOCAL_APP);
-  res.header("Access-Control-Allow-Headers", "Content-Type, x-jinvoice-key");
+  res.header("Access-Control-Allow-Headers", "Content-Type, x-jinvoice-key, Authorization");
+  res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   if (req.method === "OPTIONS") return res.sendStatus(204);
   next();
 });
 
-// ── Mobile relay — in-memory store ───────────────────────────────────────────
-// Data is ephemeral (lost on Render restart), but that's fine:
-// the flow is upload → send to desktop → ack, which completes in seconds.
+// ── Per-user relay — in-memory, no cloud writes ───────────────────────────────
+// Mobile saves invoices in phone localStorage; taps "Send to Desktop" to queue
+// here; desktop polls and acks. 5-day TTL, max 5 per user.
 
-let mobileDb = { invoices: [], nextId: 1 };
+const relay = new Map(); // Map<userId, [{id,ts,...snakeCaseFields}]>
+let _relayId = 0;
+const RELAY_TTL_MS       = 5 * 24 * 60 * 60 * 1000;
+const MAX_RELAY_PER_USER = 5;
 
-function getSecret() { return process.env.JINVOICE_SECRET || "jinvoice-change-me"; }
+function pruneRelay() {
+  const cutoff = Date.now() - RELAY_TTL_MS;
+  for (const [uid, rows] of relay) {
+    const fresh = rows.filter(r => r.ts > cutoff);
+    if (fresh.length) relay.set(uid, fresh); else relay.delete(uid);
+  }
+}
+setInterval(pruneRelay, 60 * 60 * 1000).unref();
 
-function mobileAuth(req, res, next) {
-  const key = req.headers["x-jinvoice-key"] || req.query.key;
-  if (key !== getSecret()) return res.status(401).json({ error: "invalid key" });
-  next();
+async function validateSupabaseJWT(token) {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !token) return null;
+  try {
+    const r = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+      headers: { Authorization: `Bearer ${token}`, apikey: SUPABASE_ANON_KEY },
+    });
+    if (!r.ok) return null;
+    const user = await r.json();
+    return user.id ?? null;
+  } catch {
+    return null;
+  }
 }
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
@@ -59,26 +80,38 @@ app.get("/mobile", (_req, res) => {
   res.send(MOBILE_HTML);
 });
 
-app.post("/api/mobile/auth", (req, res) => {
-  const key = req.headers["x-jinvoice-key"] || req.body?.key;
-  res.json({ ok: key === getSecret() });
-});
+// Upload: Gemini extraction → return data (not stored server-side; mobile saves to localStorage)
+app.post("/api/mobile/upload", upload.single("file"), async (req, res) => {
+  const token = (req.headers.authorization ?? "").replace(/^Bearer\s+/i, "");
+  const userId = await validateSupabaseJWT(token);
+  if (!userId) return res.status(401).json({ error: "Unauthorized. Please sign in again." });
 
-app.post("/api/mobile/upload", mobileAuth, upload.single("file"), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "no file attached" });
-  const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
-  if (!apiKey) return res.status(503).json({ error: "GEMINI_API_KEY not configured on server" });
+  const apiKey = req.headers["x-gemini-key"] || process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
+  if (!apiKey) return res.status(503).json({ error: "No Gemini API key configured on server." });
   try {
     const data = await extractWithGemini(req.file.buffer, req.file.mimetype, apiKey);
     const inv = {
-      id: mobileDb.nextId++,
-      filename: req.file.originalname || "upload",
-      uploadedAt: new Date().toISOString(),
-      pendingSync: false,
-      syncedAt: null,
-      ...data,
+      id:               ++_relayId,
+      user_id:          userId,
+      filename:         req.file.originalname || "upload",
+      shop_name:        data.shopName        ?? null,
+      address:          data.address         ?? null,
+      pincode:          data.pincode         ?? null,
+      phone:            data.phone           ?? null,
+      invoice_number:   data.invoiceNumber   ?? null,
+      gst_number:       data.gstNumber       ?? null,
+      gst_percent:      data.gstPercent      ?? null,
+      gst_amount_inr:   data.gstAmountInr    ?? null,
+      subtotal_inr:     data.subtotalInr     ?? null,
+      discount_inr:     data.discountInr     ?? null,
+      final_payment_inr: data.finalPaymentInr ?? null,
+      date_of_purchase: data.dateOfPurchase  ?? null,
+      items:            data.items           ?? null,
+      uploaded_at:      new Date().toISOString(),
+      pending_sync:     false,
+      synced_at:        null,
     };
-    mobileDb.invoices.unshift(inv);
     res.json({ ok: true, invoice: inv });
   } catch (e) {
     console.error("[mobile upload]", e);
@@ -86,26 +119,41 @@ app.post("/api/mobile/upload", mobileAuth, upload.single("file"), async (req, re
   }
 });
 
-app.get("/api/mobile/invoices", mobileAuth, (_req, res) => {
-  res.json(mobileDb.invoices);
+// Queue an invoice for desktop pickup
+app.post("/api/mobile/queue", async (req, res) => {
+  const token = (req.headers.authorization ?? "").replace(/^Bearer\s+/i, "");
+  const userId = await validateSupabaseJWT(token);
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+  const inv = req.body;
+  if (!inv || typeof inv !== "object") return res.status(400).json({ error: "no data" });
+  const entry = { ...inv, id: ++_relayId, ts: Date.now(), user_id: userId, pending_sync: true, synced_at: null };
+  const existing = relay.get(userId) ?? [];
+  const trimmed = existing.length >= MAX_RELAY_PER_USER
+    ? existing.slice(existing.length - MAX_RELAY_PER_USER + 1)
+    : existing;
+  relay.set(userId, [...trimmed, entry]);
+  res.json({ ok: true, id: entry.id });
 });
 
-app.post("/api/mobile/invoices/:id/sync", mobileAuth, (req, res) => {
-  const inv = mobileDb.invoices.find(i => i.id === +req.params.id);
-  if (!inv) return res.status(404).json({ error: "not found" });
-  inv.pendingSync = true;
-  res.json({ ok: true });
+// Desktop polls this to get invoices waiting to sync
+app.get("/api/mobile/pending", async (req, res) => {
+  const token = (req.headers.authorization ?? "").replace(/^Bearer\s+/i, "");
+  const userId = await validateSupabaseJWT(token);
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+  pruneRelay();
+  res.json({ invoices: relay.get(userId) ?? [] });
 });
 
-app.get("/api/desktop/pending", mobileAuth, (_req, res) => {
-  res.json(mobileDb.invoices.filter(i => i.pendingSync && !i.syncedAt));
-});
-
-app.post("/api/desktop/ack/:id", mobileAuth, (req, res) => {
-  const inv = mobileDb.invoices.find(i => i.id === +req.params.id);
-  if (!inv) return res.status(404).json({ error: "not found" });
-  inv.pendingSync = false;
-  inv.syncedAt = new Date().toISOString();
+// Desktop calls this after saving invoices locally
+app.post("/api/mobile/ack", async (req, res) => {
+  const token = (req.headers.authorization ?? "").replace(/^Bearer\s+/i, "");
+  const userId = await validateSupabaseJWT(token);
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+  const { ids } = req.body ?? {};
+  if (Array.isArray(ids) && ids.length) {
+    const rows = relay.get(userId) ?? [];
+    relay.set(userId, rows.filter(r => !ids.includes(r.id)));
+  }
   res.json({ ok: true });
 });
 
@@ -336,7 +384,8 @@ app.get("/health", (_req, res) => res.send("ok"));
 app.listen(PORT, () => console.log(`jInvoice proxy+relay running on port ${PORT}`));
 
 // ── Mobile HTML ───────────────────────────────────────────────────────────────
-// (kept at bottom so it doesn't clutter the route definitions above)
+// SB_URL and SB_ANON are injected so the client can call Supabase REST directly.
+// Invoices are saved to phone localStorage only; relay holds them for desktop pickup.
 
 const MOBILE_HTML = `<!DOCTYPE html>
 <html lang="en">
@@ -360,6 +409,9 @@ const MOBILE_HTML = `<!DOCTYPE html>
   :root{--bg:#0a0a14;--surface:#14141f;--surface2:#1c1c2e;--border:#2a2a40;
     --text:#f0f0f8;--text2:#9898b8;--text3:#4a4a6a;--accent-light:#1e1a3f;}
 }
+.auth-tabs{display:flex;width:100%;border:1.5px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:16px}
+.auth-tab{flex:1;padding:10px;border:none;background:transparent;color:var(--text2);font-size:14px;font-weight:600;cursor:pointer;transition:all .15s;touch-action:manipulation}
+.auth-tab.active{background:var(--accent);color:#fff}
 html{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:16px}
 body{min-height:100dvh;padding-bottom:calc(env(safe-area-inset-bottom)+16px)}
 .screen{display:none;flex-direction:column;min-height:100dvh}
@@ -431,19 +483,33 @@ header h1 span{color:var(--accent)}
   <div class="auth-wrap">
     <div class="logo">j</div>
     <div class="auth-title">jInvoice Mobile</div>
-    <div class="auth-sub">Enter your jInvoice secret key to connect.</div>
-    <input id="key-input" class="inp" type="password" placeholder="Secret key" autocomplete="off">
-    <div id="auth-err" class="err"></div>
-    <button class="btn btn-primary" onclick="doAuth()">Connect &#x2192;</button>
+    <div class="auth-sub">Sign in or create an account to capture and sync invoices.</div>
+    <div style="width:100%">
+      <div class="auth-tabs">
+        <button class="auth-tab active" id="tab-signin" onclick="switchTab('signin')">Sign In</button>
+        <button class="auth-tab" id="tab-signup" onclick="switchTab('signup')">Create Account</button>
+      </div>
+      <input id="email-input" class="inp" type="email" placeholder="your@email.com" autocomplete="email" inputmode="email">
+      <input id="password-input" class="inp" type="password" placeholder="Password" autocomplete="current-password" style="margin-top:10px" onkeydown="if(event.key==='Enter'){event.preventDefault();doAuth();}">
+      <div id="auth-err" class="err"></div>
+      <button id="connect-btn" class="btn btn-primary" onclick="doAuth()">Sign In &#x2192;</button>
+    </div>
+    <div style="margin-top:16px;text-align:center">
+      <button type="button" onclick="toggleGeminiField()" style="background:none;border:none;color:var(--accent);font-size:13px;cursor:pointer;padding:4px 8px">&#x2699; Gemini AI key (optional)</button>
+      <div id="gemini-section" style="display:none;margin-top:8px">
+        <input id="gemini-input" class="inp" type="password" placeholder="Paste your Gemini API key" autocomplete="off">
+        <div style="font-size:11px;color:var(--text3);margin-top:6px;text-align:center">Used for invoice extraction. Leave blank to use server key.</div>
+      </div>
+    </div>
   </div>
 </div>
 <div class="screen" id="screen-home">
   <header>
     <h1>j<span>Invoice</span></h1>
-    <button class="icon-btn" onclick="signOut()" title="Sign out" aria-label="Sign out">&#x2935;</button>
+    <button class="icon-btn" onclick="signOut()" title="Sign out">&#x2935;</button>
   </header>
   <div class="list" id="invoice-list">
-    <div class="empty"><div class="empty-icon">&#x1F9FE;</div><div>No invoices yet.<br>Tap + to upload or photograph an invoice.</div></div>
+    <div class="empty"><div class="empty-icon">&#x1F9FE;</div><div>No invoices yet.<br>Tap + to photograph or upload an invoice.</div></div>
   </div>
   <button class="fab" onclick="openSheet()" aria-label="Add invoice">+</button>
 </div>
@@ -456,64 +522,103 @@ header h1 span{color:var(--accent)}
 <input type="file" id="folder-input" accept="application/pdf,image/*" style="display:none" onchange="onFileChosen(event)">
 <script>
 const API=window.location.origin;
-let KEY=sessionStorage.getItem('jik')||'';
-async function doAuth(){
-  const k=document.getElementById('key-input').value.trim();
-  if(!k){document.getElementById('auth-err').textContent='Please enter your secret key.';return;}
-  const btn=document.querySelector('#screen-auth .btn');
+const SB_URL='${SUPABASE_URL}';
+const SB_ANON='${SUPABASE_ANON_KEY}';
+let TOKEN=sessionStorage.getItem('sb_token')||'';
+let GEMINI_KEY=sessionStorage.getItem('jgk')||'';
+let _authBusy=false;
+let _authMode='signin';
+
+function switchTab(mode){
+  _authMode=mode;
+  document.getElementById('tab-signin').classList.toggle('active',mode==='signin');
+  document.getElementById('tab-signup').classList.toggle('active',mode==='signup');
+  const btn=document.getElementById('connect-btn');
+  btn.textContent=mode==='signin'?'Sign In →':'Create Account →';
+  document.getElementById('password-input').setAttribute('autocomplete',mode==='signin'?'current-password':'new-password');
   document.getElementById('auth-err').textContent='';
-  btn.textContent='Connecting…';btn.disabled=true;
+}
+async function doAuth(){
+  if(_authBusy)return;
+  const email=document.getElementById('email-input').value.trim();
+  const password=document.getElementById('password-input').value;
+  const gk=document.getElementById('gemini-input').value.trim();
+  const errEl=document.getElementById('auth-err');
+  const btn=document.getElementById('connect-btn');
+  if(!email||!email.includes('@')){errEl.textContent='Enter a valid email address.';return;}
+  if(!password||password.length<6){errEl.textContent='Password must be at least 6 characters.';return;}
+  _authBusy=true;errEl.textContent='';btn.textContent='Please wait…';btn.disabled=true;
   try{
-    const r=await fetch(API+'/api/mobile/auth',{method:'POST',headers:{'Content-Type':'application/json','x-jinvoice-key':k},body:JSON.stringify({key:k}),signal:AbortSignal.timeout(8000)});
-    const d=await r.json();
-    if(d.ok){KEY=k;sessionStorage.setItem('jik',k);showHome();}
-    else{document.getElementById('auth-err').textContent='Invalid key. Try again.';btn.textContent='Connect →';btn.disabled=false;}
+    let d;
+    if(_authMode==='signup'){
+      const r=await fetch(SB_URL+'/auth/v1/signup',{method:'POST',headers:{'Content-Type':'application/json',apikey:SB_ANON},body:JSON.stringify({email,password})});
+      d=await r.json();
+      if(!r.ok)throw new Error(d.error_description||d.msg||'Sign up failed');
+      const r2=await fetch(SB_URL+'/auth/v1/token?grant_type=password',{method:'POST',headers:{'Content-Type':'application/json',apikey:SB_ANON},body:JSON.stringify({email,password})});
+      d=await r2.json();
+      if(!r2.ok)throw new Error(d.error_description||d.msg||'Sign in failed after signup');
+    }else{
+      const r=await fetch(SB_URL+'/auth/v1/token?grant_type=password',{method:'POST',headers:{'Content-Type':'application/json',apikey:SB_ANON},body:JSON.stringify({email,password})});
+      d=await r.json();
+      if(!r.ok)throw new Error(d.error_description||d.msg||'Sign in failed');
+    }
+    TOKEN=d.access_token;
+    sessionStorage.setItem('sb_token',TOKEN);
+    sessionStorage.setItem('sb_email',email);
+    if(gk){GEMINI_KEY=gk;sessionStorage.setItem('jgk',gk);}else{GEMINI_KEY=sessionStorage.getItem('jgk')||'';}
+    showHome();
   }catch(e){
-    document.getElementById('auth-err').textContent='Cannot reach server: '+(e.message||'network error');
-    btn.textContent='Connect →';btn.disabled=false;
+    errEl.textContent=e.message||'Authentication failed';
+    btn.textContent=_authMode==='signin'?'Sign In →':'Create Account →';
+    btn.disabled=false;_authBusy=false;
   }
 }
-function signOut(){sessionStorage.removeItem('jik');KEY='';show('screen-auth');}
+async function signOut(){
+  try{await fetch(SB_URL+'/auth/v1/logout',{method:'POST',headers:{apikey:SB_ANON,Authorization:'Bearer '+TOKEN}});}catch{}
+  sessionStorage.removeItem('sb_token');sessionStorage.removeItem('sb_email');
+  TOKEN='';_authBusy=false;show('screen-auth');
+}
+function toggleGeminiField(){var s=document.getElementById('gemini-section');s.style.display=s.style.display==='none'?'block':'none';}
 (function init(){
-  const k=new URLSearchParams(location.search).get('key');
-  if(k){document.getElementById('key-input').value=k;doAuth();}
-  else if(KEY)showHome();
+  if(TOKEN){
+    if(GEMINI_KEY){document.getElementById('gemini-section').style.display='block';document.getElementById('gemini-input').value=GEMINI_KEY;}
+    showHome();
+  }
 })();
-document.getElementById('key-input').addEventListener('keydown',e=>{if(e.key==='Enter')doAuth();});
 function show(id){document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));document.getElementById(id).classList.add('active');}
 function showHome(){show('screen-home');loadInvoices();}
-async function loadInvoices(){
-  try{const r=await fetch(API+'/api/mobile/invoices',{headers:{'x-jinvoice-key':KEY}});renderList(await r.json());}catch{}
-}
+function listKey(){return'jinvoice_list_'+(sessionStorage.getItem('sb_email')||'anon');}
+function saveList(list){try{localStorage.setItem(listKey(),JSON.stringify(list));}catch{}}
+function readList(){try{return JSON.parse(localStorage.getItem(listKey())||'[]');}catch{return[];}}
+function loadInvoices(){renderList(readList());}
 function fmt(v){return v!=null&&v!==''?'&#x20B9;'+Number(v).toFixed(2):'&#x2014;';}
 function fmtDate(s){if(!s)return'&#x2014;';try{return new Date(s).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});}catch{return s;}}
 function esc(s){return s?String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'):'&#x2014;';}
 function renderList(list){
   const el=document.getElementById('invoice-list');
-  if(!list.length){el.innerHTML='<div class="empty"><div class="empty-icon">&#x1F9FE;</div><div>No invoices yet.<br>Tap + to upload or photograph an invoice.</div></div>';return;}
+  if(!list.length){el.innerHTML='<div class="empty"><div class="empty-icon">&#x1F9FE;</div><div>No invoices yet.<br>Tap + to photograph or upload an invoice.</div></div>';return;}
   el.innerHTML=list.map((inv,i)=>{
     const items=(inv.items||[]).map(it=>'<tr><td>'+esc(it.name)+'</td><td>'+fmt(it.amountInr)+'</td></tr>').join('');
-    const syncPart=inv.syncedAt
-      ?'<div class="synced-badge" style="color:var(--success)">&#x2713; Synced to desktop '+fmtDate(inv.syncedAt)+'</div>'
-      :inv.pendingSync
+    const syncPart=inv.synced_at
+      ?'<div class="synced-badge" style="color:var(--success)">&#x2713; Synced to desktop '+fmtDate(inv.synced_at)+'</div>'
+      :inv.pending_sync
       ?'<div class="synced-badge" style="color:var(--warn)">&#x23F3; Waiting for desktop sync&hellip;</div>'
       :'<button class="sync-btn" onclick="markSync('+inv.id+',this)">Send to Desktop &#x2192;</button>';
-    return '<div class="card '+(inv.pendingSync&&!inv.syncedAt?'pending-sync':'')+'" id="inv-'+i+'">'+
+    return '<div class="card '+(inv.pending_sync&&!inv.synced_at?'pending-sync':'')+'" id="inv-'+i+'">'+
       '<div class="card-top" onclick="toggleCard('+i+')">'+
-        '<div class="card-name">'+esc(inv.shopName||inv.filename||'Invoice')+'</div>'+
-        '<div class="card-amount">'+fmt(inv.finalPaymentInr)+'</div>'+
+        '<div class="card-name">'+esc(inv.shop_name||inv.filename||'Invoice')+'</div>'+
+        '<div class="card-amount">'+fmt(inv.final_payment_inr)+'</div>'+
       '</div>'+
-      '<div class="card-meta">'+(inv.dateOfPurchase?'<span>'+fmtDate(inv.dateOfPurchase)+'</span>':'')+
+      '<div class="card-meta">'+(inv.date_of_purchase?'<span>'+fmtDate(inv.date_of_purchase)+'</span>':'')+
         '<span>'+esc(inv.filename||'')+'</span></div>'+
       '<div class="card-detail">'+
         '<div class="detail-grid">'+
           (inv.address?'<div class="field" style="grid-column:1/-1"><label>Address</label><span>'+esc(inv.address)+'</span></div>':'')+
-          '<div class="field"><label>Pincode</label><span>'+esc(inv.pincode)+'</span></div>'+
-          '<div class="field"><label>GST No.</label><span>'+esc(inv.gstNumber)+'</span></div>'+
-          '<div class="field"><label>GST %</label><span>'+esc(inv.gstPercent)+'</span></div>'+
-          '<div class="field"><label>GST Amt</label><span>'+fmt(inv.gstAmountInr)+'</span></div>'+
-          '<div class="field"><label>Discount</label><span>'+fmt(inv.discountInr)+'</span></div>'+
-          '<div class="field"><label>Total</label><span style="color:var(--accent);font-weight:700">'+fmt(inv.finalPaymentInr)+'</span></div>'+
+          '<div class="field"><label>GST No.</label><span>'+esc(inv.gst_number)+'</span></div>'+
+          '<div class="field"><label>GST %</label><span>'+esc(inv.gst_percent)+'</span></div>'+
+          '<div class="field"><label>GST Amt</label><span>'+fmt(inv.gst_amount_inr)+'</span></div>'+
+          '<div class="field"><label>Discount</label><span>'+fmt(inv.discount_inr)+'</span></div>'+
+          '<div class="field"><label>Total</label><span style="color:var(--accent);font-weight:700">'+fmt(inv.final_payment_inr)+'</span></div>'+
         '</div>'+
         (items?'<table class="items-table"><thead><tr><th>Item</th><th style="text-align:right">Amt</th></tr></thead><tbody>'+items+'</tbody></table>':'')+
         syncPart+
@@ -525,21 +630,30 @@ function renderList(list){
 function toggleCard(i){const c=document.getElementById('inv-'+i);c.querySelector('.toggle-row').textContent=c.classList.toggle('open')?'Hide ▴':'Details ▾';}
 async function markSync(id,btn){
   btn.disabled=true;btn.textContent='Sending…';
-  try{await fetch(API+'/api/mobile/invoices/'+id+'/sync',{method:'POST',headers:{'x-jinvoice-key':KEY}});loadInvoices();}
-  catch{btn.disabled=false;btn.textContent='Send to Desktop →';}
+  const list=readList();
+  const inv=list.find(i=>i.id===id);
+  if(!inv){btn.disabled=false;btn.textContent='Send to Desktop →';return;}
+  try{
+    const r=await fetch(API+'/api/mobile/queue',{method:'POST',headers:{Authorization:'Bearer '+TOKEN,'Content-Type':'application/json'},body:JSON.stringify(inv)});
+    const d=await r.json();
+    if(!d.ok)throw new Error(d.error||'failed');
+    inv.pending_sync=true;saveList(list);loadInvoices();
+  }catch{btn.disabled=false;btn.textContent='Send to Desktop →';}
 }
 function openSheet(){renderChoiceStep();document.getElementById('overlay').classList.add('open');setTimeout(()=>document.getElementById('upload-sheet').classList.add('open'),10);}
 function closeSheet(){document.getElementById('upload-sheet').classList.remove('open');document.getElementById('overlay').classList.remove('open');}
+function pickCamera(){document.getElementById('camera-input').click();}
+function pickFolder(){document.getElementById('folder-input').click();}
 function renderChoiceStep(){
   document.getElementById('sheet-body').innerHTML=
     '<div class="sheet-title">Add Invoice</div>'+
     '<div class="sheet-sub">Choose how to capture your invoice.</div>'+
     '<div class="upload-options">'+
-      '<button class="upload-opt" onclick="document.getElementById(\'camera-input\').click()">'+
+      '<button class="upload-opt" onclick="pickCamera()">'+
         '<div class="upload-opt-icon">&#x1F4F7;</div>'+
         '<div><div class="upload-opt-label">Camera</div><div class="upload-opt-sub">Photograph a paper receipt or invoice</div></div>'+
       '</button>'+
-      '<button class="upload-opt" onclick="document.getElementById(\'folder-input\').click()">'+
+      '<button class="upload-opt" onclick="pickFolder()">'+
         '<div class="upload-opt-icon">&#x1F4C1;</div>'+
         '<div><div class="upload-opt-label">From Files</div><div class="upload-opt-sub">Pick a PDF or image from your device</div></div>'+
       '</button>'+
@@ -560,10 +674,14 @@ function renderProcessing(name){
 async function doUpload(file){
   const fd=new FormData();fd.append('file',file,file.name);
   try{
-    const r=await fetch(API+'/api/mobile/upload',{method:'POST',headers:{'x-jinvoice-key':KEY},body:fd});
+    const uploadHeaders={'Authorization':'Bearer '+TOKEN};
+    if(GEMINI_KEY)uploadHeaders['x-gemini-key']=GEMINI_KEY;
+    const r=await fetch(API+'/api/mobile/upload',{method:'POST',headers:uploadHeaders,body:fd});
     const d=await r.json();
     if(!d.ok)throw new Error(d.error||'Upload failed');
-    renderResult(d.invoice,file);
+    const inv=d.invoice;
+    const list=readList();list.unshift(inv);saveList(list);
+    renderResult(inv,file);
   }catch(e){
     document.getElementById('sheet-body').innerHTML=
       '<div class="sheet-title">Error</div>'+
@@ -578,26 +696,34 @@ function renderResult(inv,file){
   const items=(inv.items||[]).map(it=>'<tr><td>'+esc(it.name)+'</td><td style="text-align:right">'+fmt(it.amountInr)+'</td></tr>').join('');
   document.getElementById('sheet-body').innerHTML=
     '<div class="sheet-title">&#x2705; Extracted</div>'+
-    '<div class="sheet-sub">Saved to cloud. Send to desktop when ready.</div>'+
-    (previewUrl?'<img id="cam-prev" class="cam-preview" src="'+previewUrl+'">':'')+
+    '<div class="sheet-sub">Saved on your device. Send to desktop when ready.</div>'+
+    (previewUrl?'<img id="cam-prev" style="width:100%;max-height:220px;object-fit:cover;border-radius:10px;margin-bottom:14px;border:1.5px solid var(--border)" src="'+previewUrl+'">':'')+
     '<div class="result-card">'+
-      '<div class="result-name">'+esc(inv.shopName||inv.filename||'Invoice')+'</div>'+
+      '<div class="result-name">'+esc(inv.shop_name||inv.filename||'Invoice')+'</div>'+
       '<div class="result-grid">'+
-        '<div class="field"><label>Date</label><span>'+fmtDate(inv.dateOfPurchase)+'</span></div>'+
-        '<div class="field"><label>Total</label><span style="color:var(--accent);font-weight:700">'+fmt(inv.finalPaymentInr)+'</span></div>'+
-        '<div class="field"><label>GST No.</label><span>'+esc(inv.gstNumber)+'</span></div>'+
-        '<div class="field"><label>GST %</label><span>'+esc(inv.gstPercent)+'</span></div>'+
-        '<div class="field"><label>Discount</label><span>'+fmt(inv.discountInr)+'</span></div>'+
-        '<div class="field"><label>GST Amt</label><span>'+fmt(inv.gstAmountInr)+'</span></div>'+
+        '<div class="field"><label>Date</label><span>'+fmtDate(inv.date_of_purchase)+'</span></div>'+
+        '<div class="field"><label>Total</label><span style="color:var(--accent);font-weight:700">'+fmt(inv.final_payment_inr)+'</span></div>'+
+        '<div class="field"><label>GST No.</label><span>'+esc(inv.gst_number)+'</span></div>'+
+        '<div class="field"><label>GST %</label><span>'+esc(inv.gst_percent)+'</span></div>'+
+        '<div class="field"><label>Discount</label><span>'+fmt(inv.discount_inr)+'</span></div>'+
+        '<div class="field"><label>GST Amt</label><span>'+fmt(inv.gst_amount_inr)+'</span></div>'+
       '</div>'+
       (items?'<table class="items-table" style="margin-top:10px"><thead><tr><th>Item</th><th style="text-align:right">Amt</th></tr></thead><tbody>'+items+'</tbody></table>':'')+
     '</div>'+
     '<button class="btn btn-primary" onclick="doSyncAndClose('+inv.id+')">Send to Desktop &#x2192;</button>'+
     '<button class="btn btn-secondary" onclick="closeSheet();loadInvoices()">Not now</button>';
-  if(previewUrl){const img=document.getElementById('cam-prev');if(img){img.style.display='block';img.onload=()=>URL.revokeObjectURL(previewUrl);}}
+  if(previewUrl){const img=document.getElementById('cam-prev');if(img){img.onload=()=>URL.revokeObjectURL(previewUrl);}}
 }
 async function doSyncAndClose(id){
-  try{await fetch(API+'/api/mobile/invoices/'+id+'/sync',{method:'POST',headers:{'x-jinvoice-key':KEY}});}catch{}
+  const list=readList();
+  const inv=list.find(i=>i.id===id);
+  if(inv){
+    try{
+      const r=await fetch(API+'/api/mobile/queue',{method:'POST',headers:{Authorization:'Bearer '+TOKEN,'Content-Type':'application/json'},body:JSON.stringify(inv)});
+      const d=await r.json();
+      if(d.ok){inv.pending_sync=true;saveList(list);}
+    }catch{}
+  }
   closeSheet();loadInvoices();
 }
 </script>
