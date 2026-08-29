@@ -41,7 +41,11 @@ if (platform === "win") {
 
 // Zip
 const zipPath = join(outDir, zipName);
-execSync(`cd "${stageDir}" && zip -r "${zipPath}" .`, { stdio: "inherit" });
+if (process.platform === "win32") {
+  execSync(`powershell -Command "Compress-Archive -Path '${stageDir}\\*' -DestinationPath '${zipPath}' -Force"`, { stdio: "inherit" });
+} else {
+  execSync(`cd "${stageDir}" && zip -r "${zipPath}" .`, { stdio: "inherit" });
+}
 rmSync(stageDir, { recursive: true });
 
 console.log(`\nDone! Distributable: release/pkg/${zipName}`);
