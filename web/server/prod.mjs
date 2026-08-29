@@ -477,9 +477,11 @@ header h1 span{color:var(--accent)}
     <div class="logo">j</div>
     <div class="auth-title">jInvoice Mobile</div>
     <div class="auth-sub">Enter your jInvoice secret key to connect.</div>
-    <input id="key-input" class="inp" type="password" placeholder="Secret key" autocomplete="off">
-    <div id="auth-err" class="err"></div>
-    <button class="btn btn-primary" onclick="doAuth()">Connect &#x2192;</button>
+    <form onsubmit="event.preventDefault();doAuth()" style="width:100%">
+      <input id="key-input" class="inp" type="password" placeholder="Secret key" autocomplete="off" inputmode="text" enterkeyhint="go">
+      <div id="auth-err" class="err"></div>
+      <button type="submit" class="btn btn-primary">Connect &#x2192;</button>
+    </form>
   </div>
 </div>
 <div class="screen" id="screen-home">
@@ -509,7 +511,9 @@ async function doAuth(){
   document.getElementById('auth-err').textContent='';
   btn.textContent='Connecting…';btn.disabled=true;
   try{
-    const r=await fetch(API+'/api/mobile/auth',{method:'POST',headers:{'Content-Type':'application/json','x-jinvoice-key':k},body:JSON.stringify({key:k}),signal:AbortSignal.timeout(8000)});
+    const ac=new AbortController();const tid=setTimeout(()=>ac.abort(),8000);
+    const r=await fetch(API+'/api/mobile/auth',{method:'POST',headers:{'Content-Type':'application/json','x-jinvoice-key':k},body:JSON.stringify({key:k}),signal:ac.signal});
+    clearTimeout(tid);
     const d=await r.json();
     if(d.ok){KEY=k;sessionStorage.setItem('jik',k);showHome();}
     else{document.getElementById('auth-err').textContent='Invalid key. Try again.';btn.textContent='Connect →';btn.disabled=false;}
@@ -524,7 +528,7 @@ function signOut(){sessionStorage.removeItem('jik');KEY='';show('screen-auth');}
   if(k){document.getElementById('key-input').value=k;doAuth();}
   else if(KEY)showHome();
 })();
-document.getElementById('key-input').addEventListener('keydown',e=>{if(e.key==='Enter')doAuth();});
+// form onsubmit handles Enter/Go key — no extra keydown listener needed
 function show(id){document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));document.getElementById(id).classList.add('active');}
 function showHome(){show('screen-home');loadInvoices();}
 async function loadInvoices(){
