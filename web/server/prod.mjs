@@ -370,15 +370,15 @@ app.post("/api/gemini", async (req, res) => {
 
 // ── Static files + SPA fallback ────────────────────────────────────────────
 
-app.use(express.static(DIST));
-
-// On mobile, redirect root to /mobile; on desktop show the React SPA
-app.get("/*path", (req, res) => {
+// Mobile redirect must come before express.static (which would serve index.html for /)
+app.get("/", (req, res, next) => {
   const ua = req.headers["user-agent"] ?? "";
-  const isMobile = /android|iphone|ipad|ipod|mobile/i.test(ua);
-  if (isMobile && (req.path === "/" || req.path === "")) return res.redirect("/mobile");
-  res.sendFile(join(DIST, "index.html"));
+  if (/android|iphone|ipad|ipod|mobile/i.test(ua)) return res.redirect("/mobile");
+  next();
 });
+
+app.use(express.static(DIST));
+app.get("/*path", (_req, res) => res.sendFile(join(DIST, "index.html")));
 
 app.listen(PORT, () => console.log(`jInvoice running on http://localhost:${PORT}`));
 
