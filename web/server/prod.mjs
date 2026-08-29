@@ -416,7 +416,7 @@ body{min-height:100dvh;padding-bottom:calc(env(safe-area-inset-bottom)+16px)}
 .auth-sub{font-size:14px;color:var(--text2);text-align:center;margin-bottom:32px;line-height:1.5}
 .inp{width:100%;padding:14px 16px;border:1.5px solid var(--border);border-radius:12px;background:var(--surface);color:var(--text);font-size:15px;outline:none;-webkit-appearance:none}
 .inp:focus{border-color:var(--accent)}
-.btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:15px;border:none;border-radius:12px;font-size:15px;font-weight:600;cursor:pointer;transition:opacity .15s;-webkit-appearance:none}
+.btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:15px;border:none;border-radius:12px;font-size:15px;font-weight:600;cursor:pointer;transition:opacity .15s;-webkit-appearance:none;touch-action:manipulation;user-select:none;-webkit-user-select:none}
 .btn-primary{background:var(--accent);color:#fff;margin-top:12px}
 .btn-primary:active{opacity:.85}
 .btn-secondary{background:var(--surface2);color:var(--accent);border:1.5px solid var(--border);margin-top:8px}
@@ -477,11 +477,11 @@ header h1 span{color:var(--accent)}
     <div class="logo">j</div>
     <div class="auth-title">jInvoice Mobile</div>
     <div class="auth-sub">Enter your jInvoice secret key to connect.</div>
-    <form onsubmit="event.preventDefault();doAuth()" style="width:100%">
-      <input id="key-input" class="inp" type="password" placeholder="jInvoice secret key" autocomplete="off" inputmode="text" enterkeyhint="go">
+    <div style="width:100%">
+      <input id="key-input" class="inp" type="password" placeholder="jInvoice secret key" autocomplete="off" inputmode="text" enterkeyhint="go" onkeydown="if(event.key==='Enter'){event.preventDefault();doAuth();}">
       <div id="auth-err" class="err"></div>
-      <button type="submit" class="btn btn-primary">Connect &#x2192;</button>
-    </form>
+      <button class="btn btn-primary" onclick="doAuth()">Connect &#x2192;</button>
+    </div>
     <div style="margin-top:16px;text-align:center">
       <button type="button" onclick="toggleGeminiField()" style="background:none;border:none;color:var(--accent);font-size:13px;cursor:pointer;padding:4px 8px">&#x2699; Gemini AI key (optional)</button>
       <div id="gemini-section" style="display:none;margin-top:8px">
