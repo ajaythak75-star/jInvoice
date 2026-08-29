@@ -480,7 +480,7 @@ header h1 span{color:var(--accent)}
     <div style="width:100%">
       <input id="key-input" class="inp" type="password" placeholder="jInvoice secret key" autocomplete="off" inputmode="text" enterkeyhint="go" onkeydown="if(event.key==='Enter'){event.preventDefault();doAuth();}">
       <div id="auth-err" class="err"></div>
-      <button class="btn btn-primary" onclick="doAuth()">Connect &#x2192;</button>
+      <button id="connect-btn" class="btn btn-primary" onclick="doAuth()">Connect &#x2192;</button>
     </div>
     <div style="margin-top:16px;text-align:center">
       <button type="button" onclick="toggleGeminiField()" style="background:none;border:none;color:var(--accent);font-size:13px;cursor:pointer;padding:4px 8px">&#x2699; Gemini AI key (optional)</button>
@@ -509,42 +509,54 @@ header h1 span{color:var(--accent)}
 <input type="file" id="camera-input" accept="image/*" capture="environment" style="display:none" onchange="onFileChosen(event)">
 <input type="file" id="folder-input" accept="application/pdf,image/*" style="display:none" onchange="onFileChosen(event)">
 <script>
+window.onerror=function(msg,src,line){
+  const e=document.getElementById('auth-err');
+  if(e)e.textContent='JS error: '+msg+' (line '+line+')';
+  return true;
+};
 const API=window.location.origin;
 let KEY=sessionStorage.getItem('jik')||'';
 let GEMINI_KEY=sessionStorage.getItem('jgk')||'';
-async function doAuth(){
+let _authBusy=false;
+function doAuth(){
+  if(_authBusy)return;
   const k=document.getElementById('key-input').value.trim();
   const gk=document.getElementById('gemini-input').value.trim();
-  if(!k){document.getElementById('auth-err').textContent='Please enter your secret key.';return;}
-  const btn=document.querySelector('#screen-auth .btn');
-  document.getElementById('auth-err').textContent='';
+  const errEl=document.getElementById('auth-err');
+  const btn=document.getElementById('connect-btn');
+  if(!k){errEl.textContent='Please enter your secret key.';return;}
+  _authBusy=true;
+  errEl.textContent='';
   btn.textContent='Connecting…';btn.disabled=true;
-  try{
-    const ac=new AbortController();const tid=setTimeout(()=>ac.abort(),8000);
-    const r=await fetch(API+'/api/mobile/auth',{method:'POST',headers:{'Content-Type':'application/json','x-jinvoice-key':k},body:JSON.stringify({key:k}),signal:ac.signal});
-    clearTimeout(tid);
-    const d=await r.json();
-    if(d.ok){
-      KEY=k;sessionStorage.setItem('jik',k);
-      if(gk){GEMINI_KEY=gk;sessionStorage.setItem('jgk',gk);}else{GEMINI_KEY=sessionStorage.getItem('jgk')||'';}
-      showHome();
-    }else{document.getElementById('auth-err').textContent='Invalid key. Try again.';btn.textContent='Connect →';btn.disabled=false;}
-  }catch(e){
-    document.getElementById('auth-err').textContent='Cannot reach server: '+(e.message||'network error');
-    btn.textContent='Connect →';btn.disabled=false;
-  }
+  var wakeTimer=setTimeout(function(){errEl.textContent='Server waking up, please wait…';},4000);
+  var ac=new AbortController();
+  var tid=setTimeout(function(){ac.abort();},30000);
+  fetch(API+'/api/mobile/auth',{method:'POST',headers:{'Content-Type':'application/json','x-jinvoice-key':k},body:JSON.stringify({key:k}),signal:ac.signal})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      clearTimeout(wakeTimer);clearTimeout(tid);
+      if(d.ok){
+        KEY=k;sessionStorage.setItem('jik',k);
+        if(gk){GEMINI_KEY=gk;sessionStorage.setItem('jgk',gk);}else{GEMINI_KEY=sessionStorage.getItem('jgk')||'';}
+        showHome();
+      }else{errEl.textContent='Invalid key. Try again.';btn.textContent='Connect →';btn.disabled=false;_authBusy=false;}
+    })
+    .catch(function(e){
+      clearTimeout(wakeTimer);clearTimeout(tid);
+      errEl.textContent='Error: '+(e.message||'network error');
+      btn.textContent='Connect →';btn.disabled=false;_authBusy=false;
+    });
 }
-function signOut(){sessionStorage.removeItem('jik');sessionStorage.removeItem('jgk');KEY='';GEMINI_KEY='';show('screen-auth');}
-function toggleGeminiField(){const s=document.getElementById('gemini-section');s.style.display=s.style.display==='none'?'block':'none';}
+function signOut(){sessionStorage.removeItem('jik');sessionStorage.removeItem('jgk');KEY='';GEMINI_KEY='';_authBusy=false;show('screen-auth');}
+function toggleGeminiField(){var s=document.getElementById('gemini-section');s.style.display=s.style.display==='none'?'block':'none';}
 (function init(){
-  const k=new URLSearchParams(location.search).get('key');
+  var k=new URLSearchParams(location.search).get('key');
   if(k){document.getElementById('key-input').value=k;doAuth();}
   else if(KEY){
     if(GEMINI_KEY){document.getElementById('gemini-section').style.display='block';document.getElementById('gemini-input').value=GEMINI_KEY;}
     showHome();
   }
 })();
-// form onsubmit handles Enter/Go key — no extra keydown listener needed
 function show(id){document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));document.getElementById(id).classList.add('active');}
 function showHome(){show('screen-home');loadInvoices();}
 async function loadInvoices(){
