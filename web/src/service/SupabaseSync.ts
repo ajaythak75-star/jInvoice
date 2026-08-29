@@ -325,6 +325,30 @@ export async function loadCustomerPlan(email: string): Promise<CustomerPlanRow |
   return (data as CustomerPlanRow) ?? null;
 }
 
+// ── Customer business profile ─────────────────────────────────────────────────
+
+export interface CustomerBusinessProfile {
+  business_type: string;
+  business_address: string;
+  business_pin: string;
+  business_state: string;
+  business_country: string;
+  license_count: string | null;
+  profile_completed_at: string;
+}
+
+export async function saveCustomerBusinessProfile(
+  email: string,
+  profile: CustomerBusinessProfile,
+): Promise<void> {
+  if (!supabase) return;
+  const { error } = await supabase.from("customers").upsert(
+    { email, ...profile },
+    { onConflict: "email" },
+  );
+  if (error) console.warn("[SupabaseSync] saveCustomerBusinessProfile error", error);
+}
+
 // ── reqres (API request/response log) ────────────────────────────────────────
 
 export interface ReqresEntry {

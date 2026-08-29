@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { prefs } from "../../data/AutoImportPreferences";
 import { auth } from "../../data/AuthStore";
-import { saveCustomerPlan } from "../../service/SupabaseSync";
+import { saveCustomerPlan, saveCustomerBusinessProfile } from "../../service/SupabaseSync";
 
 const INDIAN_STATES = [
   "Andhra Pradesh","Arunachal Pradesh","Assam","Bihar","Chhattisgarh","Goa","Gujarat",
@@ -566,6 +566,22 @@ export function PricingScreen() {
         <BusinessProfileModal
           onConfirm={() => {
             setShowProfileModal(false);
+            if (auth.email) {
+              try {
+                const p = JSON.parse(localStorage.getItem("jinvoice:business_profile") ?? "null");
+                if (p) {
+                  saveCustomerBusinessProfile(auth.email, {
+                    business_type:        p.businessType,
+                    business_address:     p.address,
+                    business_pin:         p.pin,
+                    business_state:       p.state,
+                    business_country:     p.country,
+                    license_count:        p.licenses || null,
+                    profile_completed_at: new Date().toISOString(),
+                  });
+                }
+              } catch {}
+            }
             if (apiOption === "own") {
               setShowApiKeyModal(true);
             } else {

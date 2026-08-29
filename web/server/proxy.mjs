@@ -640,7 +640,7 @@ body.nav-visible .fab{bottom:calc(72px + env(safe-area-inset-bottom))}
 
 <!-- ── About & Feedback screen ───────────── -->
 <div class="screen" id="screen-about">
-  <header><h1>j<span>Invoice</span></h1><span style="font-size:13px;font-weight:600;color:var(--text2)">About</span></header>
+  <header><h1>j<span>Invoice</span></h1><span style="font-size:13px;font-weight:600;color:var(--text2)">About &amp; Feedback</span></header>
   <div class="info-scroll"><div style="padding:16px">
     <div style="text-align:center;padding:20px 0 16px">
       <div style="width:68px;height:68px;background:var(--accent);border-radius:20px;display:flex;align-items:center;justify-content:center;font-size:32px;font-weight:800;color:#fff;margin:0 auto 12px;box-shadow:0 6px 24px rgba(92,62,240,.3)">j</div>
