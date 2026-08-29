@@ -606,16 +606,18 @@ async function markSync(id,btn){
 }
 function openSheet(){renderChoiceStep();document.getElementById('overlay').classList.add('open');setTimeout(()=>document.getElementById('upload-sheet').classList.add('open'),10);}
 function closeSheet(){document.getElementById('upload-sheet').classList.remove('open');document.getElementById('overlay').classList.remove('open');}
+function pickCamera(){document.getElementById('camera-input').click();}
+function pickFolder(){document.getElementById('folder-input').click();}
 function renderChoiceStep(){
   document.getElementById('sheet-body').innerHTML=
     '<div class="sheet-title">Add Invoice</div>'+
     '<div class="sheet-sub">Choose how to capture your invoice.</div>'+
     '<div class="upload-options">'+
-      '<button class="upload-opt" onclick="document.getElementById(\'camera-input\').click()">'+
+      '<button class="upload-opt" onclick="pickCamera()">'+
         '<div class="upload-opt-icon">&#x1F4F7;</div>'+
         '<div><div class="upload-opt-label">Camera</div><div class="upload-opt-sub">Photograph a paper receipt or invoice</div></div>'+
       '</button>'+
-      '<button class="upload-opt" onclick="document.getElementById(\'folder-input\').click()">'+
+      '<button class="upload-opt" onclick="pickFolder()">'+
         '<div class="upload-opt-icon">&#x1F4C1;</div>'+
         '<div><div class="upload-opt-label">From Files</div><div class="upload-opt-sub">Pick a PDF or image from your device</div></div>'+
       '</button>'+
