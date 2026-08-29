@@ -35,7 +35,12 @@ export function LoginScreen({ onLogin }: Props) {
   };
 
   const handleGoogleLogin = () => {
-    window.location.href = `${AUTH_BASE}/auth/google/login/start`;
+    if (!AUTH_BASE) {
+      setError("Google sign-in is not available in this build. Use email + password instead.");
+      return;
+    }
+    const returnTo = encodeURIComponent(window.location.origin);
+    window.location.href = `${AUTH_BASE}/auth/google/login/start?return_to=${returnTo}`;
   };
 
   const switchTo = (m: Mode) => { clearForm(); setMode(m); };

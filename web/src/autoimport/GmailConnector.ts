@@ -38,8 +38,9 @@ export class GmailConnector {
   }
 
   async startSignIn(loginHint?: string): Promise<void> {
-    const qs = loginHint ? `?login_hint=${encodeURIComponent(loginHint)}` : "";
-    window.location.href = `${AUTH_BASE}/auth/gmail/start${qs}`;
+    const params = new URLSearchParams({ return_to: window.location.origin });
+    if (loginHint) params.set("login_hint", loginHint);
+    window.location.href = `${AUTH_BASE}/auth/gmail/start?${params}`;
   }
 
   async pollAndDownload(

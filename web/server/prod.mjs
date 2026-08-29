@@ -25,6 +25,16 @@ function appOrigin(req) {
   return `${proto}://${host}`;
 }
 
+// Only allow redirecting back to the Render origin or to localhost (for the desktop EXE).
+function sanitizeReturnTo(raw, req) {
+  try {
+    const url = new URL(raw);
+    if (url.hostname === "localhost" || url.hostname === "127.0.0.1") return raw;
+    if (raw.startsWith(appOrigin(req))) return raw;
+  } catch {}
+  return appOrigin(req);
+}
+
 const app = express();
 
 app.use(express.json());
@@ -33,20 +43,23 @@ if (mobileRouter) app.use(mobileRouter);
 // ── Google login ───────────────────────────────────────────────────────────
 
 app.get("/auth/google/login/start", (req, res) => {
+  const returnTo = sanitizeReturnTo(req.query.return_to, req);
   const params = new URLSearchParams({
     client_id:     GOOGLE_CLIENT_ID,
     redirect_uri:  `${appOrigin(req)}/auth/google/login/callback`,
     response_type: "code",
     scope:         GOOGLE_LOGIN_SCOPE,
     access_type:   "online",
-    state:         "google_login",
+    state:         JSON.stringify({ flow: "google_login", returnTo }),
   });
   res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
 });
 
 app.get("/auth/google/login/callback", async (req, res) => {
   const code = req.query.code;
-  if (!code) return res.redirect("/#error=oauth_denied");
+  let returnTo = appOrigin(req);
+  try { returnTo = sanitizeReturnTo(JSON.parse(req.query.state ?? "{}").returnTo, req); } catch {}
+  if (!code) return res.redirect(`${returnTo}/#error=oauth_denied`);
   try {
     const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
       method:  "POST",
@@ -66,15 +79,16 @@ app.get("/auth/google/login/callback", async (req, res) => {
       headers: { Authorization: `Bearer ${tokens.access_token}` },
     });
     const profile = await profileRes.json();
-    res.redirect(`/#${new URLSearchParams({ google_login_email: profile.email ?? "", google_login_name: profile.name ?? "" })}`);
+    res.redirect(`${returnTo}/#${new URLSearchParams({ google_login_email: profile.email ?? "", google_login_name: profile.name ?? "" })}`);
   } catch {
-    res.redirect("/#error=oauth_failed");
+    res.redirect(`${returnTo}/#error=oauth_failed`);
   }
 });
 
 // ── Gmail ──────────────────────────────────────────────────────────────────
 
 app.get("/auth/gmail/start", (req, res) => {
+  const returnTo = sanitizeReturnTo(req.query.return_to, req);
   const params = new URLSearchParams({
     client_id:     GOOGLE_CLIENT_ID,
     redirect_uri:  `${appOrigin(req)}/auth/gmail/callback`,
@@ -82,7 +96,7 @@ app.get("/auth/gmail/start", (req, res) => {
     scope:         GMAIL_SCOPE,
     access_type:   "offline",
     prompt:        "consent",
-    state:         "gmail",
+    state:         JSON.stringify({ flow: "gmail", returnTo }),
   });
   if (req.query.login_hint) params.set("login_hint", req.query.login_hint);
   res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
@@ -90,7 +104,9 @@ app.get("/auth/gmail/start", (req, res) => {
 
 app.get("/auth/gmail/callback", async (req, res) => {
   const code = req.query.code;
-  if (!code) return res.redirect("/#error=oauth_denied");
+  let returnTo = appOrigin(req);
+  try { returnTo = sanitizeReturnTo(JSON.parse(req.query.state ?? "{}").returnTo, req); } catch {}
+  if (!code) return res.redirect(`${returnTo}/#error=oauth_denied`);
   try {
     const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
       method:  "POST",
@@ -112,9 +128,9 @@ app.get("/auth/gmail/callback", async (req, res) => {
     const profile = await profileRes.json();
     const hashParams = { gmail_access_token: tokens.access_token, gmail_email: profile.email ?? "" };
     if (tokens.refresh_token) hashParams.gmail_refresh_token = tokens.refresh_token;
-    res.redirect(`/#${new URLSearchParams(hashParams)}`);
+    res.redirect(`${returnTo}/#${new URLSearchParams(hashParams)}`);
   } catch {
-    res.redirect("/#error=oauth_failed");
+    res.redirect(`${returnTo}/#error=oauth_failed`);
   }
 });
 
@@ -143,13 +159,14 @@ app.get("/auth/gmail/refresh", async (req, res) => {
 // ── Outlook ────────────────────────────────────────────────────────────────
 
 app.get("/auth/outlook/start", (req, res) => {
+  const returnTo = sanitizeReturnTo(req.query.return_to, req);
   const params = new URLSearchParams({
     client_id:     AZURE_CLIENT_ID,
     redirect_uri:  `${appOrigin(req)}/auth/outlook/callback`,
     response_type: "code",
     scope:         OUTLOOK_SCOPE,
     response_mode: "query",
-    state:         "outlook",
+    state:         JSON.stringify({ flow: "outlook", returnTo }),
   });
   if (req.query.login_hint) params.set("login_hint", req.query.login_hint);
   res.redirect(`https://login.microsoftonline.com/common/oauth2/v2.0/authorize?${params}`);
@@ -157,7 +174,9 @@ app.get("/auth/outlook/start", (req, res) => {
 
 app.get("/auth/outlook/callback", async (req, res) => {
   const code = req.query.code;
-  if (!code) return res.redirect("/#error=oauth_denied");
+  let returnTo = appOrigin(req);
+  try { returnTo = sanitizeReturnTo(JSON.parse(req.query.state ?? "{}").returnTo, req); } catch {}
+  if (!code) return res.redirect(`${returnTo}/#error=oauth_denied`);
   try {
     const tokenRes = await fetch("https://login.microsoftonline.com/common/oauth2/v2.0/token", {
       method:  "POST",
@@ -178,9 +197,9 @@ app.get("/auth/outlook/callback", async (req, res) => {
       headers: { Authorization: `Bearer ${tokens.access_token}` },
     });
     const profile = await profileRes.json();
-    res.redirect(`/#${new URLSearchParams({ outlook_access_token: tokens.access_token, outlook_email: profile.mail ?? profile.userPrincipalName ?? "" })}`);
+    res.redirect(`${returnTo}/#${new URLSearchParams({ outlook_access_token: tokens.access_token, outlook_email: profile.mail ?? profile.userPrincipalName ?? "" })}`);
   } catch {
-    res.redirect("/#error=oauth_failed");
+    res.redirect(`${returnTo}/#error=oauth_failed`);
   }
 });
 

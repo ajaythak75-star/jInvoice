@@ -10,6 +10,14 @@ import multer from "multer";
 const PORT = process.env.PORT ?? 3000;
 const LOCAL_APP = "http://localhost:7823";
 
+function sanitizeReturnTo(raw) {
+  try {
+    const url = new URL(raw);
+    if (url.hostname === "localhost" || url.hostname === "127.0.0.1") return raw;
+  } catch {}
+  return LOCAL_APP;
+}
+
 const { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET } = process.env;
 
 const GMAIL_SCOPE        = "https://www.googleapis.com/auth/gmail.readonly email openid";
@@ -165,19 +173,22 @@ function base(req) {
 // ── Google login ──────────────────────────────────────────────────────────────
 
 app.get("/auth/google/login/start", (req, res) => {
+  const returnTo = sanitizeReturnTo(req.query.return_to ?? LOCAL_APP);
   res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${new URLSearchParams({
     client_id:     GOOGLE_CLIENT_ID,
     redirect_uri:  `${base(req)}/auth/google/login/callback`,
     response_type: "code",
     scope:         GOOGLE_LOGIN_SCOPE,
     access_type:   "online",
-    state:         "google_login",
+    state:         JSON.stringify({ flow: "google_login", returnTo }),
   })}`);
 });
 
 app.get("/auth/google/login/callback", async (req, res) => {
   const { code } = req.query;
-  if (!code) return res.redirect(`${LOCAL_APP}/#error=oauth_denied`);
+  let returnTo = LOCAL_APP;
+  try { returnTo = sanitizeReturnTo(JSON.parse(req.query.state ?? "{}").returnTo ?? LOCAL_APP); } catch {}
+  if (!code) return res.redirect(`${returnTo}/#error=oauth_denied`);
   try {
     const t = await (await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
@@ -188,13 +199,14 @@ app.get("/auth/google/login/callback", async (req, res) => {
     const p = await (await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
       headers: { Authorization: `Bearer ${t.access_token}` },
     })).json();
-    res.redirect(`${LOCAL_APP}/#${new URLSearchParams({ google_login_email: p.email ?? "", google_login_name: p.name ?? "" })}`);
-  } catch { res.redirect(`${LOCAL_APP}/#error=oauth_failed`); }
+    res.redirect(`${returnTo}/#${new URLSearchParams({ google_login_email: p.email ?? "", google_login_name: p.name ?? "" })}`);
+  } catch { res.redirect(`${returnTo}/#error=oauth_failed`); }
 });
 
 // ── Gmail ─────────────────────────────────────────────────────────────────────
 
 app.get("/auth/gmail/start", (req, res) => {
+  const returnTo = sanitizeReturnTo(req.query.return_to ?? LOCAL_APP);
   const params = new URLSearchParams({
     client_id:     GOOGLE_CLIENT_ID,
     redirect_uri:  `${base(req)}/auth/gmail/callback`,
@@ -202,7 +214,7 @@ app.get("/auth/gmail/start", (req, res) => {
     scope:         GMAIL_SCOPE,
     access_type:   "offline",
     prompt:        "consent",
-    state:         "gmail",
+    state:         JSON.stringify({ flow: "gmail", returnTo }),
   });
   if (req.query.login_hint) params.set("login_hint", req.query.login_hint);
   res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
@@ -210,7 +222,9 @@ app.get("/auth/gmail/start", (req, res) => {
 
 app.get("/auth/gmail/callback", async (req, res) => {
   const { code } = req.query;
-  if (!code) return res.redirect(`${LOCAL_APP}/#error=oauth_denied`);
+  let returnTo = LOCAL_APP;
+  try { returnTo = sanitizeReturnTo(JSON.parse(req.query.state ?? "{}").returnTo ?? LOCAL_APP); } catch {}
+  if (!code) return res.redirect(`${returnTo}/#error=oauth_denied`);
   try {
     const t = await (await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
@@ -223,8 +237,8 @@ app.get("/auth/gmail/callback", async (req, res) => {
     })).json();
     const hp = { gmail_access_token: t.access_token, gmail_email: prof.email ?? "" };
     if (t.refresh_token) hp.gmail_refresh_token = t.refresh_token;
-    res.redirect(`${LOCAL_APP}/#${new URLSearchParams(hp)}`);
-  } catch { res.redirect(`${LOCAL_APP}/#error=oauth_failed`); }
+    res.redirect(`${returnTo}/#${new URLSearchParams(hp)}`);
+  } catch { res.redirect(`${returnTo}/#error=oauth_failed`); }
 });
 
 app.get("/auth/gmail/refresh", async (req, res) => {
@@ -244,13 +258,14 @@ app.get("/auth/gmail/refresh", async (req, res) => {
 // ── Outlook ───────────────────────────────────────────────────────────────────
 
 app.get("/auth/outlook/start", (req, res) => {
+  const returnTo = sanitizeReturnTo(req.query.return_to ?? LOCAL_APP);
   const params = new URLSearchParams({
     client_id:     AZURE_CLIENT_ID,
     redirect_uri:  `${base(req)}/auth/outlook/callback`,
     response_type: "code",
     scope:         OUTLOOK_SCOPE,
     response_mode: "query",
-    state:         "outlook",
+    state:         JSON.stringify({ flow: "outlook", returnTo }),
   });
   if (req.query.login_hint) params.set("login_hint", req.query.login_hint);
   res.redirect(`https://login.microsoftonline.com/common/oauth2/v2.0/authorize?${params}`);
@@ -258,7 +273,9 @@ app.get("/auth/outlook/start", (req, res) => {
 
 app.get("/auth/outlook/callback", async (req, res) => {
   const { code } = req.query;
-  if (!code) return res.redirect(`${LOCAL_APP}/#error=oauth_denied`);
+  let returnTo = LOCAL_APP;
+  try { returnTo = sanitizeReturnTo(JSON.parse(req.query.state ?? "{}").returnTo ?? LOCAL_APP); } catch {}
+  if (!code) return res.redirect(`${returnTo}/#error=oauth_denied`);
   try {
     const t = await (await fetch("https://login.microsoftonline.com/common/oauth2/v2.0/token", {
       method: "POST",
@@ -269,8 +286,8 @@ app.get("/auth/outlook/callback", async (req, res) => {
     const prof = await (await fetch("https://graph.microsoft.com/v1.0/me", {
       headers: { Authorization: `Bearer ${t.access_token}` },
     })).json();
-    res.redirect(`${LOCAL_APP}/#${new URLSearchParams({ outlook_access_token: t.access_token, outlook_email: prof.mail ?? prof.userPrincipalName ?? "" })}`);
-  } catch { res.redirect(`${LOCAL_APP}/#error=oauth_failed`); }
+    res.redirect(`${returnTo}/#${new URLSearchParams({ outlook_access_token: t.access_token, outlook_email: prof.mail ?? prof.userPrincipalName ?? "" })}`);
+  } catch { res.redirect(`${returnTo}/#error=oauth_failed`); }
 });
 
 // ── Gemini proxy (keeps API key server-side, avoids CORS) ────────────────────
