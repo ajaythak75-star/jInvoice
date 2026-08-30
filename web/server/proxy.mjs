@@ -538,7 +538,8 @@ async function _sendEmail(to, subject, html) {
   const transporter = createTransport({
     host: "smtp.gmail.com",
     port: 587,
-    secure: false,          // STARTTLS — more permissive on cloud hosts than port 465
+    secure: false,          // STARTTLS
+    family: 4,              // Force IPv4 — Render has no IPv6 outbound
     auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD },
     connectionTimeout: 10_000,
     greetingTimeout:   10_000,
