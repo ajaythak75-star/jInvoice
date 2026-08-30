@@ -535,29 +535,26 @@ app.post("/api/gemini", async (req, res) => {
 
 const _otpStore = new Map(); // email → { code, expiresAt }
 
+const BREVO_API_KEY   = process.env.BREVO_API_KEY   ?? "";
+const BREVO_FROM_EMAIL = process.env.BREVO_FROM_EMAIL ?? GMAIL_USER;
+
 async function _sendEmail(to, subject, html) {
-  if (!GMAIL_USER || !GMAIL_APP_PASSWORD) throw new Error("Email service not configured.");
-  const { createTransport } = await import("nodemailer");
-
-  // dns.resolve4 returns only A records (IPv4) — bypasses Node's happy-eyeballs
-  // which kept picking IPv6 despite setDefaultResultOrder / family:4 hints.
-  let smtpHost = "smtp.gmail.com";
-  try {
-    const [ip] = await dns.promises.resolve4("smtp.gmail.com");
-    if (ip) smtpHost = ip;
-  } catch {}
-
-  const transporter = createTransport({
-    host: smtpHost,
-    port: 587,
-    secure: false,
-    tls: { servername: "smtp.gmail.com" }, // cert validation uses hostname even when host is an IP
-    auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD },
-    connectionTimeout: 10_000,
-    greetingTimeout:   10_000,
-    socketTimeout:     15_000,
+  // HTTP API — no SMTP, no IPv6 issues, works on any cloud host
+  if (!BREVO_API_KEY) throw new Error("Email service not configured (BREVO_API_KEY missing).");
+  const res = await fetch("https://api.brevo.com/v3/smtp/email", {
+    method: "POST",
+    headers: { "api-key": BREVO_API_KEY, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sender:      { name: "jInvoice", email: BREVO_FROM_EMAIL },
+      to:          [{ email: to }],
+      subject,
+      htmlContent: html,
+    }),
   });
-  await transporter.sendMail({ from: `"jInvoice" <${GMAIL_USER}>`, to, subject, html });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.message ?? `Brevo error ${res.status}`);
+  }
 }
 
 app.post("/api/auth/send-otp", async (req, res) => {
