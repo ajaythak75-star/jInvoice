@@ -103,8 +103,7 @@ export const prefs = {
   },
 
   get isDailyLimitReached(): boolean {
-    if (this.isProActive) return false;
-    return this.todayInvoiceCount >= this.FREE_DAILY_LIMIT;
+    return false; // TEST: limit disabled — restore: if (this.isProActive) return false; return this.todayInvoiceCount >= this.FREE_DAILY_LIMIT;
   },
 
   get trialStartedAt(): string | null { return get("trial_started_at"); },
