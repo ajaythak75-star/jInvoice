@@ -538,11 +538,20 @@ const _otpStore = new Map(); // email → { code, expiresAt }
 async function _sendEmail(to, subject, html) {
   if (!GMAIL_USER || !GMAIL_APP_PASSWORD) throw new Error("Email service not configured.");
   const { createTransport } = await import("nodemailer");
+
+  // dns.resolve4 returns only A records (IPv4) — bypasses Node's happy-eyeballs
+  // which kept picking IPv6 despite setDefaultResultOrder / family:4 hints.
+  let smtpHost = "smtp.gmail.com";
+  try {
+    const [ip] = await dns.promises.resolve4("smtp.gmail.com");
+    if (ip) smtpHost = ip;
+  } catch {}
+
   const transporter = createTransport({
-    host: "smtp.gmail.com",
+    host: smtpHost,
     port: 587,
-    secure: false,          // STARTTLS
-    family: 4,              // Force IPv4 — Render has no IPv6 outbound
+    secure: false,
+    tls: { servername: "smtp.gmail.com" }, // cert validation uses hostname even when host is an IP
     auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD },
     connectionTimeout: 10_000,
     greetingTimeout:   10_000,
