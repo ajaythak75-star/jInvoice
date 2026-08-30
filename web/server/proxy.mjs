@@ -526,6 +526,9 @@ body.nav-visible .fab{bottom:calc(72px + env(safe-area-inset-bottom))}
       <div id="auth-err" class="err"></div>
       <button id="connect-btn" class="btn btn-primary" onclick="doAuth()">Sign In &#x2192;</button>
     </div>
+    <div style="margin-top:12px;text-align:center">
+      <button type="button" onclick="previewNav()" style="background:none;border:1px dashed var(--border);color:var(--text3);font-size:11px;border-radius:8px;cursor:pointer;padding:6px 14px;width:100%">&#x1F9EA; Preview Nav (test — no login)</button>
+    </div>
     <div style="margin-top:16px;text-align:center">
       <button type="button" onclick="toggleGeminiField()" style="background:none;border:none;color:var(--accent);font-size:13px;cursor:pointer;padding:4px 8px">&#x2699; Gemini AI key (optional)</button>
       <div id="gemini-section" style="display:none;margin-top:8px">
@@ -785,6 +788,12 @@ async function signOut(){
 }
 function toggleGeminiField(){var s=document.getElementById('gemini-section');s.style.display=s.style.display==='none'?'block':'none';}
 (function(){
+  // version toast — visible for 3s so you can confirm Render deployed new code
+  var vt=document.createElement('div');
+  vt.textContent='jInvoice v2.1 • nav ready';
+  vt.style.cssText='position:fixed;top:env(safe-area-inset-top,12px);left:50%;transform:translateX(-50%);background:var(--accent);color:#fff;font-size:12px;font-weight:600;padding:6px 14px;border-radius:20px;z-index:999;opacity:1;transition:opacity 1s';
+  document.body.appendChild(vt);
+  setTimeout(function(){vt.style.opacity='0';setTimeout(function(){vt.remove();},1000);},3000);
   if(TOKEN){
     if(GEMINI_KEY){document.getElementById('gemini-section').style.display='block';document.getElementById('gemini-input').value=GEMINI_KEY;}
     showHome();
@@ -794,6 +803,7 @@ function show(id){document.querySelectorAll('.screen').forEach(s=>s.classList.re
 function showNav(){var n=document.getElementById('bottom-nav');if(n){n.classList.add('visible');document.body.classList.add('nav-visible');}}
 function hideNav(){var n=document.getElementById('bottom-nav');if(n){n.classList.remove('visible');document.body.classList.remove('nav-visible');}}
 function showHome(){show('screen-home');loadInvoices();showNav();setNavActive('home');}
+function previewNav(){show('screen-home');showNav();setNavActive('home');document.querySelector('.screen-home-empty,.invoices-list,.empty-state')&&(document.querySelector('.screen-home-empty,.invoices-list,.empty-state').textContent='Nav preview — not logged in');}
 function navTo(id){
   show('screen-'+id);
   setNavActive(id);
