@@ -803,7 +803,12 @@ function show(id){document.querySelectorAll('.screen').forEach(s=>s.classList.re
 function showNav(){var n=document.getElementById('bottom-nav');if(n){n.classList.add('visible');document.body.classList.add('nav-visible');}}
 function hideNav(){var n=document.getElementById('bottom-nav');if(n){n.classList.remove('visible');document.body.classList.remove('nav-visible');}}
 function showHome(){show('screen-home');loadInvoices();showNav();setNavActive('home');}
-function previewNav(){show('screen-home');showNav();setNavActive('home');document.querySelector('.screen-home-empty,.invoices-list,.empty-state')&&(document.querySelector('.screen-home-empty,.invoices-list,.empty-state').textContent='Nav preview — not logged in');}
+function previewNav(){
+  showNav();
+  setNavActive('home');
+  var btn=document.querySelector('[onclick="previewNav()"]');
+  if(btn){btn.textContent='✅ Nav visible below!';}
+}
 function navTo(id){
   show('screen-'+id);
   setNavActive(id);
