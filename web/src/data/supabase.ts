@@ -8,6 +8,7 @@ declare const __SB_ANON__: string;
 const url  = (typeof __SB_URL__  !== "undefined" ? __SB_URL__  : "") || import.meta.env.VITE_SUPABASE_URL  || "";
 const key  = (typeof __SB_ANON__ !== "undefined" ? __SB_ANON__ : "") || import.meta.env.VITE_SUPABASE_ANON_KEY || "";
 
+console.log("[supabase] url:", url ? url.slice(0, 30) + "…" : "(empty)", "| key:", key ? "set" : "(empty)");
 export const supabase = url && key ? createClient(url, key) : null;
 
 export function isSupabaseEnabled(): boolean {
