@@ -366,20 +366,7 @@ app.post("/api/gemini", async (req, res) => {
 
 // ── Root: auto-detect mobile and redirect ─────────────────────────────────────
 
-app.get("/", (req, res) => {
-  const ua = req.headers["user-agent"] ?? "";
-  const isMobile = /android|iphone|ipad|ipod|mobile/i.test(ua);
-  if (isMobile) return res.redirect("/mobile");
-  res.send(`<!DOCTYPE html><html><head><title>jInvoice</title>
-<meta charset="utf-8"><style>body{font-family:sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#f0eeff}
-.box{text-align:center;padding:40px}.h1{font-size:28px;font-weight:800;color:#5c3ef0;margin-bottom:8px}
-.sub{color:#4a4a6a;margin-bottom:32px}a.btn{display:inline-block;padding:14px 28px;background:#5c3ef0;color:#fff;border-radius:12px;text-decoration:none;font-weight:600;margin:8px}
-</style></head><body><div class="box"><div class="h1">jInvoice</div>
-<div class="sub">Run the desktop app with <code>npm start</code> in the web folder, or open on your phone.</div>
-<a class="btn" href="/mobile">Open Mobile UI</a>
-<a class="btn" href="/health" style="background:#e0daf8;color:#5c3ef0">Status</a>
-</div></body></html>`);
-});
+app.get("/", (_req, res) => res.redirect("/mobile"));
 
 // ── Health check ──────────────────────────────────────────────────────────────
 
@@ -526,9 +513,6 @@ body.nav-visible .fab{bottom:calc(72px + env(safe-area-inset-bottom))}
       <input id="password-input" class="inp" type="password" placeholder="Password" autocomplete="current-password" style="margin-top:10px" onkeydown="if(event.key==='Enter'){event.preventDefault();doAuth();}">
       <div id="auth-err" class="err"></div>
       <button id="connect-btn" class="btn btn-primary" onclick="doAuth()">Sign In &#x2192;</button>
-    </div>
-    <div style="margin-top:12px;text-align:center">
-      <button type="button" onclick="previewNav()" style="background:none;border:1px dashed var(--border);color:var(--text3);font-size:11px;border-radius:8px;cursor:pointer;padding:6px 14px;width:100%">&#x1F9EA; Preview Nav (test — no login)</button>
     </div>
     <div style="margin-top:16px;text-align:center">
       <button type="button" onclick="toggleGeminiField()" style="background:none;border:none;color:var(--accent);font-size:13px;cursor:pointer;padding:4px 8px">&#x2699; Gemini AI key (optional)</button>
@@ -803,18 +787,6 @@ function show(id){document.querySelectorAll('.screen').forEach(s=>s.classList.re
 function showNav(){var n=document.getElementById('bottom-nav');if(n){n.classList.add('visible');document.body.classList.add('nav-visible');}}
 function hideNav(){var n=document.getElementById('bottom-nav');if(n){n.classList.remove('visible');document.body.classList.remove('nav-visible');}}
 function showHome(){show('screen-home');loadInvoices();showNav();setNavActive('home');}
-function previewNav(){
-  var nav=document.getElementById('bottom-nav');
-  var banner=document.createElement('div');
-  banner.textContent='TAPPED! nav='+(nav?'found':'MISSING');
-  banner.style.cssText='position:fixed;top:0;left:0;right:0;background:#ef4444;color:#fff;text-align:center;padding:14px;font-size:16px;font-weight:700;z-index:9999';
-  document.body.appendChild(banner);
-  setTimeout(function(){banner.remove();},4000);
-  showNav();
-  setNavActive('home');
-  var btn=document.querySelector('[onclick="previewNav()"]');
-  if(btn){btn.style.background='#22c55e';btn.style.color='#fff';btn.textContent='✅ Nav visible below!';}
-}
 function navTo(id){
   show('screen-'+id);
   setNavActive(id);
