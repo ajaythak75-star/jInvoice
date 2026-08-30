@@ -790,7 +790,7 @@ function toggleGeminiField(){var s=document.getElementById('gemini-section');s.s
 (function(){
   // version toast — visible for 3s so you can confirm Render deployed new code
   var vt=document.createElement('div');
-  vt.textContent='jInvoice v2.1 • nav ready';
+  vt.textContent='jInvoice v2.2 • tap test';
   vt.style.cssText='position:fixed;top:env(safe-area-inset-top,12px);left:50%;transform:translateX(-50%);background:var(--accent);color:#fff;font-size:12px;font-weight:600;padding:6px 14px;border-radius:20px;z-index:999;opacity:1;transition:opacity 1s';
   document.body.appendChild(vt);
   setTimeout(function(){vt.style.opacity='0';setTimeout(function(){vt.remove();},1000);},3000);
@@ -804,11 +804,16 @@ function showNav(){var n=document.getElementById('bottom-nav');if(n){n.classList
 function hideNav(){var n=document.getElementById('bottom-nav');if(n){n.classList.remove('visible');document.body.classList.remove('nav-visible');}}
 function showHome(){show('screen-home');loadInvoices();showNav();setNavActive('home');}
 function previewNav(){
-  alert('tap registered! nav=' + (document.getElementById('bottom-nav')?'found':'MISSING'));
+  var nav=document.getElementById('bottom-nav');
+  var banner=document.createElement('div');
+  banner.textContent='TAPPED! nav='+(nav?'found':'MISSING');
+  banner.style.cssText='position:fixed;top:0;left:0;right:0;background:#ef4444;color:#fff;text-align:center;padding:14px;font-size:16px;font-weight:700;z-index:9999';
+  document.body.appendChild(banner);
+  setTimeout(function(){banner.remove();},4000);
   showNav();
   setNavActive('home');
   var btn=document.querySelector('[onclick="previewNav()"]');
-  if(btn){btn.textContent='✅ Nav visible below!';}
+  if(btn){btn.style.background='#22c55e';btn.style.color='#fff';btn.textContent='✅ Nav visible below!';}
 }
 function navTo(id){
   show('screen-'+id);
