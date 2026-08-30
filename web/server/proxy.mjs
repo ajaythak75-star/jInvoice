@@ -537,7 +537,9 @@ app.get("/health", (_req, res) => res.send("ok"));
 
 // ── Desktop SPA (React build) ─────────────────────────────────────────────────
 
-app.use(express.static(DIST));
+// { index: false } prevents express.static from serving index.html directly
+// so all non-asset requests fall through to the handler below that injects globals.
+app.use(express.static(DIST, { index: false }));
 app.get("/*path", (_req, res) => {
   const html = readFileSync(join(DIST, "index.html"), "utf8");
   // Inject Supabase config at runtime so no VITE_* build-time vars are needed.
