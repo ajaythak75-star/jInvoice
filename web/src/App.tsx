@@ -26,21 +26,16 @@ function applyOAuthHash(): boolean {
   const h = new URLSearchParams(window.location.hash.slice(1));
   if (!h.toString()) return false;
 
-  const googleEmail    = h.get("google_login_email");
   const gmailToken     = h.get("gmail_access_token");
   const gmailRefresh   = h.get("gmail_refresh_token");
   const gmailEmail     = h.get("gmail_email");
   const outlookToken   = h.get("outlook_access_token");
   const outlookEmail   = h.get("outlook_email");
 
-  if (googleEmail || gmailToken || outlookToken || h.get("error")) {
+  if (gmailToken || outlookToken || h.get("error")) {
     window.history.replaceState({}, "", "/");
   }
 
-  if (googleEmail) {
-    auth.signInWithGoogle(googleEmail, h.get("google_login_name") ?? "");
-    return true;
-  }
   if (gmailToken) {
     // Upsert into gmailAccounts array (primary slot stays in prefs for backward compat)
     prefs.gmailAccessToken  = gmailToken;

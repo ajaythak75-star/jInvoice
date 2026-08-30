@@ -37,6 +37,12 @@ export const prefs = {
   set outlookAccessToken(v: string | null) { v == null ? remove("outlook_access_token") : set("outlook_access_token", v); },
 
   get outlookConsentGiven(): boolean { return get("outlook_consent") === "true"; },
+
+  get imapEnabled(): boolean { return get("imap_enabled") === "true"; },
+  set imapEnabled(v: boolean) { set("imap_enabled", String(v)); },
+
+  get imapEmail(): string | null { return get("imap_email"); },
+  set imapEmail(v: string | null) { v == null ? remove("imap_email") : set("imap_email", v); },
   set outlookConsentGiven(v: boolean) { set("outlook_consent", String(v)); },
 
   // OPFS (Origin Private File System) handle key stored as name — actual handle is held in memory

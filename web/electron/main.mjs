@@ -334,6 +334,133 @@ httpApp.get("/auth/outlook/callback", async (req, res) => {
   } catch { deliverOAuthResult("#error=oauth_failed"); res.send(CLOSE_TAB_HTML); }
 });
 
+// ── IMAP (Gmail App Password) ─────────────────────────────────────────────────
+
+const IMAP_CREDS_FILE = join(__dirname, "..", "imap-creds.json");
+
+function loadImapCreds() {
+  if (!existsSync(IMAP_CREDS_FILE)) return null;
+  try { return JSON.parse(readFileSync(IMAP_CREDS_FILE, "utf8")); } catch { return null; }
+}
+
+function findPdfParts(struct, partId = "") {
+  if (!struct) return [];
+  const parts = [];
+  const type = (struct.type ?? "").toLowerCase();
+  const subtype = (struct.subtype ?? "").toLowerCase();
+  const filename = struct.disposition?.parameters?.filename ?? struct.parameters?.name ?? "";
+  const isPdf = (type === "application" && subtype === "pdf") || filename.toLowerCase().endsWith(".pdf");
+  if (isPdf && partId) {
+    parts.push({ id: partId, name: filename || "invoice.pdf" });
+    return parts;
+  }
+  (struct.childNodes ?? []).forEach((child, i) => {
+    const cId = partId ? `${partId}.${i + 1}` : `${i + 1}`;
+    parts.push(...findPdfParts(child, cId));
+  });
+  return parts;
+}
+
+httpApp.get("/api/imap/status", (_req, res) => {
+  const creds = loadImapCreds();
+  res.json({ configured: !!creds, email: creds?.email ?? null });
+});
+
+httpApp.post("/api/imap/save", (req, res) => {
+  const { email, appPassword } = req.body ?? {};
+  if (!email || !appPassword) return res.status(400).json({ error: "email and appPassword required" });
+  try {
+    writeFileSync(IMAP_CREDS_FILE, JSON.stringify({ email, appPassword }), "utf8");
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+httpApp.post("/api/imap/disconnect", (_req, res) => {
+  try {
+    if (existsSync(IMAP_CREDS_FILE)) {
+      createRequire(import.meta.url)("fs").unlinkSync(IMAP_CREDS_FILE);
+    }
+  } catch {}
+  res.json({ ok: true });
+});
+
+httpApp.post("/api/imap/test", async (req, res) => {
+  const { email, appPassword } = req.body ?? {};
+  if (!email || !appPassword) return res.status(400).json({ error: "email and appPassword required" });
+  try {
+    const { ImapFlow } = createRequire(import.meta.url)("imapflow");
+    const client = new ImapFlow({
+      host: "imap.gmail.com", port: 993, secure: true,
+      auth: { user: email, pass: appPassword },
+      logger: false,
+    });
+    await client.connect();
+    await client.logout();
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(401).json({ error: String(e) });
+  }
+});
+
+httpApp.post("/api/imap/poll", async (req, res) => {
+  const creds = loadImapCreds();
+  if (!creds) return res.status(503).json({ error: "IMAP not configured" });
+  const { months = 3 } = req.body ?? {};
+  const since = new Date();
+  since.setMonth(since.getMonth() - months);
+  const { ImapFlow } = createRequire(import.meta.url)("imapflow");
+  const client = new ImapFlow({
+    host: "imap.gmail.com", port: 993, secure: true,
+    auth: { user: creds.email, pass: creds.appPassword },
+    logger: false,
+  });
+  try {
+    await client.connect();
+    const lock = await client.getMailboxLock("INBOX");
+    const results = [];
+    try {
+      const seqNos = await client.search({ since });
+      const slice = seqNos.slice(-200); // newest 200 messages max
+      if (slice.length) {
+        for await (const msg of client.fetch(slice, { envelope: true, bodyStructure: true })) {
+          const pdfParts = findPdfParts(msg.bodyStructure);
+          if (!pdfParts.length) continue;
+          const msgId = `imap:${msg.envelope.messageId ?? msg.seq}`;
+          const attachments = [];
+          for (const part of pdfParts) {
+            try {
+              const { content } = await client.download(`${msg.seq}`, part.id);
+              const chunks = [];
+              for await (const chunk of content) chunks.push(chunk);
+              attachments.push({ filename: part.name, data: Buffer.concat(chunks).toString("base64") });
+            } catch (e) {
+              console.error("[IMAP] download part failed:", e.message);
+            }
+          }
+          if (attachments.length) {
+            results.push({
+              messageId: msgId,
+              subject: msg.envelope.subject ?? "",
+              senderEmail: (msg.envelope.from ?? [])[0]?.address ?? "",
+              receivedAt: msg.envelope.date?.toISOString() ?? new Date().toISOString(),
+              attachments,
+            });
+          }
+        }
+      }
+    } finally {
+      lock.release();
+    }
+    await client.logout();
+    res.json({ results });
+  } catch (e) {
+    try { await client.logout(); } catch {}
+    res.status(500).json({ error: String(e) });
+  }
+});
+
 // ── Static + SPA ──────────────────────────────────────────────────────────────
 
 httpApp.use(express.static(DIST));

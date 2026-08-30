@@ -1,6 +1,7 @@
 import { prefs } from "../data/AutoImportPreferences";
 import { GmailConnector } from "../autoimport/GmailConnector";
 import { OutlookConnector } from "../autoimport/OutlookConnector";
+import { ImapConnector, isImapAvailable } from "../autoimport/ImapConnector";
 import { DesktopFolderConnector } from "../autoimport/DesktopFolderConnector";
 import { processFile } from "../extraction/ExtractionPipeline";
 import { markAsImported, deduplicateInvoices, addSecurityAlert } from "../data/InvoiceDatabase";
@@ -158,6 +159,20 @@ export async function poll(): Promise<{ found: number; processed: number; cancel
           processed++;
           window.dispatchEvent(new CustomEvent("jinvoice:sync-progress", { detail: { processed, found } }));
         }
+      }
+    }
+
+    if (prefs.imapEnabled && isImapAvailable() && !_syncCancelled) {
+      const checker = await makeEmailChecker("imap");
+      const imapResults = await ImapConnector.pollAndDownload(prefs.syncMonths, checker);
+      found += imapResults.length;
+      for (const { file, messageId, subject, senderEmail, receivedAt } of imapResults) {
+        if (_syncCancelled) break;
+        const r = await processFile(file, "imap", { subject, senderEmail, receivedAt });
+        await markAsImported(messageId, "imap");
+        await savePdfToFolder(file, r, subject);
+        processed++;
+        window.dispatchEvent(new CustomEvent("jinvoice:sync-progress", { detail: { processed, found } }));
       }
     }
 
