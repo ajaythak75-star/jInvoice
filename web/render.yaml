@@ -2,7 +2,7 @@ services:
   - type: web
     name: jinvoice-proxy
     runtime: node
-    buildCommand: npm ci --legacy-peer-deps
+    buildCommand: npm ci --legacy-peer-deps && npm run build
     startCommand: node server/proxy.mjs
     envVars:
       - key: NODE_ENV
