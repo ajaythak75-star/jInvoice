@@ -80,6 +80,7 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 
 
 app.get("/mobile", (_req, res) => {
   res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.setHeader("Cache-Control", "no-store");
   res.send(MOBILE_HTML);
 });
 
@@ -789,10 +790,11 @@ async function signOut(){
 function toggleGeminiField(){var s=document.getElementById('gemini-section');s.style.display=s.style.display==='none'?'block':'none';}
 (function(){
   var vt=document.createElement('div');
-  vt.textContent='jInvoice v2.3 • event test';
-  vt.style.cssText='position:fixed;top:env(safe-area-inset-top,12px);left:50%;transform:translateX(-50%);background:var(--accent);color:#fff;font-size:12px;font-weight:600;padding:6px 14px;border-radius:20px;z-index:999;opacity:1;transition:opacity 1s';
+  vt.textContent='v2.4 — TAP HERE TO TEST CLICK';
+  vt.style.cssText='position:fixed;top:env(safe-area-inset-top,12px);left:50%;transform:translateX(-50%);white-space:nowrap;background:var(--accent);color:#fff;font-size:13px;font-weight:700;padding:10px 18px;border-radius:20px;z-index:9999;cursor:pointer;touch-action:manipulation';
+  vt.onclick=function(){vt.textContent='✅ CLICK WORKS!';vt.style.background='#16a34a';setTimeout(function(){vt.remove();},3000);};
   document.body.appendChild(vt);
-  setTimeout(function(){vt.style.opacity='0';setTimeout(function(){vt.remove();},1000);},3000);
+  setTimeout(function(){if(vt.parentNode){vt.textContent='v2.4 loaded — now tap nav button';setTimeout(function(){vt.remove();},4000);}},8000);
   // global touch/click diagnostics — remove once events work
   document.addEventListener('touchstart',function(e){
     var d=document.createElement('div');
