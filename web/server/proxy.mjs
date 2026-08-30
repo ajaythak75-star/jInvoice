@@ -537,9 +537,12 @@ async function _sendEmail(to, subject, html) {
   const { createTransport } = await import("nodemailer");
   const transporter = createTransport({
     host: "smtp.gmail.com",
-    port: 465,
-    secure: true,
+    port: 587,
+    secure: false,          // STARTTLS — more permissive on cloud hosts than port 465
     auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD },
+    connectionTimeout: 10_000,
+    greetingTimeout:   10_000,
+    socketTimeout:     15_000,
   });
   await transporter.sendMail({ from: `"jInvoice" <${GMAIL_USER}>`, to, subject, html });
 }
@@ -549,6 +552,10 @@ app.post("/api/auth/send-otp", async (req, res) => {
   if (!email || !email.includes("@")) return res.status(400).json({ error: "Valid email required" });
   const code = String(Math.floor(100000 + Math.random() * 900000));
   _otpStore.set(email.toLowerCase(), { code, expiresAt: Date.now() + 600_000 });
+  // Hard 20-second timeout so a blocked SMTP port doesn't hang the browser
+  const timeout = setTimeout(() => {
+    if (!res.headersSent) res.status(504).json({ error: "Email send timed out. Try again." });
+  }, 20_000);
   try {
     await _sendEmail(
       email,
@@ -560,9 +567,11 @@ app.post("/api/auth/send-otp", async (req, res) => {
         <p style="margin:0;color:#888;font-size:13px">Expires in 10 minutes. Do not share this code.</p>
       </div>`
     );
-    res.json({ ok: true });
+    clearTimeout(timeout);
+    if (!res.headersSent) res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ error: String(e) });
+    clearTimeout(timeout);
+    if (!res.headersSent) res.status(500).json({ error: String(e) });
   }
 });
 
