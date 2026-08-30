@@ -10,7 +10,6 @@
 import express from "express";
 import multer from "multer";
 import crypto from "crypto";
-import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 
@@ -535,18 +534,16 @@ app.get("/", (req, res, next) => {
 
 app.get("/health", (_req, res) => res.send("ok"));
 
+// ── App config (Supabase creds for the React client) ─────────────────────────
+
+app.get("/api/app-config", (_req, res) => {
+  res.json({ supabaseUrl: SUPABASE_URL, supabaseAnonKey: SUPABASE_ANON_KEY });
+});
+
 // ── Desktop SPA (React build) ─────────────────────────────────────────────────
 
-// { index: false } prevents express.static from serving index.html directly
-// so all non-asset requests fall through to the handler below that injects globals.
-app.use(express.static(DIST, { index: false }));
-app.get("/*path", (_req, res) => {
-  const html = readFileSync(join(DIST, "index.html"), "utf8");
-  // Inject Supabase config at runtime so no VITE_* build-time vars are needed.
-  const inject = `<script>window.__SB_URL__=${JSON.stringify(SUPABASE_URL)};window.__SB_ANON__=${JSON.stringify(SUPABASE_ANON_KEY)};</script>`;
-  res.setHeader("Content-Type", "text/html");
-  res.send(html.replace("</head>", inject + "</head>"));
-});
+app.use(express.static(DIST));
+app.get("/*path", (_req, res) => res.sendFile(join(DIST, "index.html")));
 
 app.listen(PORT, () => console.log(`jInvoice proxy+relay running on port ${PORT}`));
 

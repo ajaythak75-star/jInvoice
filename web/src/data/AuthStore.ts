@@ -1,4 +1,4 @@
-import { supabase } from "./supabase";
+import { getSupabase } from "./supabase";
 
 export const auth = {
   get email(): string | null {
@@ -10,8 +10,9 @@ export const auth = {
   },
 
   async sendOtp(email: string): Promise<void> {
-    if (!supabase) throw new Error("Authentication service is not configured.");
-    const { error } = await supabase.auth.signInWithOtp({
+    const sb = await getSupabase();
+    if (!sb) throw new Error("Authentication service is not configured.");
+    const { error } = await sb.auth.signInWithOtp({
       email,
       options: { shouldCreateUser: true },
     });
@@ -20,16 +21,18 @@ export const auth = {
   },
 
   async verifyOtp(email: string, token: string): Promise<void> {
-    if (!supabase) throw new Error("Authentication service is not configured.");
-    const { error } = await supabase.auth.verifyOtp({ email, token, type: "email" });
+    const sb = await getSupabase();
+    if (!sb) throw new Error("Authentication service is not configured.");
+    const { error } = await sb.auth.verifyOtp({ email, token, type: "email" });
     if (error) throw new Error(error.message);
     localStorage.removeItem("jinvoice:signed_out");
     localStorage.setItem("jinvoice:auth_email", email);
     localStorage.setItem("jinvoice:session", "1");
   },
 
-  signOut(): void {
-    supabase?.auth.signOut().catch(() => {});
+  async signOut(): Promise<void> {
+    const sb = await getSupabase();
+    sb?.auth.signOut().catch(() => {});
     localStorage.removeItem("jinvoice:session");
     localStorage.setItem("jinvoice:signed_out", "1");
   },
