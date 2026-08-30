@@ -9,7 +9,8 @@ import { detectDocType, DOC_TYPE_SUBFOLDER } from "../extraction/DocTypeDetector
 import { assessEmailThreat } from "./SpamDetector";
 import type { ExtractionResult } from "../core/extraction/models";
 
-const SCHEDULE_CHECK_INTERVAL_MS = 5 * 60 * 1000; // check every 5 min
+const SCHEDULE_CHECK_INTERVAL_MS = 5 * 60 * 1000;
+const CONCURRENT_EXTRACTIONS = 3;
 
 let timer: ReturnType<typeof setInterval> | null = null;
 const desktopConnector = new DesktopFolderConnector();
@@ -28,16 +29,15 @@ function isSyncDue(): boolean {
   const [h, m] = (prefs.syncTime || "09:00").split(":").map(Number);
   const scheduledToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m);
 
-  if (now < scheduledToday) return false;   // scheduled time not yet reached today
+  if (now < scheduledToday) return false;
 
   const lastSync = prefs.lastAutoSync;
-  if (!lastSync) return true;               // never auto-synced → always due
+  if (!lastSync) return true;
 
   const last = new Date(lastSync);
   const diffMs = now.getTime() - last.getTime();
 
   switch (schedule) {
-    // Daily: fire if we haven't auto-synced at/after today's scheduled time yet
     case "daily":   return last < scheduledToday;
     case "weekly":  return diffMs >= 6 * 24 * 60 * 60 * 1000;
     case "monthly": return diffMs >= 28 * 24 * 60 * 60 * 1000;
@@ -50,7 +50,6 @@ export function schedulePolling(): void {
 
   if (prefs.syncSchedule === "manual") return;
 
-  // Run immediately if due, then check every 5 min
   if (isSyncDue()) {
     poll().then(() => { prefs.lastAutoSync = new Date().toISOString(); }).catch(console.error);
   }
@@ -75,13 +74,11 @@ function isSenderAllowed(senderEmail: string): boolean {
 
 async function makeEmailChecker(importSource: string): Promise<(meta: { id: string; subject: string; senderEmail: string; receivedAt: string }) => Promise<"allow" | "block">> {
   return async ({ id, subject, senderEmail, receivedAt }) => {
-    // Sender filter
     if (!isSenderAllowed(senderEmail)) {
       console.log(`[AutoImport] Sender blocked by filter: ${senderEmail}`);
       return "block";
     }
 
-    // Spam / fraud check
     try {
       const threat = await assessEmailThreat(subject, senderEmail);
       if (threat.isSuspicious && threat.riskLevel !== "low") {
@@ -109,6 +106,32 @@ async function makeEmailChecker(importSource: string): Promise<(meta: { id: stri
   };
 }
 
+// Worker-pool: runs up to `concurrency` tasks at a time, respects _syncCancelled.
+async function runConcurrent<T>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T) => Promise<void>
+): Promise<void> {
+  if (!items.length) return;
+  const queue = [...items];
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+      while (queue.length > 0 && !_syncCancelled) {
+        const item = queue.shift();
+        if (item !== undefined) await fn(item);
+      }
+    })
+  );
+}
+
+type EmailResult = {
+  file: File;
+  messageId: string;
+  subject: string;
+  senderEmail: string;
+  receivedAt: string;
+};
+
 export async function poll(): Promise<{ found: number; processed: number; cancelled: boolean }> {
   if (_syncRunning) return { found: 0, processed: 0, cancelled: false };
   _syncRunning = true;
@@ -121,24 +144,24 @@ export async function poll(): Promise<{ found: number; processed: number; cancel
   try {
     if (prefs.gmailEnabled && !_syncCancelled) {
       const checker = await makeEmailChecker("gmail");
-      // Primary account + extra accounts from gmailAccounts array
       const gmailAccounts = [
         ...(prefs.gmailAccessToken ? [{ email: prefs.gmailEmail ?? "", accessToken: prefs.gmailAccessToken, refreshToken: prefs.gmailRefreshToken }] : []),
         ...prefs.gmailAccounts.filter((a) => a.enabled && a.email !== prefs.gmailEmail),
       ];
+      const allResults: EmailResult[] = [];
       for (const acct of gmailAccounts) {
         if (_syncCancelled) break;
-        const gResults = await new GmailConnector(acct).pollAndDownload(checker);
-        found += gResults.length;
-        for (const { file, messageId, subject, senderEmail, receivedAt } of gResults) {
-          if (_syncCancelled) break;
-          const r = await processFile(file, "gmail", { subject, senderEmail, receivedAt });
-          await markAsImported(messageId, "gmail");
-          await savePdfToFolder(file, r, subject);
-          processed++;
-          window.dispatchEvent(new CustomEvent("jinvoice:sync-progress", { detail: { processed, found } }));
-        }
+        const results = await new GmailConnector(acct).pollAndDownload(checker);
+        allResults.push(...results);
       }
+      found += allResults.length;
+      await runConcurrent(allResults, CONCURRENT_EXTRACTIONS, async ({ file, messageId, subject, senderEmail, receivedAt }) => {
+        const r = await processFile(file, "gmail", { subject, senderEmail, receivedAt });
+        await markAsImported(messageId, "gmail");
+        await savePdfToFolder(file, r, subject);
+        processed++;
+        window.dispatchEvent(new CustomEvent("jinvoice:sync-progress", { detail: { processed, found } }));
+      });
     }
 
     if (prefs.outlookEnabled && !_syncCancelled) {
@@ -147,38 +170,39 @@ export async function poll(): Promise<{ found: number; processed: number; cancel
         ...(prefs.outlookAccessToken ? [{ email: prefs.outlookEmail ?? "", accessToken: prefs.outlookAccessToken }] : []),
         ...prefs.outlookAccounts.filter((a) => a.enabled && a.email !== prefs.outlookEmail),
       ];
+      const allResults: EmailResult[] = [];
       for (const acct of outlookAccounts) {
         if (_syncCancelled) break;
-        const oResults = await new OutlookConnector(acct).pollAndDownload(checker);
-        found += oResults.length;
-        for (const { file, messageId, subject, senderEmail, receivedAt } of oResults) {
-          if (_syncCancelled) break;
-          const r = await processFile(file, "outlook", { subject, senderEmail, receivedAt });
-          await markAsImported(messageId, "outlook");
-          await savePdfToFolder(file, r, subject);
-          processed++;
-          window.dispatchEvent(new CustomEvent("jinvoice:sync-progress", { detail: { processed, found } }));
-        }
+        const results = await new OutlookConnector(acct).pollAndDownload(checker);
+        allResults.push(...results);
       }
+      found += allResults.length;
+      await runConcurrent(allResults, CONCURRENT_EXTRACTIONS, async ({ file, messageId, subject, senderEmail, receivedAt }) => {
+        const r = await processFile(file, "outlook", { subject, senderEmail, receivedAt });
+        await markAsImported(messageId, "outlook");
+        await savePdfToFolder(file, r, subject);
+        processed++;
+        window.dispatchEvent(new CustomEvent("jinvoice:sync-progress", { detail: { processed, found } }));
+      });
     }
 
     if (prefs.imapEnabled && isImapAvailable() && !_syncCancelled) {
       const checker = await makeEmailChecker("imap");
       const imapResults = await ImapConnector.pollAndDownload(prefs.syncMonths, checker);
       found += imapResults.length;
-      for (const { file, messageId, subject, senderEmail, receivedAt } of imapResults) {
-        if (_syncCancelled) break;
+      await runConcurrent(imapResults, CONCURRENT_EXTRACTIONS, async ({ file, messageId, subject, senderEmail, receivedAt }) => {
         const r = await processFile(file, "imap", { subject, senderEmail, receivedAt });
         await markAsImported(messageId, "imap");
         await savePdfToFolder(file, r, subject);
         processed++;
         window.dispatchEvent(new CustomEvent("jinvoice:sync-progress", { detail: { processed, found } }));
-      }
+      });
     }
 
     if (prefs.desktopFolderName && !_syncCancelled) {
       const dResults = await desktopConnector.scanForNewPdfs();
       found += dResults.length;
+      // Desktop files don't hit the network so sequential is fine here
       for (const { file, key } of dResults) {
         if (_syncCancelled) break;
         await processFile(file, "desktop_folder");
