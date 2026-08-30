@@ -790,24 +790,10 @@ async function signOut(){
 function toggleGeminiField(){var s=document.getElementById('gemini-section');s.style.display=s.style.display==='none'?'block':'none';}
 (function(){
   var vt=document.createElement('div');
-  vt.textContent='v2.4 — TAP HERE TO TEST CLICK';
-  vt.style.cssText='position:fixed;top:env(safe-area-inset-top,12px);left:50%;transform:translateX(-50%);white-space:nowrap;background:var(--accent);color:#fff;font-size:13px;font-weight:700;padding:10px 18px;border-radius:20px;z-index:9999;cursor:pointer;touch-action:manipulation';
-  vt.onclick=function(){vt.textContent='✅ CLICK WORKS!';vt.style.background='#16a34a';setTimeout(function(){vt.remove();},3000);};
+  vt.textContent='jInvoice v2.5';
+  vt.style.cssText='position:fixed;top:env(safe-area-inset-top,12px);left:50%;transform:translateX(-50%);background:var(--accent);color:#fff;font-size:12px;font-weight:600;padding:6px 14px;border-radius:20px;z-index:999;opacity:1;transition:opacity 1s';
   document.body.appendChild(vt);
-  setTimeout(function(){if(vt.parentNode){vt.textContent='v2.4 loaded — now tap nav button';setTimeout(function(){vt.remove();},4000);}},8000);
-  // global touch/click diagnostics — remove once events work
-  document.addEventListener('touchstart',function(e){
-    var d=document.createElement('div');
-    d.textContent='TOUCH y='+Math.round(e.touches[0].clientY);
-    d.style.cssText='position:fixed;top:0;left:0;right:0;background:#2563eb;color:#fff;text-align:center;padding:12px;z-index:9999;font-size:15px;font-weight:700';
-    document.body.appendChild(d);setTimeout(function(){d.remove();},2000);
-  },true);
-  document.addEventListener('click',function(e){
-    var d=document.createElement('div');
-    d.textContent='CLICK y='+Math.round(e.clientY)+' target='+e.target.tagName;
-    d.style.cssText='position:fixed;top:44px;left:0;right:0;background:#16a34a;color:#fff;text-align:center;padding:12px;z-index:9999;font-size:15px;font-weight:700';
-    document.body.appendChild(d);setTimeout(function(){d.remove();},2000);
-  },true);
+  setTimeout(function(){vt.style.opacity='0';setTimeout(function(){vt.remove();},1000);},3000);
   if(TOKEN){
     if(GEMINI_KEY){document.getElementById('gemini-section').style.display='block';document.getElementById('gemini-input').value=GEMINI_KEY;}
     showHome();
@@ -1058,7 +1044,7 @@ function submitFeedback(){
   if(errEl)errEl.textContent='';
   var cat=(document.getElementById('fb-cat').value)||'General';
   var rating=_fbRating?(_fbRating+'/5 stars'):'Not rated';
-  var body=encodeURIComponent('Rating: '+rating+'\nCategory: '+cat+'\n\n'+msg);
+  var body=encodeURIComponent('Rating: '+rating+'\\nCategory: '+cat+'\\n\\n'+msg);
   var sub=encodeURIComponent('jInvoice Mobile Feedback');
   window.open('mailto:feedback@jinvoice.app?subject='+sub+'&body='+body,'_blank');
   document.getElementById('fb-thanks').style.display='block';
