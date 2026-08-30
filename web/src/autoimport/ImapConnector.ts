@@ -1,5 +1,5 @@
 import { isAlreadyImported } from "../data/InvoiceDatabase";
-import { supabase } from "../data/supabase";
+import { getSupabase } from "../data/supabase";
 
 export function isImapAvailable(): boolean {
   return true;
@@ -7,8 +7,9 @@ export function isImapAvailable(): boolean {
 
 async function imapHeaders(): Promise<Record<string, string>> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (supabase) {
-    const { data } = await supabase.auth.getSession();
+  const sb = await getSupabase();
+  if (sb) {
+    const { data } = await sb.auth.getSession();
     const token = data.session?.access_token;
     if (token) headers["Authorization"] = `Bearer ${token}`;
   }
