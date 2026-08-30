@@ -12,6 +12,7 @@ import { PricingScreen } from "./ui/pricing/PricingScreen";
 import { FAQScreen } from "./ui/help/FAQScreen";
 import { AboutScreen } from "./ui/help/AboutScreen";
 import { LoginScreen } from "./ui/auth/LoginScreen";
+import { auth } from "./data/AuthStore";
 import { prefs } from "./data/AutoImportPreferences";
 import { schedulePolling } from "./service/AutoImportService";
 import { checkAndNotify } from "./service/NotificationService";
@@ -68,8 +69,7 @@ applyOAuthHash();
 
 
 export function App() {
-  // Auth temporarily disabled — always logged in
-  const [loggedIn, setLoggedIn] = useState(true); // was: import.meta.env.DEV || auth.isLoggedIn
+  const [loggedIn, setLoggedIn] = useState(import.meta.env.DEV || auth.isLoggedIn);
   const [tab, setTab] = useState("import");
   const [alertCount, setAlertCount] = useState(0);
 
