@@ -4,8 +4,10 @@ import { ConsentModal } from "./ConsentModal";
 import { GmailConnector } from "../../autoimport/GmailConnector";
 import { OutlookConnector } from "../../autoimport/OutlookConnector";
 import { poll, cancelSync, isSyncing, desktopConnector } from "../../service/AutoImportService";
-import { clearAllData } from "../../data/InvoiceDatabase";
+import { clearAllData, db } from "../../data/InvoiceDatabase";
 import { processFile } from "../../extraction/ExtractionPipeline";
+import { syncNewInvoice } from "../../service/SupabaseSync";
+import { isSupabaseEnabled } from "../../data/supabase";
 import type { ExtractionResult, ExtractedInvoice } from "../../core/extraction/models";
 import { prefs } from "../../data/AutoImportPreferences";
 import { DOC_TYPE_LABELS, DOC_TYPE_SUBFOLDER, detectDocType, type DocType } from "../../extraction/DocTypeDetector";
@@ -128,7 +130,7 @@ const ALL_DOC_TYPES = Object.keys(DOC_TYPE_LABELS) as DocType[];
 
 type PendingConsent = "gmail" | "outlook" | null;
 
-type FileEntry = { name: string; status: "waiting" | "processing" | "done"; result?: ExtractionResult };
+type FileEntry = { name: string; status: "waiting" | "processing" | "done"; result?: ExtractionResult; invoiceId?: number; cloudSaved?: boolean; cloudSaving?: boolean };
 type DetailView = { inv: ExtractedInvoice; filename: string };
 
 function uploadResultMessage(r: ExtractionResult): string {
@@ -137,6 +139,7 @@ function uploadResultMessage(r: ExtractionResult): string {
   if (r.kind === "duplicate")          return `Duplicate — ${r.invoice.merchantName ?? "Invoice"} already saved`;
   if (r.kind === "encryptedPdf")       return "Encrypted PDF — cannot read";
   if (r.kind === "dailyLimitReached")  return `Daily limit reached (${r.limit}/day on Free plan). Upgrade to Pro.`;
+  if (r.kind === "pendingExtraction")  return "Queued — open in View tab to extract with AI";
   return `Failed: ${r.reason}`;
 }
 
@@ -257,14 +260,24 @@ export function AutoImportSettings() {
     setFileQueue(files.map(f => ({ name: f.name, status: "waiting" })));
     for (let i = 0; i < files.length; i++) {
       setFileQueue(q => q.map((e, idx) => idx === i ? { ...e, status: "processing" } : e));
-      const r = await processFile(files[i], "manual_upload");
-      if (folderReady && (r.kind === "success" || r.kind === "lowConfidence")) {
-        const lineItemNames = r.invoice.lineItems.map((li) => li.name);
-        const dts = detectDocType(r.invoice.merchantName, lineItemNames, files[i].name);
-        const bytes = new Uint8Array(await files[i].arrayBuffer());
-        for (const dt of dts) await desktopConnector.saveInvoiceToFolder(bytes, files[i].name, DOC_TYPE_SUBFOLDER[dt]);
+      const r = await processFile(files[i], "manual_upload", undefined, { skipGemini: true });
+      let invoiceId: number | undefined;
+      if (r.kind === "pendingExtraction") {
+        // Saved without AI — get the last inserted record ID for cloud save
+        const last = await db.invoices.orderBy("id").last();
+        if (last?.id != null) invoiceId = last.id as number;
+      } else if (r.kind === "success" || r.kind === "lowConfidence") {
+        if (folderReady) {
+          const lineItemNames = r.invoice.lineItems.map((li) => li.name);
+          const dts = detectDocType(r.invoice.merchantName, lineItemNames, files[i].name);
+          const bytes = new Uint8Array(await files[i].arrayBuffer());
+          for (const dt of dts) await desktopConnector.saveInvoiceToFolder(bytes, files[i].name, DOC_TYPE_SUBFOLDER[dt]);
+        }
+        // Get the ID of the just-inserted invoice (processFile saves it synchronously)
+        const last = await db.invoices.orderBy("id").last();
+        if (last?.id != null) invoiceId = last.id as number;
       }
-      setFileQueue(q => q.map((e, idx) => idx === i ? { ...e, status: "done", result: r } : e));
+      setFileQueue(q => q.map((e, idx) => idx === i ? { ...e, status: "done", result: r, invoiceId } : e));
     }
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
@@ -405,14 +418,17 @@ export function AutoImportSettings() {
               const r = entry.result;
               const isOk  = r?.kind === "success";
               const isWrn = r?.kind === "lowConfidence";
+              const isPending = r?.kind === "pendingExtraction";
               const color = entry.status !== "done" ? "var(--color-text-tertiary)"
-                : isOk  ? "#22c55e"
-                : isWrn ? "#f59e0b"
+                : isOk      ? "#22c55e"
+                : isWrn     ? "#f59e0b"
+                : isPending ? "#8b5cf6"
                 : "#ef4444";
               const icon = entry.status === "waiting"    ? "·"
                 : entry.status === "processing" ? "…"
-                : isOk  ? "✓"
-                : isWrn ? "⚠"
+                : isOk      ? "✓"
+                : isWrn     ? "⚠"
+                : isPending ? "⏳"
                 : "✗";
               return (
                 <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, padding: "5px 8px", borderRadius: 6, background: "var(--color-surface-2)" }}>
@@ -422,12 +438,30 @@ export function AutoImportSettings() {
                     <span style={{ fontSize: 11, color, whiteSpace: "nowrap", flexShrink: 0 }}>{uploadResultMessage(r)}</span>
                   )}
                   {entry.status === "done" && (r?.kind === "success" || r?.kind === "lowConfidence") && (
-                    <button
-                      onClick={() => setDetailView({ inv: r.invoice, filename: entry.name })}
-                      style={{ fontSize: 11, padding: "2px 8px", borderRadius: 4, border: "1px solid var(--color-primary)", background: "var(--accent-subtle)", color: "var(--color-primary)", cursor: "pointer", flexShrink: 0, fontWeight: 600 }}
-                    >
-                      View Details
-                    </button>
+                    <>
+                      <button
+                        onClick={() => setDetailView({ inv: (r as { invoice: ExtractedInvoice }).invoice, filename: entry.name })}
+                        style={{ fontSize: 11, padding: "2px 8px", borderRadius: 4, border: "1px solid var(--color-primary)", background: "var(--accent-subtle)", color: "var(--color-primary)", cursor: "pointer", flexShrink: 0, fontWeight: 600 }}
+                      >
+                        View Details
+                      </button>
+                      {isSupabaseEnabled() && entry.invoiceId != null && !entry.cloudSaved && (
+                        <button
+                          disabled={entry.cloudSaving}
+                          onClick={async () => {
+                            setFileQueue(q => q.map((e, idx) => idx === i ? { ...e, cloudSaving: true } : e));
+                            try { await syncNewInvoice(entry.invoiceId!); } catch {}
+                            setFileQueue(q => q.map((e, idx) => idx === i ? { ...e, cloudSaving: false, cloudSaved: true } : e));
+                          }}
+                          style={{ fontSize: 11, padding: "2px 8px", borderRadius: 4, border: "1px solid var(--color-border)", background: "var(--color-surface)", color: "var(--color-text-secondary)", cursor: entry.cloudSaving ? "wait" : "pointer", flexShrink: 0, fontWeight: 600 }}
+                        >
+                          {entry.cloudSaving ? "Saving…" : "☁ Save to Cloud"}
+                        </button>
+                      )}
+                      {entry.cloudSaved && (
+                        <span style={{ fontSize: 11, color: "#22c55e", flexShrink: 0, fontWeight: 600 }}>☁ Saved</span>
+                      )}
+                    </>
                   )}
                 </div>
               );

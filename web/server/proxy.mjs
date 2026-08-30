@@ -9,6 +9,7 @@
 // ╚══════════════════════════════════════════════════════════╝
 import express from "express";
 import multer from "multer";
+import crypto from "crypto";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 
@@ -32,18 +33,140 @@ function sanitizeReturnTo(raw) {
 const { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET } = process.env;
 const SUPABASE_URL      = process.env.SUPABASE_URL      ?? "";
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY ?? "";
+const STRIPE_SECRET_KEY      = process.env.STRIPE_SECRET_KEY      ?? "";
+const STRIPE_WEBHOOK_SECRET  = process.env.STRIPE_WEBHOOK_SECRET  ?? "";
+const STRIPE_PRICES = {
+  shared_monthly: process.env.STRIPE_PRICE_SHARED_MONTHLY ?? "",
+  shared_yearly:  process.env.STRIPE_PRICE_SHARED_YEARLY  ?? "",
+  own_monthly:    process.env.STRIPE_PRICE_OWN_MONTHLY    ?? "",
+  own_yearly:     process.env.STRIPE_PRICE_OWN_YEARLY     ?? "",
+};
 
 const GMAIL_SCOPE        = "https://www.googleapis.com/auth/gmail.readonly email openid";
 const GOOGLE_LOGIN_SCOPE = "openid email profile";
 const OUTLOOK_SCOPE      = "openid email Mail.Read offline_access";
 
 const app = express();
+
+// ── Stripe webhook (must be before express.json) ──────────────────────────────
+app.post("/api/stripe-webhook", express.raw({ type: "application/json" }), async (req, res) => {
+  if (!STRIPE_WEBHOOK_SECRET) return res.status(503).json({ error: "STRIPE_WEBHOOK_SECRET not set" });
+  const sig = req.headers["stripe-signature"] ?? "";
+  const parts = Object.fromEntries(sig.split(",").map((p) => p.split("=")));
+  const payload = `${parts.t}.${req.body}`;
+  const expected = crypto.createHmac("sha256", STRIPE_WEBHOOK_SECRET).update(payload).digest("hex");
+  if (expected !== parts.v1) return res.status(400).json({ error: "invalid signature" });
+  let event;
+  try { event = JSON.parse(req.body); } catch { return res.status(400).json({ error: "bad json" }); }
+  if (event.type === "checkout.session.completed" || event.type === "invoice.paid") {
+    const obj = event.data.object;
+    const customerId = obj.customer;
+    const subscriptionId = obj.subscription ?? null;
+    if (customerId && SUPABASE_URL && SUPABASE_ANON_KEY) {
+      try {
+        const lookup = await fetch(
+          `${SUPABASE_URL}/rest/v1/subscriptions?stripe_customer_id=eq.${customerId}&select=user_id`,
+          { headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } }
+        );
+        const rows = await lookup.json();
+        if (rows?.[0]?.user_id) {
+          const paidUntil = new Date(Date.now() + 32 * 24 * 60 * 60 * 1000).toISOString();
+          await fetch(`${SUPABASE_URL}/rest/v1/subscriptions?user_id=eq.${rows[0].user_id}`, {
+            method: "PATCH",
+            headers: {
+              apikey: SUPABASE_ANON_KEY,
+              Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              plan: "pro_paid", status: "active",
+              stripe_subscription_id: subscriptionId,
+              paid_from: new Date().toISOString(),
+              paid_until: paidUntil,
+              cancelled_at: null,
+              updated_at: new Date().toISOString(),
+            }),
+          });
+        }
+      } catch (e) { console.error("webhook patch failed", e); }
+    }
+  }
+  res.json({ received: true });
+});
+
+// ── Stripe checkout session ────────────────────────────────────────────────────
+// Shared with prod.mjs — needs auth token. Called from PricingScreen.
+async function validateSupabaseJWT_proxy(token) {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !token) return null;
+  try {
+    const r = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+      headers: { Authorization: `Bearer ${token}`, apikey: SUPABASE_ANON_KEY },
+    });
+    if (!r.ok) return null;
+    const user = await r.json();
+    return user.id ?? null;
+  } catch { return null; }
+}
+
+async function sbFetch_proxy(path, token, opts = {}) {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1${path}`, {
+    ...opts,
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+      Prefer: "return=representation",
+      ...opts.headers,
+    },
+  });
+  const text = await r.text();
+  return { ok: r.ok, status: r.status, data: text ? JSON.parse(text) : null };
+}
+
+app.post("/api/stripe-checkout", async (req, res) => {
+  if (!STRIPE_SECRET_KEY) return res.status(503).json({ error: "STRIPE_SECRET_KEY not set" });
+  const token = (req.headers.authorization ?? "").replace("Bearer ", "");
+  const userId = await validateSupabaseJWT_proxy(token);
+  if (!userId) return res.status(401).json({ error: "unauthorized" });
+  const { plan = "shared", billing = "monthly" } = req.body ?? {};
+  const priceId = STRIPE_PRICES[`${plan}_${billing}`];
+  if (!priceId) return res.status(400).json({ error: "unknown plan/billing or price ID not configured" });
+  const sub = await sbFetch_proxy(`/subscriptions?user_id=eq.${userId}&limit=1`, token);
+  const existing = sub.data?.[0];
+  const origin = RENDER_URL ?? `${req.protocol}://${req.headers.host}`;
+  const body = new URLSearchParams({
+    mode: "subscription",
+    "line_items[0][price]": priceId,
+    "line_items[0][quantity]": "1",
+    success_url: `${origin}/pricing?payment=success`,
+    cancel_url: `${origin}/pricing`,
+    "metadata[user_id]": userId,
+    ...(existing?.stripe_customer_id ? { customer: existing.stripe_customer_id } : {}),
+  });
+  try {
+    const r = await fetch("https://api.stripe.com/v1/checkout/sessions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${STRIPE_SECRET_KEY}`, "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+    });
+    const session = await r.json();
+    if (!r.ok) return res.status(r.status).json({ error: session.error?.message ?? "stripe error" });
+    if (session.customer && existing && !existing.stripe_customer_id) {
+      await sbFetch_proxy(`/subscriptions?user_id=eq.${userId}`, token, {
+        method: "PATCH",
+        body: JSON.stringify({ stripe_customer_id: session.customer, updated_at: new Date().toISOString() }),
+      });
+    }
+    res.json({ url: session.url });
+  } catch (e) { res.status(500).json({ error: String(e) }); }
+});
+
 app.use(express.json({ limit: "1mb" }));
 
 // CORS for desktop app (http://localhost:7823) calling cross-origin Render endpoints
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", LOCAL_APP);
-  res.header("Access-Control-Allow-Headers", "Content-Type, x-jinvoice-key, Authorization");
+  res.header("Access-Control-Allow-Headers", "Content-Type, x-jinvoice-key, x-gemini-key, Authorization");
   res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   if (req.method === "OPTIONS") return res.sendStatus(204);
   next();
@@ -354,13 +477,43 @@ app.get("/auth/outlook/callback", async (req, res) => {
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || "";
 
+// Strip personal identifiers from invoice text before sending to Gemini (DPDPA compliance)
+function sanitizePII(text) {
+  if (typeof text !== "string") return text;
+  const GSTIN_RE = /\b\d{2}[A-Z]{5}\d{4}[A-Z][A-Z\d]Z[A-Z\d]\b/g;
+  const gstins = [];
+  const guarded = text.replace(GSTIN_RE, (m) => { gstins.push(m); return `__G${gstins.length - 1}__`; });
+  let out = guarded
+    .replace(/\b\d{4}[\s-]?\d{4}[\s-]?\d{4}\b/g, "[AADHAAR]")
+    .replace(/\b\d{4}[\s-]\d{4}[\s-]\d{4}[\s-]\d{4}\b/g, "[CARD]")
+    .replace(/\b[A-Z]{5}\d{4}[A-Z]\b/g, "[PAN]");
+  gstins.forEach((g, i) => { out = out.replace(`__G${i}__`, g); });
+  return out;
+}
+
+function sanitizeGeminiBody(body) {
+  const contents = body?.contents;
+  if (!Array.isArray(contents)) return body;
+  return {
+    ...body,
+    contents: contents.map((c) => ({
+      ...c,
+      parts: Array.isArray(c.parts)
+        ? c.parts.map((p) => p.text ? { ...p, text: sanitizePII(p.text) } : p)
+        : c.parts,
+    })),
+  };
+}
+
 app.post("/api/gemini", async (req, res) => {
-  if (!GEMINI_API_KEY) return res.status(503).json({ error: "GEMINI_API_KEY not configured on server" });
+  const userKey = (req.headers["x-gemini-key"] ?? "").toString().trim();
+  const effectiveKey = userKey || GEMINI_API_KEY;
+  if (!effectiveKey) return res.status(503).json({ error: "No Gemini API key configured. Add your key in Settings → API Keys." });
   const { model = "gemini-3.6-flash", ...body } = req.body ?? {};
   try {
     const upstream = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
-      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${effectiveKey}`,
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(sanitizeGeminiBody(body)) },
     );
     const data = await upstream.json();
     res.status(upstream.status).json(data);

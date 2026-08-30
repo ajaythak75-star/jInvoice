@@ -619,41 +619,54 @@ export function SettingsScreen({ onSignOut }: Props) {
 
       {/* API Keys */}
       <section className="settings-section">
-        <div className="settings-section-title">API Keys</div>
+        <div className="settings-section-title">
+          API Keys
+          {!prefs.isProActive && (
+            <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 600, color: "var(--color-primary)", background: "color-mix(in srgb, var(--color-primary) 12%, transparent)", padding: "2px 7px", borderRadius: 10 }}>
+              Pro
+            </span>
+          )}
+        </div>
         <div className="settings-field">
           <label className="settings-field-label">Gemini API Key</label>
           <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginBottom: 6 }}>
-            Overrides the built-in key. Leave blank to use the default.
+            {prefs.isProActive
+              ? "Use your own Gemini API key instead of the shared server key."
+              : "Upgrade to Pro to use your own Gemini API key and avoid shared quota limits."}
           </p>
-          <div style={{ display: "flex", gap: 8 }}>
-            <input
-              type="password"
-              className="settings-input"
-              style={{ flex: 1, fontFamily: "monospace", fontSize: 12 }}
-              placeholder="AIza…"
-              value={geminiApiKey}
-              onChange={(e) => setGeminiApiKey(e.target.value)}
-            />
-            <button
-              className="btn-sm"
-              onClick={() => {
-                prefs.geminiApiKey = geminiApiKey.trim();
-                setGeminiKeySaved(true);
-                setTimeout(() => setGeminiKeySaved(false), 2000);
-              }}
-            >
-              {geminiKeySaved ? "✓ Saved" : "Save"}
-            </button>
-            {geminiApiKey && (
+          {prefs.isProActive ? (
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                type="password"
+                className="settings-input"
+                style={{ flex: 1, fontFamily: "monospace", fontSize: 12 }}
+                placeholder="AIza…"
+                value={geminiApiKey}
+                onChange={(e) => setGeminiApiKey(e.target.value)}
+              />
               <button
                 className="btn-sm"
-                style={{ color: "#ef4444", borderColor: "#ef4444" }}
-                onClick={() => { prefs.geminiApiKey = ""; setGeminiApiKey(""); }}
+                onClick={() => {
+                  prefs.geminiApiKey = geminiApiKey.trim();
+                  setGeminiKeySaved(true);
+                  setTimeout(() => setGeminiKeySaved(false), 2000);
+                }}
               >
-                Clear
+                {geminiKeySaved ? "✓ Saved" : "Save"}
               </button>
-            )}
-          </div>
+              {geminiApiKey && (
+                <button
+                  className="btn-sm"
+                  style={{ color: "#ef4444", borderColor: "#ef4444" }}
+                  onClick={() => { prefs.geminiApiKey = ""; setGeminiApiKey(""); }}
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          ) : (
+            <button className="settings-pro-cta" onClick={openProModal}>Upgrade to Pro</button>
+          )}
         </div>
 
         <div className="settings-field" style={{ marginTop: 16 }}>

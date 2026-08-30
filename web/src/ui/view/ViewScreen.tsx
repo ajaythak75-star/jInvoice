@@ -7,7 +7,7 @@ import { isSupabaseEnabled } from "../../data/supabase";
 import type { ClaudeInvoiceData } from "../../extraction/ClaudeExtractor";
 import { desktopConnector } from "../../service/AutoImportService";
 import { prefs } from "../../data/AutoImportPreferences";
-import { extractFilePreview } from "../../extraction/ExtractionPipeline";
+import { extractFilePreview, extractInvoiceWithAI } from "../../extraction/ExtractionPipeline";
 import type { ExtractedInvoice } from "../../core/extraction/models";
 import { detectCategory } from "../../core/extraction/CategoryDetector";
 import { detectDocType } from "../../extraction/DocTypeDetector";
@@ -36,12 +36,13 @@ function formatSource(src: string): string {
 
 function statusColor(status: string): string {
   switch (status) {
-    case "imported":           return "#22c55e";
-    case "pending_review":     return "#f59e0b";
-    case "downloaded":         return "#3b82f6";
+    case "imported":              return "#22c55e";
+    case "pending_review":        return "#f59e0b";
+    case "pending_extraction":    return "#8b5cf6";
+    case "downloaded":            return "#3b82f6";
     case "import_blocked_encrypted":
-    case "extraction_failed":  return "#ef4444";
-    default:                   return "#6b7280";
+    case "extraction_failed":     return "#ef4444";
+    default:                      return "#6b7280";
   }
 }
 
@@ -49,6 +50,7 @@ function statusText(status: string): string {
   switch (status) {
     case "imported":                  return "Imported";
     case "pending_review":            return "Needs Review";
+    case "pending_extraction":        return "Pending AI";
     case "downloaded":                return "Downloaded";
     case "import_blocked_encrypted":  return "Encrypted";
     case "extraction_failed":         return "Failed";
@@ -827,6 +829,8 @@ export function ViewScreen() {
   const [previewExtracted, setPreviewExtracted] = useState<ExtractedInvoice | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewSubmitting, setPreviewSubmitting] = useState(false);
+  const [previewCloudSaving, setPreviewCloudSaving] = useState(false);
+  const [aiExtracting, setAiExtracting] = useState(false);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const [billIssues, setBillIssues] = useState<Map<number, BillIssue[]>>(new Map());
   const [syncingId, setSyncingId] = useState<number | null>(null);
@@ -1607,81 +1611,147 @@ export function ViewScreen() {
               <div style={{ padding: "16px 20px 12px", borderBottom: "1px solid var(--color-border)", flexShrink: 0 }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
                   <span style={{ fontSize: 17, fontWeight: 700, color: "var(--color-text)" }}>
-                    {isPreviewMode ? "Extraction Preview" : "Extraction Result"}
+                    {isPreviewMode ? "Extraction Preview" : r.status === "pending_extraction" ? "Pending AI Extraction" : "Extraction Result"}
                   </span>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    {isPreviewMode && (
+                    {!isPreviewMode && r.status === "pending_extraction" && (
                       <button
-                        disabled={previewSubmitting}
+                        disabled={aiExtracting}
                         style={{
                           padding: "6px 14px", borderRadius: 6, border: "none",
-                          background: "var(--color-primary)", color: "#fff", fontSize: 13, fontWeight: 700,
-                          cursor: previewSubmitting ? "wait" : "pointer", opacity: previewSubmitting ? 0.7 : 1,
+                          background: "#8b5cf6", color: "#fff", fontSize: 13, fontWeight: 700,
+                          cursor: aiExtracting ? "wait" : "pointer", opacity: aiExtracting ? 0.7 : 1,
                         }}
                         onClick={async () => {
-                          if (!previewExtracted) return;
-                          if (prefs.isDailyLimitReached) {
-                            alert(`Daily limit reached — Free plan allows ${prefs.FREE_DAILY_LIMIT} invoices per day. Upgrade to Pro for unlimited.`);
-                            return;
-                          }
-                          setPreviewSubmitting(true);
+                          if (!r.id) return;
+                          setAiExtracting(true);
                           try {
-                            const inv = previewExtracted;
-                            const now = new Date().toISOString();
-                            const lineItemNames = inv.lineItems.map((li) => li.name);
-                            const category = detectCategory(inv.merchantName, lineItemNames);
-                            const filename = r.sourceFilename;
-                            const docTypes = detectDocType(inv.merchantName, lineItemNames, filename, undefined);
-                            const docType = docTypes[0] ?? "other";
-                            await insertInvoiceWithItems(
-                              {
-                                merchantName: inv.merchantName,
-                                merchantAddress: inv.merchantAddress,
-                                merchantGstin: inv.merchantGstin,
-                                merchantPhone: inv.merchantPhone ?? null,
-                                merchantPincode: inv.merchantPincode ?? null,
-                                invoiceNumber: inv.invoiceNumber,
-                                invoiceDate: inv.invoiceDate,
-                                subtotalPaise: inv.subtotalPaise,
-                                grandTotalPaise: inv.grandTotalPaise,
-                                discountPaise: inv.discountPaise ?? 0,
-                                taxPaise: inv.taxPaise,
-                                paymentMode: inv.paymentMode,
-                                importSource: "manual_upload",
-                                pdfSourceType: inv.sourceType,
-                                importRecordId: null,
-                                status: "imported",
-                                category,
-                                docType,
-                                docTypes,
-                                sourceFilename: filename,
-                                subject: "Unknown",
-                                senderEmail: "Manual",
-                                createdAt: now,
-                                updatedAt: now,
-                              },
-                              inv.lineItems.map((li) => ({
-                                name: li.name,
-                                quantity: li.quantity,
-                                unitPricePaise: li.unitPricePaise,
-                                totalPricePaise: li.totalPricePaise,
-                                discountPaise: li.discountPaise ?? 0,
-                              })),
-                            );
-                            prefs.incrementDailyCount();
-                            // Award reward points for manual upload
-                            const isComplete = !!(inv.merchantName && inv.grandTotalPaise && inv.invoiceDate && inv.lineItems.length > 0);
-                            rewards.recordUpload(isComplete);
-                            load();
-                            closeDetailPanel();
+                            const inv = await extractInvoiceWithAI(r.id);
+                            if (inv) {
+                              load();
+                              const updated = await db.invoices.get(r.id);
+                              if (updated) setDetailRec(updated);
+                              const items = await db.lineItems.where("invoiceId").equals(r.id).toArray();
+                              setDetailItems(items);
+                            } else {
+                              alert("No text available for this file. Use the '+PDF' button to upload and extract it.");
+                            }
                           } finally {
-                            setPreviewSubmitting(false);
+                            setAiExtracting(false);
                           }
                         }}
                       >
-                        {previewSubmitting ? "Saving…" : "Submit & Save"}
+                        {aiExtracting ? "Extracting…" : "Extract with AI"}
                       </button>
                     )}
+                    {isPreviewMode && (() => {
+                      const doInsert = async (inv: typeof previewExtracted) => {
+                        if (!inv) return null;
+                        const now = new Date().toISOString();
+                        const lineItemNames = inv.lineItems.map((li) => li.name);
+                        const category = detectCategory(inv.merchantName, lineItemNames);
+                        const filename = r.sourceFilename;
+                        const docTypes = detectDocType(inv.merchantName, lineItemNames, filename, undefined);
+                        const docType = docTypes[0] ?? "other";
+                        const newId = await insertInvoiceWithItems(
+                          {
+                            merchantName: inv.merchantName,
+                            merchantAddress: inv.merchantAddress,
+                            merchantGstin: inv.merchantGstin,
+                            merchantPhone: inv.merchantPhone ?? null,
+                            merchantPincode: inv.merchantPincode ?? null,
+                            invoiceNumber: inv.invoiceNumber,
+                            invoiceDate: inv.invoiceDate,
+                            subtotalPaise: inv.subtotalPaise,
+                            grandTotalPaise: inv.grandTotalPaise,
+                            discountPaise: inv.discountPaise ?? 0,
+                            taxPaise: inv.taxPaise,
+                            paymentMode: inv.paymentMode,
+                            importSource: "manual_upload",
+                            pdfSourceType: inv.sourceType,
+                            importRecordId: null,
+                            status: "imported",
+                            category,
+                            docType,
+                            docTypes,
+                            sourceFilename: filename,
+                            subject: "Unknown",
+                            senderEmail: "Manual",
+                            createdAt: now,
+                            updatedAt: now,
+                          },
+                          inv.lineItems.map((li) => ({
+                            name: li.name,
+                            quantity: li.quantity,
+                            unitPricePaise: li.unitPricePaise,
+                            totalPricePaise: li.totalPricePaise,
+                            discountPaise: li.discountPaise ?? 0,
+                          })),
+                        );
+                        prefs.incrementDailyCount();
+                        const isComplete = !!(inv.merchantName && inv.grandTotalPaise && inv.invoiceDate && inv.lineItems.length > 0);
+                        rewards.recordUpload(isComplete);
+                        return newId;
+                      };
+                      return (
+                        <>
+                          {isSupabaseEnabled() && (
+                            <button
+                              disabled={previewCloudSaving || previewSubmitting}
+                              style={{
+                                padding: "6px 14px", borderRadius: 6,
+                                border: "1px solid var(--color-border)",
+                                background: "var(--color-surface-2)", color: "var(--color-text-secondary)",
+                                fontSize: 13, fontWeight: 700,
+                                cursor: previewCloudSaving ? "wait" : "pointer",
+                                opacity: previewCloudSaving ? 0.7 : 1,
+                              }}
+                              onClick={async () => {
+                                if (!previewExtracted) return;
+                                if (prefs.isDailyLimitReached) {
+                                  alert(`Daily limit reached — Free plan allows ${prefs.FREE_DAILY_LIMIT} invoices per day. Upgrade to Pro for unlimited.`);
+                                  return;
+                                }
+                                setPreviewCloudSaving(true);
+                                try {
+                                  const newId = await doInsert(previewExtracted);
+                                  if (newId != null) {
+                                    try { await syncNewInvoice(newId); rewards.recordCloudSync(); } catch {}
+                                  }
+                                  load();
+                                  closeDetailPanel();
+                                } finally { setPreviewCloudSaving(false); }
+                              }}
+                            >
+                              {previewCloudSaving ? "Saving…" : "☁ Save to Cloud"}
+                            </button>
+                          )}
+                          <button
+                            disabled={previewSubmitting || previewCloudSaving}
+                            style={{
+                              padding: "6px 14px", borderRadius: 6, border: "none",
+                              background: "var(--color-primary)", color: "#fff", fontSize: 13, fontWeight: 700,
+                              cursor: previewSubmitting ? "wait" : "pointer", opacity: previewSubmitting ? 0.7 : 1,
+                            }}
+                            onClick={async () => {
+                              if (!previewExtracted) return;
+                              if (prefs.isDailyLimitReached) {
+                                alert(`Daily limit reached — Free plan allows ${prefs.FREE_DAILY_LIMIT} invoices per day. Upgrade to Pro for unlimited.`);
+                                return;
+                              }
+                              setPreviewSubmitting(true);
+                              try {
+                                await doInsert(previewExtracted);
+                                load();
+                                closeDetailPanel();
+                              } finally { setPreviewSubmitting(false); }
+                            }}
+                          >
+                            {previewSubmitting ? "Saving…" : "Submit & Save"}
+                          </button>
+                        </>
+                      );
+                    })()}
                     {!isPreviewMode && isSupabaseEnabled() && r.id != null && (() => {
                       const sensitivity = detectSensitiveData(r);
                       if (sensitivity.sensitive) {

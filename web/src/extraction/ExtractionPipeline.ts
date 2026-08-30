@@ -75,6 +75,7 @@ export async function processFile(
   file: File,
   importSource: string,
   meta?: { subject?: string; senderEmail?: string; receivedAt?: string },
+  options?: { skipGemini?: boolean },
 ): Promise<ExtractionResult> {
   if (prefs.isDailyLimitReached) {
     return { kind: "dailyLimitReached", limit: prefs.FREE_DAILY_LIMIT };
@@ -85,6 +86,40 @@ export async function processFile(
   }
 
   const classification = await classifyPdf(file);
+
+  // Skip Gemini — save file metadata with pending_extraction status for later AI processing in View screen
+  if (options?.skipGemini) {
+    if (classification === "encrypted") return { kind: "encryptedPdf" };
+    const now = new Date().toISOString();
+    const pdfSourceType =
+      classification === "native" ? "NATIVE_PDF" :
+      classification === "scanned" ? "SCANNED_PDF" : "MIXED_PDF";
+    let rawText: string | null = null;
+    if (classification !== "scanned") {
+      try {
+        const tr = await extractNativePdf(file);
+        if ((tr.kind === "success" || tr.kind === "lowConfidence") && tr.invoice.rawText) {
+          rawText = tr.invoice.rawText;
+        }
+      } catch {}
+    }
+    const invoiceId = await insertInvoiceWithItems(
+      {
+        merchantName: null, merchantAddress: null, merchantGstin: null,
+        merchantPincode: null, invoiceNumber: null, invoiceDate: null,
+        subtotalPaise: null, grandTotalPaise: null, discountPaise: 0,
+        taxPaise: null, paymentMode: null,
+        importSource, pdfSourceType, importRecordId: null,
+        status: "pending_extraction", docType: "other", docTypes: ["other"],
+        sourceFilename: file.name,
+        subject: meta?.subject, senderEmail: meta?.senderEmail, receivedAt: meta?.receivedAt,
+        createdAt: now, updatedAt: now,
+      },
+      [],
+    );
+    if (rawText) await db.rawTexts.add({ invoiceId, rawText });
+    return { kind: "pendingExtraction" };
+  }
   let result: ExtractionResult;
 
   if (classification === "encrypted") {
@@ -250,6 +285,56 @@ async function persistResult(
     );
   }
   return false;
+}
+
+/** Run Gemini on stored rawText for a pending_extraction invoice and update its DB record. */
+export async function extractInvoiceWithAI(invoiceId: number): Promise<ExtractedInvoice | null> {
+  const rawRec = await db.rawTexts.where("invoiceId").equals(invoiceId).first();
+  if (!rawRec?.rawText) return null;
+  const blank: ExtractedInvoice = {
+    merchantName: null, merchantAddress: null, merchantGstin: null,
+    merchantPhone: null, merchantPincode: null, invoiceNumber: null,
+    invoiceDate: null, lineItems: [], subtotalPaise: null, discountPaise: 0,
+    taxPaise: null, grandTotalPaise: null, paymentMode: null,
+    sourceType: "NATIVE_PDF", rawText: rawRec.rawText, confidenceScore: 0,
+  };
+  const enhanced = await enhanceWithClaude(blank);
+  const now = new Date().toISOString();
+  const lineItemNames = enhanced.lineItems.map((li) => li.name);
+  const category = detectCategory(enhanced.merchantName, lineItemNames);
+  const docTypes = detectDocType(enhanced.merchantName, lineItemNames, undefined, undefined);
+  const status = enhanced.confidenceScore >= 0.7 ? "imported" : "pending_review";
+  await db.invoices.update(invoiceId, {
+    merchantName: enhanced.merchantName,
+    merchantAddress: enhanced.merchantAddress,
+    merchantGstin: enhanced.merchantGstin,
+    merchantPhone: enhanced.merchantPhone,
+    merchantPincode: enhanced.merchantPincode,
+    invoiceNumber: enhanced.invoiceNumber,
+    invoiceDate: enhanced.invoiceDate,
+    subtotalPaise: enhanced.subtotalPaise,
+    grandTotalPaise: enhanced.grandTotalPaise,
+    discountPaise: enhanced.discountPaise,
+    taxPaise: enhanced.taxPaise,
+    paymentMode: enhanced.paymentMode,
+    status,
+    category,
+    docType: docTypes[0] ?? "other",
+    docTypes,
+    updatedAt: now,
+  });
+  await db.lineItems.where("invoiceId").equals(invoiceId).delete();
+  if (enhanced.lineItems.length > 0) {
+    await db.lineItems.bulkAdd(enhanced.lineItems.map((li) => ({
+      invoiceId,
+      name: li.name,
+      quantity: li.quantity,
+      unitPricePaise: li.unitPricePaise,
+      totalPricePaise: li.totalPricePaise,
+      discountPaise: li.discountPaise,
+    })));
+  }
+  return enhanced;
 }
 
 /** Extract + Gemini-enhance a file without saving to DB — for preview before submit */

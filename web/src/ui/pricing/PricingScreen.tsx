@@ -1,7 +1,14 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { prefs } from "../../data/AutoImportPreferences";
 import { auth } from "../../data/AuthStore";
 import { saveCustomerPlan, saveCustomerBusinessProfile } from "../../service/SupabaseSync";
+import {
+  subscriptionService,
+  type Subscription,
+  isInTrial,
+  isProActive as serverIsProActive,
+  trialDaysLeft as serverTrialDaysLeft,
+} from "../../service/SubscriptionService";
 
 const INDIAN_STATES = [
   "Andhra Pradesh","Arunachal Pradesh","Assam","Bihar","Chhattisgarh","Goa","Gujarat",
@@ -234,20 +241,37 @@ function CheckIcon({ color = "currentColor" }: { color?: string }) {
 export function PricingScreen() {
   const [billing, setBilling]         = useState<Billing>("monthly");
   const [apiOption, setApiOption]     = useState<ApiOption>(() => prefs.planApiOption);
-  const [, forceUpdate]               = useState(0);
+  const [sub, setSub]                 = useState<Subscription | null>(null);
+  const [loading, setLoading]         = useState(true);
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showApiKeyModal,  setShowApiKeyModal]  = useState(false);
 
-  const isSubscribed = prefs.isSubscribed;
-  const isInTrial    = prefs.isInTrial;
-  const trialStarted = !!prefs.trialStartedAt;
-  const daysLeft     = prefs.trialDaysLeft;
-  const isProActive  = prefs.isProActive;
+  useEffect(() => {
+    subscriptionService.get().then((s) => { setSub(s); setLoading(false); });
+    // Handle Stripe success redirect
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("payment") === "success") {
+      window.history.replaceState({}, "", "/pricing");
+      setTimeout(() => subscriptionService.get().then(setSub), 2000);
+    }
+  }, []);
+
+  // Derive state from server sub (fallback to local prefs while loading)
+  const isSubscribed = sub ? sub.plan === "pro_paid" && sub.status === "active" : prefs.isSubscribed;
+  const inTrial      = sub ? isInTrial(sub) : prefs.isInTrial;
+  const trialStarted = sub ? !!sub.trial_started_at : !!prefs.trialStartedAt;
+  const trialUsed    = sub ? sub.trial_used : trialStarted;
+  const daysLeft     = sub ? serverTrialDaysLeft(sub) : prefs.trialDaysLeft;
+  const proActive    = sub ? serverIsProActive(sub) : prefs.isProActive;
+  const canCancel    = sub?.plan === "pro_paid" && sub.status === "active" && sub.paid_until
+    ? new Date(sub.paid_until) < new Date() : false;
+  const canRefund    = sub?.status === "cancelled" && !sub.refund_requested_at;
 
   const selectApiOption = (opt: ApiOption) => {
     setApiOption(opt);
     prefs.planApiOption = opt;
-    if (isProActive && auth.email) {
+    if (proActive && auth.email) {
       saveCustomerPlan(auth.email, {
         plan: opt === "shared" ? "pro_shared" : "pro_own",
         plan_status: isSubscribed ? "active" : "trial",
@@ -256,17 +280,39 @@ export function PricingScreen() {
     }
   };
 
-  const handleStartTrial = () => {
-    prefs.startTrial();
-    forceUpdate((n) => n + 1);
-    if (auth.email) {
-      saveCustomerPlan(auth.email, {
-        plan: apiOption === "shared" ? "pro_shared" : "pro_own",
-        plan_status: "trial",
-        billing_cycle: billing,
-        trial_started_at: new Date().toISOString(),
-      });
+  const handleStartTrial = async () => {
+    const updated = await subscriptionService.startTrial();
+    if (updated) {
+      setSub(updated);
+      prefs.startTrial(); // keep local prefs in sync
+      if (auth.email) {
+        saveCustomerPlan(auth.email, {
+          plan: apiOption === "shared" ? "pro_shared" : "pro_own",
+          plan_status: "trial",
+          billing_cycle: billing,
+          trial_started_at: updated.trial_started_at ?? new Date().toISOString(),
+        });
+      }
     }
+  };
+
+  const handleSubscribe = async () => {
+    setCheckoutLoading(true);
+    const url = await subscriptionService.createCheckout(apiOption, billing);
+    setCheckoutLoading(false);
+    if (url) window.location.href = url;
+  };
+
+  const handleCancel = async () => {
+    if (!window.confirm("Cancel your Pro subscription? You will stay on Free after your paid period.")) return;
+    const updated = await subscriptionService.cancel();
+    if (updated) setSub(updated);
+  };
+
+  const handleRefund = async () => {
+    if (!window.confirm("Request a refund? Our team will process it within 5-7 business days.")) return;
+    const updated = await subscriptionService.requestRefund();
+    if (updated) setSub(updated);
   };
 
   const plan = PLANS[apiOption];
@@ -287,19 +333,40 @@ export function PricingScreen() {
       </div>
 
       {/* Status banners */}
-      {isSubscribed && (
-        <div style={{ marginBottom: 20, padding: "12px 16px", borderRadius: 10, background: "#f0fdf4", border: "1px solid #86efac", color: "#166534", fontSize: 13, fontWeight: 600 }}>
-          ✓ You are on the Pro plan.
+      {loading && (
+        <div style={{ marginBottom: 20, padding: "12px 16px", borderRadius: 10, background: "var(--color-surface-2)", border: "1px solid var(--color-border)", color: "var(--color-text-secondary)", fontSize: 13 }}>
+          Loading subscription status…
         </div>
       )}
-      {!isSubscribed && isInTrial && (
+      {!loading && isSubscribed && (
+        <div style={{ marginBottom: 20, padding: "12px 16px", borderRadius: 10, background: "#f0fdf4", border: "1px solid #86efac", color: "#166534", fontSize: 13, fontWeight: 600 }}>
+          ✓ You are on the Pro plan.
+          {canCancel && (
+            <button onClick={handleCancel} style={{ marginLeft: 16, fontSize: 12, color: "#ef4444", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>
+              Cancel subscription
+            </button>
+          )}
+        </div>
+      )}
+      {!loading && sub?.status === "cancelled" && (
+        <div style={{ marginBottom: 20, padding: "12px 16px", borderRadius: 10, background: "#fef2f2", border: "1px solid #fca5a5", color: "#991b1b", fontSize: 13, fontWeight: 600 }}>
+          ✗ Subscription cancelled.{" "}
+          {canRefund && (
+            <button onClick={handleRefund} style={{ fontSize: 12, color: "#7c3aed", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>
+              Request refund
+            </button>
+          )}
+          {sub.refund_requested_at && " Refund requested — being processed."}
+        </div>
+      )}
+      {!loading && !isSubscribed && inTrial && (
         <div style={{ marginBottom: 20, padding: "12px 16px", borderRadius: 10, background: "#eff6ff", border: "1px solid #93c5fd", color: "#1e40af", fontSize: 13, fontWeight: 600 }}>
           🎉 Pro trial active — {daysLeft} day{daysLeft !== 1 ? "s" : ""} left.
         </div>
       )}
-      {!isSubscribed && trialStarted && !isInTrial && (
+      {!loading && !isSubscribed && trialStarted && !inTrial && sub?.status !== "cancelled" && (
         <div style={{ marginBottom: 20, padding: "12px 16px", borderRadius: 10, background: "#fff7ed", border: "1px solid #fdba74", color: "#92400e", fontSize: 13, fontWeight: 600 }}>
-          ⚠ Your 14-day trial has ended. Subscribe to restore Pro features.
+          ⚠ Your 14-day trial has ended. Subscribe below to restore Pro features.
         </div>
       )}
 
@@ -365,7 +432,7 @@ export function PricingScreen() {
             ))}
           </ul>
           <div style={{ marginTop: 18, fontSize: 13, color: "var(--color-text-secondary)", fontWeight: 600, textAlign: "center", padding: "8px 0" }}>
-            {isProActive ? "Downgrade anytime" : "Current plan"}
+            {proActive ? "Downgrade anytime" : "Current plan"}
           </div>
         </div>
 
@@ -493,11 +560,20 @@ export function PricingScreen() {
         <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
           {isSubscribed ? (
             <div style={{ fontSize: 13, color: "#7c3aed", fontWeight: 700 }}>✓ Pro active</div>
-          ) : isInTrial ? (
-            <div style={{ fontSize: 13, color: "var(--color-text-secondary)", fontStyle: "italic" }}>
-              Trial active — {daysLeft} day{daysLeft !== 1 ? "s" : ""} left
-            </div>
-          ) : !trialStarted ? (
+          ) : inTrial ? (
+            <>
+              <div style={{ fontSize: 13, color: "var(--color-text-secondary)", fontStyle: "italic" }}>
+                Trial active — {daysLeft} day{daysLeft !== 1 ? "s" : ""} left
+              </div>
+              <button
+                onClick={handleSubscribe}
+                disabled={checkoutLoading}
+                style={{ padding: "8px 18px", borderRadius: 8, border: "1px solid #7c3aed", background: "transparent", color: "#7c3aed", fontSize: 13, fontWeight: 700, cursor: "pointer" }}
+              >
+                {checkoutLoading ? "Redirecting…" : "Subscribe now →"}
+              </button>
+            </>
+          ) : !trialUsed ? (
             <>
               <button
                 onClick={() => setShowProfileModal(true)}
@@ -508,9 +584,13 @@ export function PricingScreen() {
               <span style={{ fontSize: 11.5, color: "var(--color-text-tertiary)" }}>No credit card required</span>
             </>
           ) : (
-            <div style={{ fontSize: 13, color: "var(--color-text-secondary)", fontStyle: "italic" }}>
-              Payment coming soon
-            </div>
+            <button
+              onClick={handleSubscribe}
+              disabled={checkoutLoading}
+              style={{ padding: "10px 24px", borderRadius: 8, border: "none", background: "#7c3aed", color: "#fff", fontSize: 13.5, fontWeight: 700, cursor: "pointer" }}
+            >
+              {checkoutLoading ? "Redirecting…" : "Subscribe now →"}
+            </button>
           )}
         </div>
       </div>

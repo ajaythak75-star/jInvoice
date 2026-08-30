@@ -5,6 +5,7 @@
 // ╚══════════════════════════════════════════════════════════╝
 import express from "express";
 import multer from "multer";
+import crypto from "crypto";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 
@@ -18,6 +19,15 @@ const AZURE_CLIENT_SECRET  = process.env.AZURE_CLIENT_SECRET  ?? "";
 const PORT                 = Number(process.env.PORT ?? 3000);
 const SUPABASE_URL         = process.env.SUPABASE_URL         ?? "";
 const SUPABASE_ANON_KEY    = process.env.SUPABASE_ANON_KEY    ?? "";
+const STRIPE_SECRET_KEY    = process.env.STRIPE_SECRET_KEY    ?? "";
+const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET ?? "";
+// Price IDs from your Stripe dashboard
+const STRIPE_PRICES = {
+  shared_monthly: process.env.STRIPE_PRICE_SHARED_MONTHLY ?? "",
+  shared_yearly:  process.env.STRIPE_PRICE_SHARED_YEARLY  ?? "",
+  own_monthly:    process.env.STRIPE_PRICE_OWN_MONTHLY    ?? "",
+  own_yearly:     process.env.STRIPE_PRICE_OWN_YEARLY     ?? "",
+};
 
 const GMAIL_SCOPE        = "https://www.googleapis.com/auth/gmail.readonly email openid";
 const GOOGLE_LOGIN_SCOPE = "openid email profile";
@@ -130,6 +140,55 @@ function pruneRelay() {
 setInterval(pruneRelay, 60 * 60 * 1000).unref(); // hourly sweep
 
 const app = express();
+
+// ── Stripe webhook — must be BEFORE express.json() to access raw body ─────────
+// Deploy this same route in proxy.mjs too (Stripe calls the public Render URL).
+app.post("/api/stripe-webhook", express.raw({ type: "application/json" }), async (req, res) => {
+  if (!STRIPE_WEBHOOK_SECRET) return res.status(503).json({ error: "STRIPE_WEBHOOK_SECRET not set" });
+  const sig = req.headers["stripe-signature"] ?? "";
+  // Manual Stripe signature verification (no stripe package required)
+  const parts = Object.fromEntries(sig.split(",").map((p) => p.split("=")));
+  const payload = `${parts.t}.${req.body}`;
+  const expected = crypto.createHmac("sha256", STRIPE_WEBHOOK_SECRET).update(payload).digest("hex");
+  if (expected !== parts.v1) return res.status(400).json({ error: "invalid signature" });
+  let event;
+  try { event = JSON.parse(req.body); } catch { return res.status(400).json({ error: "bad json" }); }
+  if (event.type === "checkout.session.completed" || event.type === "invoice.paid") {
+    const obj = event.data.object;
+    const customerId = obj.customer;
+    const subscriptionId = obj.subscription ?? null;
+    // Lookup user_id from subscriptions table via stripe_customer_id
+    if (customerId && SUPABASE_URL && SUPABASE_ANON_KEY) {
+      try {
+        const lookup = await fetch(
+          `${SUPABASE_URL}/rest/v1/subscriptions?stripe_customer_id=eq.${customerId}&select=user_id`,
+          { headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } }
+        );
+        const rows = await lookup.json();
+        if (rows?.[0]?.user_id) {
+          const paidUntil = new Date(Date.now() + 32 * 24 * 60 * 60 * 1000).toISOString(); // +32 days safety buffer
+          await fetch(`${SUPABASE_URL}/rest/v1/subscriptions?user_id=eq.${rows[0].user_id}`, {
+            method: "PATCH",
+            headers: {
+              apikey: SUPABASE_ANON_KEY,
+              Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              plan: "pro_paid", status: "active",
+              stripe_subscription_id: subscriptionId,
+              paid_from: new Date().toISOString(),
+              paid_until: paidUntil,
+              cancelled_at: null,
+              updated_at: new Date().toISOString(),
+            }),
+          });
+        }
+      } catch (e) { console.error("webhook patch failed", e); }
+    }
+  }
+  res.json({ received: true });
+});
 
 app.use(express.json());
 
@@ -408,6 +467,181 @@ app.get("/api/local-info", (req, res) => {
   });
 });
 
+// ── Subscription / pricing ────────────────────────────────────────────────
+
+async function sbFetch(path, token, opts = {}) {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1${path}`, {
+    ...opts,
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+      Prefer: opts.upsert ? "resolution=merge-duplicates" : "return=representation",
+      ...opts.headers,
+    },
+  });
+  const text = await r.text();
+  return { ok: r.ok, status: r.status, data: text ? JSON.parse(text) : null };
+}
+
+async function getSubscription(userId, token) {
+  const r = await sbFetch(`/subscriptions?user_id=eq.${userId}&limit=1`, token);
+  return r.ok && r.data?.length ? r.data[0] : null;
+}
+
+async function requireAuth(req, res) {
+  const token = (req.headers.authorization ?? "").replace("Bearer ", "");
+  const userId = await validateSupabaseJWT(token);
+  if (!userId) { res.status(401).json({ error: "unauthorized" }); return null; }
+  return { userId, token };
+}
+
+// GET /api/subscription
+app.get("/api/subscription", async (req, res) => {
+  const auth = await requireAuth(req, res); if (!auth) return;
+  const { userId, token } = auth;
+  let sub = await getSubscription(userId, token);
+  if (!sub) {
+    // first login — create free row
+    const r = await sbFetch("/subscriptions", token, {
+      method: "POST",
+      upsert: true,
+      body: JSON.stringify({ user_id: userId, plan: "free" }),
+    });
+    sub = r.data?.[0] ?? { plan: "free", status: "active", trial_used: false };
+  }
+  // auto-expire trial
+  if (sub.plan === "pro_trial" && sub.trial_ends_at && new Date(sub.trial_ends_at) < new Date()) {
+    await sbFetch(`/subscriptions?user_id=eq.${userId}`, token, {
+      method: "PATCH",
+      body: JSON.stringify({ plan: "free", status: "active", updated_at: new Date().toISOString() }),
+    });
+    sub.plan = "free";
+  }
+  res.json(sub);
+});
+
+// POST /api/subscription/start-trial
+app.post("/api/subscription/start-trial", async (req, res) => {
+  const auth = await requireAuth(req, res); if (!auth) return;
+  const { userId, token } = auth;
+  const sub = await getSubscription(userId, token);
+  if (sub?.trial_used) return res.status(409).json({ error: "trial already used" });
+  const now = new Date();
+  const ends = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
+  const r = await sbFetch(`/subscriptions?user_id=eq.${userId}`, token, {
+    method: sub ? "PATCH" : "POST",
+    body: JSON.stringify({
+      ...(sub ? {} : { user_id: userId }),
+      plan: "pro_trial",
+      trial_used: true,
+      trial_started_at: now.toISOString(),
+      trial_ends_at: ends.toISOString(),
+      status: "active",
+      updated_at: now.toISOString(),
+    }),
+  });
+  res.json(r.data?.[0] ?? { plan: "pro_trial", trial_ends_at: ends.toISOString() });
+});
+
+// POST /api/subscription/activate-pro  body: { stripe_customer_id, stripe_subscription_id, paid_until }
+app.post("/api/subscription/activate-pro", async (req, res) => {
+  const auth = await requireAuth(req, res); if (!auth) return;
+  const { userId, token } = auth;
+  const { stripe_customer_id, stripe_subscription_id, paid_until } = req.body ?? {};
+  if (!paid_until) return res.status(400).json({ error: "paid_until required" });
+  const now = new Date();
+  const r = await sbFetch(`/subscriptions?user_id=eq.${userId}`, token, {
+    method: "PATCH",
+    body: JSON.stringify({
+      plan: "pro_paid",
+      status: "active",
+      stripe_customer_id: stripe_customer_id ?? null,
+      stripe_subscription_id: stripe_subscription_id ?? null,
+      paid_from: now.toISOString(),
+      paid_until,
+      cancelled_at: null,
+      updated_at: now.toISOString(),
+    }),
+  });
+  res.json(r.data?.[0] ?? { plan: "pro_paid" });
+});
+
+// POST /api/subscription/cancel
+app.post("/api/subscription/cancel", async (req, res) => {
+  const auth = await requireAuth(req, res); if (!auth) return;
+  const { userId, token } = auth;
+  const sub = await getSubscription(userId, token);
+  if (!sub) return res.status(404).json({ error: "no subscription" });
+  const now = new Date();
+  if (sub.plan === "pro_trial" && new Date(sub.trial_ends_at) > now)
+    return res.status(403).json({ error: "cannot cancel during 14-day trial" });
+  if (sub.plan === "pro_paid" && sub.paid_until && new Date(sub.paid_until) > now)
+    return res.status(403).json({ error: "current period not expired — pay period ends " + sub.paid_until });
+  const r = await sbFetch(`/subscriptions?user_id=eq.${userId}`, token, {
+    method: "PATCH",
+    body: JSON.stringify({ plan: "free", status: "cancelled", cancelled_at: now.toISOString(), updated_at: now.toISOString() }),
+  });
+  res.json(r.data?.[0] ?? { plan: "free", status: "cancelled" });
+});
+
+// POST /api/subscription/request-refund
+app.post("/api/subscription/request-refund", async (req, res) => {
+  const auth = await requireAuth(req, res); if (!auth) return;
+  const { userId, token } = auth;
+  const sub = await getSubscription(userId, token);
+  if (!sub?.cancelled_at) return res.status(403).json({ error: "must cancel before requesting refund" });
+  if (sub.refund_requested_at) return res.status(409).json({ error: "refund already requested" });
+  const r = await sbFetch(`/subscriptions?user_id=eq.${userId}`, token, {
+    method: "PATCH",
+    body: JSON.stringify({ status: "refund_pending", refund_requested_at: new Date().toISOString(), updated_at: new Date().toISOString() }),
+  });
+  res.json(r.data?.[0] ?? { status: "refund_pending" });
+});
+
+// ── Stripe checkout session creation ─────────────────────────────────────────
+// body: { plan: "shared"|"own", billing: "monthly"|"yearly" }
+app.post("/api/stripe-checkout", async (req, res) => {
+  const auth = await requireAuth(req, res); if (!auth) return;
+  if (!STRIPE_SECRET_KEY) return res.status(503).json({ error: "STRIPE_SECRET_KEY not set" });
+  const { plan = "shared", billing = "monthly" } = req.body ?? {};
+  const priceId = STRIPE_PRICES[`${plan}_${billing}`];
+  if (!priceId) return res.status(400).json({ error: "unknown plan/billing combination or price ID not configured" });
+  const { userId, token } = auth;
+  // Fetch existing stripe customer id
+  const sub = await getSubscription(userId, token);
+  const origin = appOrigin(req);
+  const body = new URLSearchParams({
+    mode: "subscription",
+    "line_items[0][price]": priceId,
+    "line_items[0][quantity]": "1",
+    success_url: `${origin}/pricing?payment=success`,
+    cancel_url: `${origin}/pricing`,
+    "metadata[user_id]": userId,
+    ...(sub?.stripe_customer_id ? { customer: sub.stripe_customer_id } : {}),
+  });
+  try {
+    const r = await fetch("https://api.stripe.com/v1/checkout/sessions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${STRIPE_SECRET_KEY}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: body.toString(),
+    });
+    const session = await r.json();
+    if (!r.ok) return res.status(r.status).json({ error: session.error?.message ?? "stripe error" });
+    // Store Stripe customer_id immediately if we got one
+    if (session.customer && sub && !sub.stripe_customer_id) {
+      await sbFetch(`/subscriptions?user_id=eq.${userId}`, token, {
+        method: "PATCH",
+        body: JSON.stringify({ stripe_customer_id: session.customer, updated_at: new Date().toISOString() }),
+      });
+    }
+    res.json({ url: session.url });
+  } catch (e) { res.status(500).json({ error: String(e) }); }
+});
+
 // ── Secret update (mirrors Electron's /api/set-secret) ───────────────────
 // Updates JINVOICE_SECRET in-memory for the running dyno session.
 // Persists until the next Render redeploy; update the JINVOICE_SECRET env var
@@ -426,13 +660,46 @@ app.post("/api/set-secret", (req, res) => {
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY ?? process.env.VITE_GEMINI_API_KEY ?? "";
 
+// Strip personal identifiers from invoice text before sending to Gemini (DPDPA compliance)
+function sanitizePII(text) {
+  if (typeof text !== "string") return text;
+  // Protect GSTINs (business ID — keep for invoice accuracy)
+  const GSTIN_RE = /\b\d{2}[A-Z]{5}\d{4}[A-Z][A-Z\d]Z[A-Z\d]\b/g;
+  const gstins = [];
+  const guarded = text.replace(GSTIN_RE, (m) => { gstins.push(m); return `__G${gstins.length - 1}__`; });
+  let out = guarded
+    // Aadhaar: 12 digits optionally separated by spaces or hyphens
+    .replace(/\b\d{4}[\s-]?\d{4}[\s-]?\d{4}\b/g, "[AADHAAR]")
+    // Credit/debit card: 16 digits in 4-4-4-4 pattern
+    .replace(/\b\d{4}[\s-]\d{4}[\s-]\d{4}[\s-]\d{4}\b/g, "[CARD]")
+    // Standalone PAN (5 alpha + 4 digits + 1 alpha), not already replaced by GSTIN guard
+    .replace(/\b[A-Z]{5}\d{4}[A-Z]\b/g, "[PAN]");
+  // Restore GSTINs
+  gstins.forEach((g, i) => { out = out.replace(`__G${i}__`, g); });
+  return out;
+}
+
+function sanitizeGeminiBody(body) {
+  const contents = body?.contents;
+  if (!Array.isArray(contents)) return body;
+  return {
+    ...body,
+    contents: contents.map((c) => ({
+      ...c,
+      parts: Array.isArray(c.parts)
+        ? c.parts.map((p) => p.text ? { ...p, text: sanitizePII(p.text) } : p)
+        : c.parts,
+    })),
+  };
+}
+
 app.post("/api/gemini", async (req, res) => {
   if (!GEMINI_API_KEY) return res.status(503).json({ error: "GEMINI_API_KEY not configured on server" });
   const { model = "gemini-3.6-flash", ...body } = req.body ?? {};
   try {
     const upstream = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
-      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(sanitizeGeminiBody(body)) },
     );
     const data = await upstream.json();
     res.status(upstream.status).json(data);

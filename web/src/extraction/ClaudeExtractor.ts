@@ -1,5 +1,6 @@
 import type { ExtractedInvoice } from "../core/extraction/models";
 import type { RenderedPage } from "./WebPdfRenderer";
+import { prefs } from "../data/AutoImportPreferences";
 
 export interface ClaudeInvoiceData {
   shopName: string | null;
@@ -82,9 +83,13 @@ function parseGeminiResponse(data: unknown): ClaudeInvoiceData {
 }
 
 async function geminiPost(url: string, body: Record<string, unknown>, label: string): Promise<unknown> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const userKey = prefs.isProActive ? prefs.geminiApiKey.trim() : "";
+  if (userKey) headers["x-gemini-key"] = userKey;
+
   const attempt = async () => fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify(body),
   });
 

@@ -3,6 +3,7 @@ export type PdfSourceType = "NATIVE_PDF" | "SCANNED_PDF" | "MIXED_PDF" | "CAMERA
 export type InvoiceStatus =
   | "imported"
   | "pending_review"
+  | "pending_extraction"
   | "import_blocked_encrypted"
   | "extraction_failed"
   | "skipped"
@@ -41,4 +42,5 @@ export type ExtractionResult =
   | { kind: "duplicate"; invoice: ExtractedInvoice }
   | { kind: "encryptedPdf" }
   | { kind: "dailyLimitReached"; limit: number }
+  | { kind: "pendingExtraction" }
   | { kind: "failure"; reason: string; error?: unknown };
