@@ -13,7 +13,6 @@ import { FAQScreen } from "./ui/help/FAQScreen";
 import { AboutScreen } from "./ui/help/AboutScreen";
 import { LoginScreen } from "./ui/auth/LoginScreen";
 import { prefs } from "./data/AutoImportPreferences";
-import { auth } from "./data/AuthStore";
 import { schedulePolling } from "./service/AutoImportService";
 import { checkAndNotify } from "./service/NotificationService";
 import { startMobileSync } from "./service/MobileSyncService";
