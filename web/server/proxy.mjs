@@ -10,6 +10,7 @@
 import express from "express";
 import multer from "multer";
 import crypto from "crypto";
+import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 
@@ -537,7 +538,13 @@ app.get("/health", (_req, res) => res.send("ok"));
 // ── Desktop SPA (React build) ─────────────────────────────────────────────────
 
 app.use(express.static(DIST));
-app.get("/*path", (_req, res) => res.sendFile(join(DIST, "index.html")));
+app.get("/*path", (_req, res) => {
+  const html = readFileSync(join(DIST, "index.html"), "utf8");
+  // Inject Supabase config at runtime so no VITE_* build-time vars are needed.
+  const inject = `<script>window.__SB_URL__=${JSON.stringify(SUPABASE_URL)};window.__SB_ANON__=${JSON.stringify(SUPABASE_ANON_KEY)};</script>`;
+  res.setHeader("Content-Type", "text/html");
+  res.send(html.replace("</head>", inject + "</head>"));
+});
 
 app.listen(PORT, () => console.log(`jInvoice proxy+relay running on port ${PORT}`));
 

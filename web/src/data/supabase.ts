@@ -1,14 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
 
-declare const __SB_URL__:  string;
-declare const __SB_ANON__: string;
+// Primary: runtime-injected by proxy.mjs into index.html (works on Render without build-time vars).
+// Fallback: VITE_SUPABASE_URL baked in at build time (works in local dev).
+const w = globalThis as any;
+const url = (w.__SB_URL__ as string | undefined) || import.meta.env.VITE_SUPABASE_URL || "";
+const key = (w.__SB_ANON__ as string | undefined) || import.meta.env.VITE_SUPABASE_ANON_KEY || "";
 
-// __SB_URL__ / __SB_ANON__ are injected by vite.config.ts define — they resolve
-// VITE_SUPABASE_URL or the non-prefixed SUPABASE_URL (used by Render for Node).
-const url  = (typeof __SB_URL__  !== "undefined" ? __SB_URL__  : "") || import.meta.env.VITE_SUPABASE_URL  || "";
-const key  = (typeof __SB_ANON__ !== "undefined" ? __SB_ANON__ : "") || import.meta.env.VITE_SUPABASE_ANON_KEY || "";
-
-console.log("[supabase] url:", url ? url.slice(0, 30) + "…" : "(empty)", "| key:", key ? "set" : "(empty)");
 export const supabase = url && key ? createClient(url, key) : null;
 
 export function isSupabaseEnabled(): boolean {
