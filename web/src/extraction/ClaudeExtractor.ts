@@ -84,7 +84,9 @@ function parseGeminiResponse(data: unknown): ClaudeInvoiceData {
 
 async function geminiPost(url: string, body: Record<string, unknown>, label: string): Promise<unknown> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  const userKey = prefs.isProActive ? prefs.geminiApiKey.trim() : "";
+  // TEST OVERRIDE: bypass pro check to allow own key — comment out after testing
+  const userKey = prefs.geminiApiKey.trim();
+  // const userKey = prefs.isProActive ? prefs.geminiApiKey.trim() : ""; // restore this line after testing
   if (userKey) headers["x-gemini-key"] = userKey;
 
   const attempt = async () => fetch(url, {
