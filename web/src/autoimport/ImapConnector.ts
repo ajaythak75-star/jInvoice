@@ -1,19 +1,33 @@
 import { isAlreadyImported } from "../data/InvoiceDatabase";
+import { supabase } from "../data/supabase";
 
 export function isImapAvailable(): boolean {
-  return typeof window !== "undefined" && window.location.hostname === "127.0.0.1";
+  return true;
+}
+
+async function imapHeaders(): Promise<Record<string, string>> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (supabase) {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+  }
+  return headers;
 }
 
 export class ImapConnector {
   static async status(): Promise<{ configured: boolean; email: string | null }> {
-    const res = await fetch("/api/imap/status");
+    const headers = await imapHeaders();
+    const res = await fetch("/api/imap/status", { headers });
+    if (!res.ok) return { configured: false, email: null };
     return res.json();
   }
 
   static async saveCredentials(email: string, appPassword: string): Promise<void> {
+    const headers = await imapHeaders();
     const res = await fetch("/api/imap/save", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({ email, appPassword }),
     });
     if (!res.ok) {
@@ -23,9 +37,10 @@ export class ImapConnector {
   }
 
   static async testConnection(email: string, appPassword: string): Promise<void> {
+    const headers = await imapHeaders();
     const res = await fetch("/api/imap/test", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({ email, appPassword }),
     });
     if (!res.ok) {
@@ -35,16 +50,18 @@ export class ImapConnector {
   }
 
   static async disconnect(): Promise<void> {
-    await fetch("/api/imap/disconnect", { method: "POST" });
+    const headers = await imapHeaders();
+    await fetch("/api/imap/disconnect", { method: "POST", headers });
   }
 
   static async pollAndDownload(
     months: number,
     onEmail?: (meta: { id: string; subject: string; senderEmail: string; receivedAt: string }) => Promise<"allow" | "block">
   ): Promise<{ file: File; messageId: string; subject: string; senderEmail: string; receivedAt: string }[]> {
+    const headers = await imapHeaders();
     const res = await fetch("/api/imap/poll", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({ months }),
     });
     if (!res.ok) {

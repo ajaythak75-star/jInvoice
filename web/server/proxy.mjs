@@ -522,6 +522,167 @@ app.post("/api/gemini", async (req, res) => {
   }
 });
 
+// ── [WEB] IMAP — per-user credentials stored in Supabase ─────────────────────
+//  All routes require  Authorization: Bearer <supabase_jwt>
+//  Credentials table:  imap_credentials (user_id PK, email, app_password)
+
+function _findPdfParts(struct, partId = "") {
+  if (!struct) return [];
+  const parts = [];
+  const type     = (struct.type    ?? "").toLowerCase();
+  const subtype  = (struct.subtype ?? "").toLowerCase();
+  const filename = struct.disposition?.parameters?.filename ?? struct.parameters?.name ?? "";
+  const isPdf    = (type === "application" && subtype === "pdf") || filename.toLowerCase().endsWith(".pdf");
+  if (isPdf && partId) { parts.push({ id: partId, name: filename || "invoice.pdf" }); return parts; }
+  (struct.childNodes ?? []).forEach((child, i) => {
+    const cId = partId ? `${partId}.${i + 1}` : `${i + 1}`;
+    parts.push(..._findPdfParts(child, cId));
+  });
+  return parts;
+}
+
+async function _imapGetUserId(req) {
+  const token = (req.headers.authorization ?? "").replace(/^Bearer\s+/i, "");
+  if (!token) return null;
+  return validateSupabaseJWT_proxy(token);
+}
+
+async function _imapLoadCreds(userId) {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return null;
+  const r = await fetch(
+    `${SUPABASE_URL}/rest/v1/imap_credentials?user_id=eq.${userId}&select=email,app_password&limit=1`,
+    { headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } },
+  );
+  if (!r.ok) return null;
+  const rows = await r.json();
+  return rows[0] ?? null;
+}
+
+async function _imapSaveCreds(userId, email, appPassword) {
+  const body = JSON.stringify({ user_id: userId, email, app_password: appPassword });
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/imap_credentials`, {
+    method: "POST",
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      "Content-Type": "application/json",
+      Prefer: "resolution=merge-duplicates,return=minimal",
+    },
+    body,
+  });
+  return r.ok;
+}
+
+async function _imapDeleteCreds(userId) {
+  await fetch(`${SUPABASE_URL}/rest/v1/imap_credentials?user_id=eq.${userId}`, {
+    method: "DELETE",
+    headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
+  });
+}
+
+app.get("/api/imap/status", async (req, res) => {
+  const userId = await _imapGetUserId(req);
+  if (!userId) return res.status(401).json({ error: "unauthorized" });
+  const creds = await _imapLoadCreds(userId);
+  res.json({ configured: !!creds, email: creds?.email ?? null });
+});
+
+app.post("/api/imap/save", async (req, res) => {
+  const userId = await _imapGetUserId(req);
+  if (!userId) return res.status(401).json({ error: "unauthorized" });
+  const { email, appPassword } = req.body ?? {};
+  if (!email || !appPassword) return res.status(400).json({ error: "email and appPassword required" });
+  const ok = await _imapSaveCreds(userId, email, appPassword);
+  if (!ok) return res.status(500).json({ error: "Failed to save credentials" });
+  res.json({ ok: true });
+});
+
+app.post("/api/imap/disconnect", async (req, res) => {
+  const userId = await _imapGetUserId(req);
+  if (!userId) return res.status(401).json({ error: "unauthorized" });
+  await _imapDeleteCreds(userId);
+  res.json({ ok: true });
+});
+
+app.post("/api/imap/test", async (req, res) => {
+  const userId = await _imapGetUserId(req);
+  if (!userId) return res.status(401).json({ error: "unauthorized" });
+  const { email, appPassword } = req.body ?? {};
+  if (!email || !appPassword) return res.status(400).json({ error: "email and appPassword required" });
+  try {
+    const { ImapFlow } = await import("imapflow");
+    const client = new ImapFlow({
+      host: "imap.gmail.com", port: 993, secure: true,
+      auth: { user: email, pass: appPassword },
+      logger: false,
+    });
+    await client.connect();
+    await client.logout();
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(401).json({ error: String(e) });
+  }
+});
+
+app.post("/api/imap/poll", async (req, res) => {
+  const userId = await _imapGetUserId(req);
+  if (!userId) return res.status(401).json({ error: "unauthorized" });
+  const creds = await _imapLoadCreds(userId);
+  if (!creds) return res.status(503).json({ error: "IMAP not configured" });
+  const { months = 3 } = req.body ?? {};
+  const since = new Date();
+  since.setMonth(since.getMonth() - months);
+  const { ImapFlow } = await import("imapflow");
+  const client = new ImapFlow({
+    host: "imap.gmail.com", port: 993, secure: true,
+    auth: { user: creds.email, pass: creds.app_password },
+    logger: false,
+  });
+  try {
+    await client.connect();
+    const lock = await client.getMailboxLock("INBOX");
+    const results = [];
+    try {
+      const seqNos = await client.search({ since });
+      const slice = seqNos.slice(-200);
+      if (slice.length) {
+        for await (const msg of client.fetch(slice, { envelope: true, bodyStructure: true })) {
+          const pdfParts = _findPdfParts(msg.bodyStructure);
+          if (!pdfParts.length) continue;
+          const msgId = `imap:${msg.envelope.messageId ?? msg.seq}`;
+          const attachments = [];
+          for (const part of pdfParts) {
+            try {
+              const { content } = await client.download(`${msg.seq}`, part.id);
+              const chunks = [];
+              for await (const chunk of content) chunks.push(chunk);
+              attachments.push({ filename: part.name, data: Buffer.concat(chunks).toString("base64") });
+            } catch (e) {
+              console.error("[IMAP] download part failed:", e.message);
+            }
+          }
+          if (attachments.length) {
+            results.push({
+              messageId: msgId,
+              subject: msg.envelope.subject ?? "",
+              senderEmail: (msg.envelope.from ?? [])[0]?.address ?? "",
+              receivedAt: msg.envelope.date?.toISOString() ?? new Date().toISOString(),
+              attachments,
+            });
+          }
+        }
+      }
+    } finally {
+      lock.release();
+    }
+    await client.logout();
+    res.json({ results });
+  } catch (e) {
+    try { await client.logout(); } catch {}
+    res.status(500).json({ error: String(e) });
+  }
+});
+
 // ── Root: send mobile UA to the mobile UI; desktop gets the React SPA ─────────
 
 app.get("/", (req, res, next) => {
