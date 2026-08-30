@@ -8,6 +8,7 @@ import { extractFromCanvas } from "./WebCameraExtractor";
 import { enhanceWithClaude, enhanceWithClaudeVision } from "./ClaudeExtractor";
 import { renderPdfToImages } from "./WebPdfRenderer";
 import { db, insertInvoiceWithItems, isDuplicateInvoice } from "../data/InvoiceDatabase";
+import type { InvoicePdfFile } from "../data/InvoiceDatabase";
 import { detectCategory } from "../core/extraction/CategoryDetector";
 import { detectDocType } from "./DocTypeDetector";
 import { computeSentinelForInvoice } from "../service/ExpirySentinel";
@@ -118,6 +119,11 @@ export async function processFile(
       [],
     );
     if (rawText) await db.rawTexts.add({ invoiceId, rawText });
+    // Store PDF bytes so vision extraction can be re-run from ViewScreen
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      await db.pdfFiles.add({ invoiceId, bytes, filename: file.name } as InvoicePdfFile);
+    } catch {}
     return { kind: "pendingExtraction" };
   }
   let result: ExtractionResult;
@@ -287,18 +293,40 @@ async function persistResult(
   return false;
 }
 
-/** Run Gemini on stored rawText for a pending_extraction invoice and update its DB record. */
+/** Run Gemini on a pending_extraction invoice — uses vision if PDF bytes are stored, text otherwise. */
 export async function extractInvoiceWithAI(invoiceId: number): Promise<ExtractedInvoice | null> {
-  const rawRec = await db.rawTexts.where("invoiceId").equals(invoiceId).first();
-  if (!rawRec?.rawText) return null;
   const blank: ExtractedInvoice = {
     merchantName: null, merchantAddress: null, merchantGstin: null,
     merchantPhone: null, merchantPincode: null, invoiceNumber: null,
     invoiceDate: null, lineItems: [], subtotalPaise: null, discountPaise: 0,
     taxPaise: null, grandTotalPaise: null, paymentMode: null,
-    sourceType: "NATIVE_PDF", rawText: rawRec.rawText, confidenceScore: 0,
+    sourceType: "NATIVE_PDF", rawText: null, confidenceScore: 0,
   };
-  const enhanced = await enhanceWithClaude(blank);
+
+  let enhanced: ExtractedInvoice | null = null;
+
+  // Vision path — preferred if original PDF bytes were stored
+  const pdfRec = await db.pdfFiles.where("invoiceId").equals(invoiceId).first();
+  if (pdfRec?.bytes) {
+    try {
+      const file = new File([pdfRec.bytes.buffer as ArrayBuffer], pdfRec.filename, { type: "application/pdf" });
+      const pages = await renderPdfToImages(file);
+      if (pages.length > 0) {
+        enhanced = await enhanceWithClaudeVision(blank, pages);
+      }
+    } catch (e) {
+      console.warn("[extractInvoiceWithAI] vision failed, falling back to text:", e);
+    }
+  }
+
+  // Text fallback
+  if (!enhanced || (enhanced.grandTotalPaise == null && enhanced.merchantName == null)) {
+    const rawRec = await db.rawTexts.where("invoiceId").equals(invoiceId).first();
+    if (!rawRec?.rawText) return null;
+    enhanced = await enhanceWithClaude({ ...blank, rawText: rawRec.rawText });
+  }
+
+  if (!enhanced || (enhanced.grandTotalPaise == null && enhanced.merchantName == null)) return null;
   const now = new Date().toISOString();
   const lineItemNames = enhanced.lineItems.map((li) => li.name);
   const category = detectCategory(enhanced.merchantName, lineItemNames);
@@ -334,6 +362,8 @@ export async function extractInvoiceWithAI(invoiceId: number): Promise<Extracted
       discountPaise: li.discountPaise,
     })));
   }
+  // Free the stored PDF bytes — no longer needed after extraction
+  await db.pdfFiles.where("invoiceId").equals(invoiceId).delete();
   return enhanced;
 }
 

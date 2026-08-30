@@ -244,6 +244,7 @@ export function PricingScreen() {
   const [sub, setSub]                 = useState<Subscription | null>(null);
   const [loading, setLoading]         = useState(true);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showApiKeyModal,  setShowApiKeyModal]  = useState(false);
 
@@ -298,9 +299,14 @@ export function PricingScreen() {
 
   const handleSubscribe = async () => {
     setCheckoutLoading(true);
+    setCheckoutError(null);
     const url = await subscriptionService.createCheckout(apiOption, billing);
     setCheckoutLoading(false);
-    if (url) window.location.href = url;
+    if (url) {
+      window.location.href = url;
+    } else {
+      setCheckoutError("Could not open checkout. Payments may not be configured yet — please contact support or try again later.");
+    }
   };
 
   const handleCancel = async () => {
@@ -591,6 +597,11 @@ export function PricingScreen() {
             >
               {checkoutLoading ? "Redirecting…" : "Subscribe now →"}
             </button>
+          )}
+          {checkoutError && (
+            <div style={{ marginTop: 10, padding: "10px 14px", borderRadius: 8, background: "#fef2f2", border: "1px solid #fca5a5", color: "#b91c1c", fontSize: 12.5, lineHeight: 1.5 }}>
+              {checkoutError}
+            </div>
           )}
         </div>
       </div>

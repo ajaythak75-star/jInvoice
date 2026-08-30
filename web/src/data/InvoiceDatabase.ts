@@ -80,6 +80,13 @@ export interface SecurityAlertRecord {
   dismissed: boolean;
 }
 
+export interface InvoicePdfFile {
+  id?: number;
+  invoiceId: number;
+  bytes: Uint8Array;
+  filename: string;
+}
+
 class JInvoiceDB extends Dexie {
   invoices!: Table<InvoiceMeta>;
   lineItems!: Table<LineItemRow>;
@@ -87,6 +94,7 @@ class JInvoiceDB extends Dexie {
   sentinelRecords!: Table<SentinelRecord>;
   rawTexts!: Table<InvoiceRawText>;
   securityAlerts!: Table<SecurityAlertRecord>;
+  pdfFiles!: Table<InvoicePdfFile>;
 
   constructor() {
     super("jInvoice");
@@ -122,6 +130,9 @@ class JInvoiceDB extends Dexie {
     );
     this.version(7).stores({
       invoices: "++id, merchantName, invoiceDate, status, importSource, category, *clientTags, projectTag",
+    });
+    this.version(8).stores({
+      pdfFiles: "++id, &invoiceId",
     });
   }
 }
