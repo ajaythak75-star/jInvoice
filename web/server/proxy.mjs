@@ -31,8 +31,11 @@ function sanitizeReturnTo(raw) {
 }
 
 const { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET } = process.env;
-const SUPABASE_URL      = process.env.SUPABASE_URL      ?? "";
-const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY ?? "";
+const SUPABASE_URL         = process.env.SUPABASE_URL         ?? "";
+const SUPABASE_ANON_KEY    = process.env.SUPABASE_ANON_KEY    ?? "";
+const SUPABASE_SERVICE_KEY  = process.env.SUPABASE_SERVICE_KEY  ?? "";
+const GMAIL_USER            = process.env.GMAIL_USER            ?? "";
+const GMAIL_APP_PASSWORD    = process.env.GMAIL_APP_PASSWORD    ?? "";
 const STRIPE_SECRET_KEY      = process.env.STRIPE_SECRET_KEY      ?? "";
 const STRIPE_WEBHOOK_SECRET  = process.env.STRIPE_WEBHOOK_SECRET  ?? "";
 const STRIPE_PRICES = {
@@ -520,6 +523,75 @@ app.post("/api/gemini", async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: String(e) });
   }
+});
+
+// ── [WEB] Custom OTP auth — bypasses Supabase SMTP ───────────────────────────
+//  Flow: client → POST /api/auth/send-otp  → server generates code, emails via Resend
+//        client → POST /api/auth/verify-otp → server verifies code, returns Supabase token_hash
+//        client → sb.auth.verifyOtp({ token_hash, type:"magiclink" }) → gets session
+
+const _otpStore = new Map(); // email → { code, expiresAt }
+
+async function _sendEmail(to, subject, html) {
+  if (!GMAIL_USER || !GMAIL_APP_PASSWORD) throw new Error("Email service not configured.");
+  const { createTransport } = await import("nodemailer");
+  const transporter = createTransport({
+    host: "smtp.gmail.com",
+    port: 465,
+    secure: true,
+    auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD },
+  });
+  await transporter.sendMail({ from: `"jInvoice" <${GMAIL_USER}>`, to, subject, html });
+}
+
+app.post("/api/auth/send-otp", async (req, res) => {
+  const { email } = req.body ?? {};
+  if (!email || !email.includes("@")) return res.status(400).json({ error: "Valid email required" });
+  const code = String(Math.floor(100000 + Math.random() * 900000));
+  _otpStore.set(email.toLowerCase(), { code, expiresAt: Date.now() + 600_000 });
+  try {
+    await _sendEmail(
+      email,
+      "Your jInvoice login code",
+      `<div style="font-family:sans-serif;max-width:420px;margin:40px auto;padding:32px;border:1px solid #e5e7eb;border-radius:12px">
+        <h2 style="margin:0 0 8px;color:#111">jInvoice</h2>
+        <p style="margin:0 0 24px;color:#555">Your one-time login code:</p>
+        <p style="font-size:36px;font-weight:700;letter-spacing:10px;color:#4f46e5;margin:0 0 24px">${code}</p>
+        <p style="margin:0;color:#888;font-size:13px">Expires in 10 minutes. Do not share this code.</p>
+      </div>`
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+app.post("/api/auth/verify-otp", async (req, res) => {
+  const { email, code } = req.body ?? {};
+  if (!email || !code) return res.status(400).json({ error: "email and code required" });
+  const stored = _otpStore.get(email.toLowerCase());
+  if (!stored || stored.code !== String(code) || Date.now() > stored.expiresAt) {
+    return res.status(401).json({ error: "Invalid or expired code" });
+  }
+  _otpStore.delete(email.toLowerCase());
+  if (!SUPABASE_SERVICE_KEY || !SUPABASE_URL) {
+    return res.status(500).json({ error: "Auth backend not configured" });
+  }
+  // Create user if new (email_confirm: true skips confirmation email)
+  await fetch(`${SUPABASE_URL}/auth/v1/admin/users`, {
+    method: "POST",
+    headers: { apikey: SUPABASE_SERVICE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ email, email_confirm: true }),
+  }); // 422 = already exists — fine
+  // Generate a magic-link token the client exchanges for a real session
+  const linkRes = await fetch(`${SUPABASE_URL}/auth/v1/admin/generate_link`, {
+    method: "POST",
+    headers: { apikey: SUPABASE_SERVICE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ type: "magiclink", email }),
+  });
+  if (!linkRes.ok) return res.status(500).json({ error: "Session creation failed" });
+  const linkData = await linkRes.json();
+  res.json({ token_hash: linkData.hashed_token });
 });
 
 // ── [WEB] IMAP — per-user credentials stored in Supabase ─────────────────────
