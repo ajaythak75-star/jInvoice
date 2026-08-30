@@ -804,6 +804,7 @@ function showNav(){var n=document.getElementById('bottom-nav');if(n){n.classList
 function hideNav(){var n=document.getElementById('bottom-nav');if(n){n.classList.remove('visible');document.body.classList.remove('nav-visible');}}
 function showHome(){show('screen-home');loadInvoices();showNav();setNavActive('home');}
 function previewNav(){
+  alert('tap registered! nav=' + (document.getElementById('bottom-nav')?'found':'MISSING'));
   showNav();
   setNavActive('home');
   var btn=document.querySelector('[onclick="previewNav()"]');
