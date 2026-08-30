@@ -51,7 +51,6 @@ function GeminiApiKeyModal({ onConfirm, onClose }: { onConfirm: (key: string) =>
   const handleSubmit = () => {
     const trimmed = apiKey.trim();
     if (!trimmed) { setError("API key is required for the Own API Key plan."); return; }
-    if (!trimmed.startsWith("AIza")) { setError('Gemini keys start with "AIza". Check your key.'); return; }
     prefs.geminiApiKey = trimmed;
     onConfirm(trimmed);
   };
@@ -74,7 +73,7 @@ function GeminiApiKeyModal({ onConfirm, onClose }: { onConfirm: (key: string) =>
             type={visible ? "text" : "password"}
             value={apiKey}
             onChange={(e) => { setApiKey(e.target.value); setError(null); }}
-            placeholder="AIza…"
+            placeholder="Paste your Gemini API key"
             autoComplete="off"
             style={{ ...inpStyle, flex: 1, fontFamily: "monospace", fontSize: 12 }}
             autoFocus

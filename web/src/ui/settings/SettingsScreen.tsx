@@ -691,7 +691,7 @@ export function SettingsScreen({ onSignOut }: Props) {
                 type="password"
                 className="settings-input"
                 style={{ flex: 1, fontFamily: "monospace", fontSize: 12 }}
-                placeholder="AIza…"
+                placeholder="Paste your Gemini API key"
                 value={geminiApiKey}
                 onChange={(e) => setGeminiApiKey(e.target.value)}
               />
