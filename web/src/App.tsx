@@ -69,7 +69,8 @@ applyOAuthHash();
 
 
 export function App() {
-  const [loggedIn, setLoggedIn] = useState(import.meta.env.DEV || auth.isLoggedIn);
+  // Auth temporarily disabled — always logged in
+  const [loggedIn, setLoggedIn] = useState(true); // was: import.meta.env.DEV || auth.isLoggedIn
   const [tab, setTab] = useState("import");
   const [alertCount, setAlertCount] = useState(0);
 
