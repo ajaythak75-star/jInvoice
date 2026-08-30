@@ -7,6 +7,9 @@
 // ║  [MOBILE]   Relay + extraction + mobile web UI           ║
 // ║             Supabase JWT auth, in-memory queue, 5-day TTL║
 // ╚══════════════════════════════════════════════════════════╝
+import dns from "dns";
+dns.setDefaultResultOrder("ipv4first"); // Render has no IPv6 outbound; prefer IPv4 for all DNS
+
 import express from "express";
 import multer from "multer";
 import crypto from "crypto";
