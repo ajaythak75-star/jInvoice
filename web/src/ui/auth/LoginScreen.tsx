@@ -37,8 +37,8 @@ export function LoginScreen({ onLogin }: Props) {
     e.preventDefault();
     setError(null);
     const token = otp.trim().replace(/\s/g, "");
-    if (token.length !== 6) {
-      setError("Enter the 6-digit code from your email.");
+    if (token.length < 6 || token.length > 8) {
+      setError("Enter the code from your email.");
       return;
     }
     setLoading(true);
@@ -113,7 +113,7 @@ export function LoginScreen({ onLogin }: Props) {
                   inputMode="numeric"
                   placeholder="123456"
                   value={otp}
-                  onChange={(e) => setOtp(e.target.value.replace(/[^0-9]/g, "").slice(0, 6))}
+                  onChange={(e) => setOtp(e.target.value.replace(/[^0-9]/g, "").slice(0, 8))}
                   autoComplete="one-time-code"
                   autoFocus
                   required
