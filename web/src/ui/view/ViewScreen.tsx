@@ -840,7 +840,7 @@ export function ViewScreen() {
     // Only show the full-page loading screen on the very first load.
     // Subsequent refreshes keep the existing list visible.
     if (!hasLoadedRef.current) setLoading(true);
-    db.invoices.orderBy("id").reverse().limit(200).toArray()
+    db.invoices.orderBy("id").reverse().toArray()
       .then((recs) => {
         hasLoadedRef.current = true;
         setRecords(recs);
@@ -854,7 +854,11 @@ export function ViewScreen() {
     load();
     desktopConnector.preloadHandle();
     window.addEventListener("jinvoice:sync-complete", load);
-    return () => window.removeEventListener("jinvoice:sync-complete", load);
+    window.addEventListener("jinvoice:sync-progress", load);
+    return () => {
+      window.removeEventListener("jinvoice:sync-complete", load);
+      window.removeEventListener("jinvoice:sync-progress", load);
+    };
   }, []);
 
   const toggleSelect = (id: number) => {
