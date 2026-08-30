@@ -9,6 +9,11 @@
 // ╚══════════════════════════════════════════════════════════╝
 import express from "express";
 import multer from "multer";
+import { fileURLToPath } from "url";
+import { dirname, join } from "path";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const DIST = join(__dirname, "..", "dist");
 
 const PORT = process.env.PORT ?? 3000;
 const LOCAL_APP = "http://localhost:7823";
@@ -364,13 +369,22 @@ app.post("/api/gemini", async (req, res) => {
   }
 });
 
-// ── Root: auto-detect mobile and redirect ─────────────────────────────────────
+// ── Root: send mobile UA to the mobile UI; desktop gets the React SPA ─────────
 
-app.get("/", (_req, res) => res.redirect("/mobile"));
+app.get("/", (req, res, next) => {
+  const ua = req.headers["user-agent"] ?? "";
+  if (/android|iphone|ipad|ipod|mobile/i.test(ua)) return res.redirect("/mobile");
+  next();
+});
 
 // ── Health check ──────────────────────────────────────────────────────────────
 
 app.get("/health", (_req, res) => res.send("ok"));
+
+// ── Desktop SPA (React build) ─────────────────────────────────────────────────
+
+app.use(express.static(DIST));
+app.get("/*path", (_req, res) => res.sendFile(join(DIST, "index.html")));
 
 app.listen(PORT, () => console.log(`jInvoice proxy+relay running on port ${PORT}`));
 
