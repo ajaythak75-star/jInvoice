@@ -156,6 +156,28 @@ export function AutoImportSettings() {
   const [detailView, setDetailView] = useState<DetailView | null>(null);
 
   // Plan state
+  const [gmailAccounts,   setGmailAccounts]   = useState(() => prefs.gmailAccounts);
+  const [outlookAccounts, setOutlookAccounts] = useState(() => prefs.outlookAccounts);
+
+  const primaryGmailEmail = vm.state.gmail.email;
+  const primaryGmailConnected = vm.state.gmail.isAuthenticated;
+  const effectiveGmailAccounts = [
+    ...(primaryGmailEmail && primaryGmailConnected && !gmailAccounts.find((a) => a.email === primaryGmailEmail)
+      ? [{ email: primaryGmailEmail, accessToken: prefs.gmailAccessToken ?? "", refreshToken: prefs.gmailRefreshToken, enabled: prefs.gmailEnabled }]
+      : []),
+    ...gmailAccounts,
+  ];
+  const primaryOutlookEmail = vm.state.outlook.email;
+  const primaryOutlookConnected = vm.state.outlook.isAuthenticated;
+  const effectiveOutlookAccounts = [
+    ...(primaryOutlookEmail && primaryOutlookConnected && !outlookAccounts.find((a) => a.email === primaryOutlookEmail)
+      ? [{ email: primaryOutlookEmail, accessToken: prefs.outlookAccessToken ?? "", enabled: prefs.outlookEnabled }]
+      : []),
+    ...outlookAccounts,
+  ];
+  const MAX_ACCOUNTS = prefs.isSubscribed ? 5 : 1;
+  const totalAccounts = effectiveGmailAccounts.length + effectiveOutlookAccounts.length;
+
   const [showProModal, setShowProModal] = useState(false);
   const [proName,     setProName]     = useState(() => prefs.customerName);
   const [proEmail,    setProEmail]    = useState(() => prefs.customerEmail);
@@ -569,6 +591,188 @@ export function AutoImportSettings() {
             </p>
           )}
         </div>
+      </section>
+
+      {/* Connected Email Accounts (Pro: up to 5) */}
+      <section className="card">
+        <h3>
+          Email Accounts
+          {!prefs.isSubscribed && (
+            <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 600, color: "var(--color-primary)", background: "color-mix(in srgb, var(--color-primary) 12%, transparent)", padding: "2px 7px", borderRadius: 10 }}>
+              Pro
+            </span>
+          )}
+        </h3>
+
+        {prefs.isSubscribed ? (
+          <>
+            {effectiveGmailAccounts.length > 0 && (
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>Gmail</div>
+                {effectiveGmailAccounts.map((acct) => {
+                  const isPrimary = acct.email === primaryGmailEmail;
+                  return (
+                  <div key={acct.email} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", background: "var(--color-surface-2)", border: "1px solid var(--color-border)", borderRadius: 8, marginBottom: 4 }}>
+                    <span style={{ flex: 1, fontSize: 13, color: "var(--color-text)" }}>{acct.email}</span>
+                    <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, cursor: "pointer", color: "var(--color-text-secondary)" }}>
+                      <input
+                        type="checkbox"
+                        checked={acct.enabled}
+                        style={{ accentColor: "var(--color-primary)" }}
+                        onChange={(e) => {
+                          if (isPrimary) {
+                            vm.toggleGmail(e.target.checked);
+                          } else {
+                            const updated = gmailAccounts.map((a) => a.email === acct.email ? { ...a, enabled: e.target.checked } : a);
+                            prefs.gmailAccounts = updated;
+                            setGmailAccounts(updated);
+                          }
+                        }}
+                      />
+                      Active
+                    </label>
+                    <button
+                      className="btn-ghost-sm"
+                      style={{ fontSize: 11, color: "#ef4444" }}
+                      onClick={() => {
+                        if (isPrimary) {
+                          vm.revokeGmail();
+                        } else {
+                          const updated = gmailAccounts.filter((a) => a.email !== acct.email);
+                          prefs.gmailAccounts = updated;
+                          setGmailAccounts(updated);
+                        }
+                      }}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {effectiveOutlookAccounts.length > 0 && (
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>Outlook</div>
+                {effectiveOutlookAccounts.map((acct) => {
+                  const isPrimary = acct.email === primaryOutlookEmail;
+                  return (
+                  <div key={acct.email} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", background: "var(--color-surface-2)", border: "1px solid var(--color-border)", borderRadius: 8, marginBottom: 4 }}>
+                    <span style={{ flex: 1, fontSize: 13, color: "var(--color-text)" }}>{acct.email}</span>
+                    <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, cursor: "pointer", color: "var(--color-text-secondary)" }}>
+                      <input
+                        type="checkbox"
+                        checked={acct.enabled}
+                        style={{ accentColor: "var(--color-primary)" }}
+                        onChange={(e) => {
+                          if (isPrimary) {
+                            vm.toggleOutlook(e.target.checked);
+                          } else {
+                            const updated = outlookAccounts.map((a) => a.email === acct.email ? { ...a, enabled: e.target.checked } : a);
+                            prefs.outlookAccounts = updated;
+                            setOutlookAccounts(updated);
+                          }
+                        }}
+                      />
+                      Active
+                    </label>
+                    <button
+                      className="btn-ghost-sm"
+                      style={{ fontSize: 11, color: "#ef4444" }}
+                      onClick={() => {
+                        if (isPrimary) {
+                          vm.revokeOutlook();
+                        } else {
+                          const updated = outlookAccounts.filter((a) => a.email !== acct.email);
+                          prefs.outlookAccounts = updated;
+                          setOutlookAccounts(updated);
+                        }
+                      }}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button
+                className="btn-sm"
+                disabled={totalAccounts >= MAX_ACCOUNTS}
+                onClick={() => new GmailConnector().startSignIn()}
+                title="Connect a Gmail account"
+              >
+                + Add Gmail
+              </button>
+              <button
+                className="btn-sm"
+                disabled={totalAccounts >= MAX_ACCOUNTS}
+                onClick={() => new OutlookConnector().startSignIn()}
+                title="Connect an Outlook account"
+              >
+                + Add Outlook
+              </button>
+              {totalAccounts >= MAX_ACCOUNTS && (
+                <span style={{ fontSize: 12, color: "var(--color-text-tertiary)", alignSelf: "center" }}>
+                  Up to 5 accounts on Pro
+                </span>
+              )}
+            </div>
+          </>
+        ) : (
+          <>
+            {totalAccounts > 0 && (
+              <div style={{ marginBottom: 10 }}>
+                {effectiveGmailAccounts[0] && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", background: "var(--color-surface-2)", border: "1px solid var(--color-border)", borderRadius: 8, marginBottom: 4 }}>
+                    <span style={{ flex: 1, fontSize: 13, color: "var(--color-text)" }}>{effectiveGmailAccounts[0].email}</span>
+                    <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, cursor: "pointer", color: "var(--color-text-secondary)" }}>
+                      <input
+                        type="checkbox"
+                        checked={effectiveGmailAccounts[0].enabled}
+                        style={{ accentColor: "var(--color-primary)" }}
+                        onChange={(e) => vm.toggleGmail(e.target.checked)}
+                      />
+                      Active
+                    </label>
+                    <button className="btn-ghost-sm" style={{ fontSize: 11, color: "#ef4444" }} onClick={() => vm.revokeGmail()}>Remove</button>
+                  </div>
+                )}
+                {!effectiveGmailAccounts[0] && effectiveOutlookAccounts[0] && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", background: "var(--color-surface-2)", border: "1px solid var(--color-border)", borderRadius: 8, marginBottom: 4 }}>
+                    <span style={{ flex: 1, fontSize: 13, color: "var(--color-text)" }}>{effectiveOutlookAccounts[0].email}</span>
+                    <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, cursor: "pointer", color: "var(--color-text-secondary)" }}>
+                      <input
+                        type="checkbox"
+                        checked={effectiveOutlookAccounts[0].enabled}
+                        style={{ accentColor: "var(--color-primary)" }}
+                        onChange={(e) => vm.toggleOutlook(e.target.checked)}
+                      />
+                      Active
+                    </label>
+                    <button className="btn-ghost-sm" style={{ fontSize: 11, color: "#ef4444" }} onClick={() => vm.revokeOutlook()}>Remove</button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="settings-pro-banner">
+              <strong>Multiple accounts — Pro only</strong>
+              <p>Connect up to 5 Gmail and Outlook accounts for automatic invoice import. Upgrade to Pro to unlock all accounts.</p>
+              <button className="settings-pro-cta" onClick={openProModal}>Upgrade to Pro</button>
+            </div>
+
+            {totalAccounts === 0 && (
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+                <button className="btn-sm" onClick={() => new GmailConnector().startSignIn()}>+ Add Gmail</button>
+                <button className="btn-sm" onClick={() => new OutlookConnector().startSignIn()}>+ Add Outlook</button>
+              </div>
+            )}
+          </>
+        )}
       </section>
     </div>
 
