@@ -32,11 +32,12 @@ export const auth = {
       const { error } = await res.json().catch(() => ({ error: "Invalid or expired code." }));
       throw new Error(error);
     }
-    const { token_hash } = await res.json();
-    const sb = await getSupabase();
-    if (!sb) throw new Error("Authentication service is not configured.");
-    const { error } = await sb.auth.verifyOtp({ token_hash, type: "magiclink" });
-    if (error) throw new Error(error.message);
+    await res.json(); // { ok: true } — Supabase magic-link commented out for now
+    // const { token_hash } = await res.json();
+    // const sb = await getSupabase();
+    // if (!sb) throw new Error("Authentication service is not configured.");
+    // const { error } = await sb.auth.verifyOtp({ token_hash, type: "magiclink" });
+    // if (error) throw new Error(error.message);
     localStorage.removeItem("jinvoice:signed_out");
     localStorage.setItem("jinvoice:auth_email", email);
     localStorage.setItem("jinvoice:session", "1");

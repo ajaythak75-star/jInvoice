@@ -593,24 +593,26 @@ app.post("/api/auth/verify-otp", async (req, res) => {
     return res.status(401).json({ error: "Invalid or expired code" });
   }
   _otpStore.delete(email.toLowerCase());
-  if (!SUPABASE_SERVICE_KEY || !SUPABASE_URL) {
-    return res.status(500).json({ error: "Auth backend not configured" });
-  }
-  // Create user if new (email_confirm: true skips confirmation email)
-  await fetch(`${SUPABASE_URL}/auth/v1/admin/users`, {
-    method: "POST",
-    headers: { apikey: SUPABASE_SERVICE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ email, email_confirm: true }),
-  }); // 422 = already exists — fine
-  // Generate a magic-link token the client exchanges for a real session
-  const linkRes = await fetch(`${SUPABASE_URL}/auth/v1/admin/generate_link`, {
-    method: "POST",
-    headers: { apikey: SUPABASE_SERVICE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ type: "magiclink", email }),
-  });
-  if (!linkRes.ok) return res.status(500).json({ error: "Session creation failed" });
-  const linkData = await linkRes.json();
-  res.json({ token_hash: linkData.hashed_token });
+  // Supabase magic-link session commented out for now — code verification alone grants access
+  // if (!SUPABASE_SERVICE_KEY || !SUPABASE_URL) {
+  //   return res.status(500).json({ error: "Auth backend not configured" });
+  // }
+  // // Create user if new (email_confirm: true skips confirmation email)
+  // await fetch(`${SUPABASE_URL}/auth/v1/admin/users`, {
+  //   method: "POST",
+  //   headers: { apikey: SUPABASE_SERVICE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`, "Content-Type": "application/json" },
+  //   body: JSON.stringify({ email, email_confirm: true }),
+  // }); // 422 = already exists — fine
+  // // Generate a magic-link token the client exchanges for a real session
+  // const linkRes = await fetch(`${SUPABASE_URL}/auth/v1/admin/generate_link`, {
+  //   method: "POST",
+  //   headers: { apikey: SUPABASE_SERVICE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`, "Content-Type": "application/json" },
+  //   body: JSON.stringify({ type: "magiclink", email }),
+  // });
+  // if (!linkRes.ok) return res.status(500).json({ error: "Session creation failed" });
+  // const linkData = await linkRes.json();
+  // res.json({ token_hash: linkData.hashed_token });
+  res.json({ ok: true });
 });
 
 // ── [WEB] IMAP — per-user credentials stored in Supabase ─────────────────────
