@@ -10,7 +10,7 @@ import { syncNewInvoice } from "../../service/SupabaseSync";
 import { isSupabaseEnabled } from "../../data/supabase";
 import type { ExtractionResult, ExtractedInvoice } from "../../core/extraction/models";
 import { prefs } from "../../data/AutoImportPreferences";
-import { DOC_TYPE_LABELS, DOC_TYPE_SUBFOLDER, detectDocType, type DocType } from "../../extraction/DocTypeDetector";
+import { DOC_TYPE_LABELS, type DocType } from "../../extraction/DocTypeDetector";
 import { isFsAccessSupported } from "../../autoimport/DesktopFolderConnector";
 
 function fmt(paise: number | null | undefined): string {
@@ -268,10 +268,9 @@ export function AutoImportSettings() {
         if (last?.id != null) invoiceId = last.id as number;
       } else if (r.kind === "success" || r.kind === "lowConfidence") {
         if (folderReady) {
-          const lineItemNames = r.invoice.lineItems.map((li) => li.name);
-          const dts = detectDocType(r.invoice.merchantName, lineItemNames, files[i].name);
           const bytes = new Uint8Array(await files[i].arrayBuffer());
-          for (const dt of dts) await desktopConnector.saveInvoiceToFolder(bytes, files[i].name, DOC_TYPE_SUBFOLDER[dt]);
+          // Save all files to the same root folder (no per-doctype subfolders)
+          await desktopConnector.saveInvoiceToFolder(bytes, files[i].name);
         }
         // Get the ID of the just-inserted invoice (processFile saves it synchronously)
         const last = await db.invoices.orderBy("id").last();
@@ -547,7 +546,7 @@ export function AutoImportSettings() {
             <>
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                 <button className="btn-sync-primary" onClick={handleSyncNow} disabled={syncing}>
-                  {syncing ? "Syncing…" : "Sync Now"}
+                  {syncing ? "Syncing…" : (vm.state.gmail.enabled && vm.state.outlook.enabled) ? "Sync Now (2)" : "Sync Now"}
                 </button>
                 {syncing && (
                   <button className="btn-sync" style={{ color: "var(--color-danger)" }} onClick={handleCancelSync}>
