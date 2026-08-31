@@ -69,7 +69,7 @@ applyOAuthHash();
 
 
 export function App() {
-  // const [loggedIn, setLoggedIn] = useState(true); // auth disabled
+  const [loggedIn, setLoggedIn] = useState(true); // auth disabled — always logged in
   const [tab, setTab] = useState("import");
   const [alertCount, setAlertCount] = useState(0);
 
