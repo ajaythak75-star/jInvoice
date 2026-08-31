@@ -3,7 +3,7 @@ import { useAutoImportViewModel } from "./useAutoImportViewModel";
 import { ConsentModal } from "./ConsentModal";
 import { GmailConnector } from "../../autoimport/GmailConnector";
 import { OutlookConnector } from "../../autoimport/OutlookConnector";
-import { poll, cancelSync, isSyncing, desktopConnector } from "../../service/AutoImportService";
+import { poll, cancelSync, isSyncing, desktopConnector, schedulePolling } from "../../service/AutoImportService";
 import { clearAllData, db } from "../../data/InvoiceDatabase";
 import { processFile } from "../../extraction/ExtractionPipeline";
 import { syncNewInvoice } from "../../service/SupabaseSync";
@@ -128,6 +128,13 @@ function InvoiceResultModal({ inv, filename, onClose }: { inv: ExtractedInvoice;
 
 const ALL_DOC_TYPES = Object.keys(DOC_TYPE_LABELS) as DocType[];
 
+const SYNC_OPTIONS: { months: number; label: string; pro: boolean }[] = [
+  { months: 1,  label: "1 month",  pro: false },
+  { months: 3,  label: "3 months", pro: false },
+  { months: 6,  label: "6 months", pro: true  },
+  { months: 12, label: "1 year",   pro: true  },
+];
+
 type PendingConsent = "gmail" | "outlook" | null;
 
 type FileEntry = { name: string; status: "waiting" | "processing" | "done"; result?: ExtractionResult; invoiceId?: number; cloudSaved?: boolean; cloudSaving?: boolean };
@@ -153,6 +160,17 @@ export function AutoImportSettings() {
   const [dragging, setDragging]     = useState(false);
   const [docTypes, setDocTypes]     = useState<string[]>(() => prefs.importDocTypes);
   const [fsSupported, setFsSupported] = useState(false);
+  const [syncMonths,   setSyncMonths]   = useState(() => prefs.syncMonths);
+  const [syncSchedule, setSyncSchedule] = useState(() => prefs.syncSchedule);
+  const [syncTime,     setSyncTime]     = useState(() => prefs.syncTime);
+  const [showProBanner, setShowProBanner] = useState(false);
+
+  const handleSyncSelect = (months: number, pro: boolean) => {
+    if (pro && !prefs.isSubscribed) { setShowProBanner(true); return; }
+    setShowProBanner(false);
+    setSyncMonths(months);
+    prefs.syncMonths = months;
+  };
   const [detailView, setDetailView] = useState<DetailView | null>(null);
 
   // Plan state
@@ -261,7 +279,9 @@ export function AutoImportSettings() {
   useEffect(() => {
     const schedule = prefs.syncSchedule;
     if (schedule === "manual") return;
-    if (!prefs.gmailEnabled && !prefs.outlookEnabled) return;
+    const hasAnyGmail = prefs.gmailEnabled || prefs.gmailAccounts.some((a) => a.enabled);
+    const hasAnyOutlook = prefs.outlookEnabled || prefs.outlookAccounts.some((a) => a.enabled);
+    if (!hasAnyGmail && !hasAnyOutlook) return;
 
     const [hh, mm] = prefs.syncTime.split(":").map(Number);
     const now = new Date();
@@ -568,7 +588,10 @@ export function AutoImportSettings() {
             <>
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                 <button className="btn-sync-primary" onClick={handleSyncNow} disabled={syncing}>
-                  {syncing ? "Syncing…" : (vm.state.gmail.enabled && vm.state.outlook.enabled) ? "Sync Now (2)" : "Sync Now"}
+                  {syncing ? "Syncing…" : (() => {
+                    const n = effectiveGmailAccounts.filter(a => a.enabled).length + effectiveOutlookAccounts.filter(a => a.enabled).length;
+                    return n > 1 ? `Sync Now (${n})` : "Sync Now";
+                  })()}
                 </button>
                 {syncing && (
                   <button className="btn-sync" style={{ color: "var(--color-danger)" }} onClick={handleCancelSync}>
@@ -591,6 +614,69 @@ export function AutoImportSettings() {
             </p>
           )}
         </div>
+      </section>
+
+      {/* Sync schedule */}
+      <section className="card">
+        <h3>Sync Schedule</h3>
+        <div className="settings-row">
+          <span className="settings-row-label">Look back</span>
+          <select
+            className="settings-input"
+            style={{ maxWidth: 140 }}
+            value={syncMonths}
+            onChange={(e) => {
+              const opt = SYNC_OPTIONS.find((o) => o.months === Number(e.target.value));
+              if (opt) handleSyncSelect(opt.months, opt.pro);
+            }}
+          >
+            {SYNC_OPTIONS.map((opt) => (
+              <option key={opt.months} value={opt.months}>{opt.label}{opt.pro ? " — Pro" : ""}</option>
+            ))}
+          </select>
+        </div>
+        <div className="settings-row" style={{ marginTop: 10 }}>
+          <span className="settings-row-label">Frequency</span>
+          <select
+            className="settings-input"
+            style={{ maxWidth: 140 }}
+            value={syncSchedule}
+            onChange={(e) => {
+              const v = e.target.value as typeof syncSchedule;
+              prefs.syncSchedule = v;
+              setSyncSchedule(v);
+              schedulePolling();
+            }}
+          >
+            <option value="manual">Manual only</option>
+            <option value="daily">Daily</option>
+            <option value="weekly">Weekly</option>
+            <option value="monthly">Monthly</option>
+          </select>
+        </div>
+        {syncSchedule !== "manual" && (
+          <div className="settings-row" style={{ marginTop: 10 }}>
+            <span className="settings-row-label">Sync at</span>
+            <input
+              type="time"
+              className="settings-input"
+              style={{ maxWidth: 120 }}
+              value={syncTime}
+              onChange={(e) => {
+                prefs.syncTime = e.target.value;
+                setSyncTime(e.target.value);
+                schedulePolling();
+              }}
+            />
+          </div>
+        )}
+        {showProBanner && (
+          <div className="settings-pro-banner" style={{ marginTop: 12 }}>
+            <strong>Subscription required</strong>
+            <p>Syncing beyond 3 months requires a Pro subscription.</p>
+            <button className="settings-pro-cta" onClick={openProModal}>Upgrade to Pro</button>
+          </div>
+        )}
       </section>
 
       {/* Connected Email Accounts (Pro: up to 5) */}

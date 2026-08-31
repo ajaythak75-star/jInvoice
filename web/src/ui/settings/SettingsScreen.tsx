@@ -6,19 +6,13 @@ import { DesktopFolderSettings } from "../autoimport/DesktopFolderSettings";
 import { GmailConnector } from "../../autoimport/GmailConnector";
 import { OutlookConnector } from "../../autoimport/OutlookConnector";
 import { ImapConnector, isImapAvailable } from "../../autoimport/ImapConnector";
-import { desktopConnector, schedulePolling } from "../../service/AutoImportService";
+import { desktopConnector } from "../../service/AutoImportService";
 import { startMobileSync, stopMobileSync, syncMobileNow } from "../../service/MobileSyncService";
 import { processFile } from "../../extraction/ExtractionPipeline";
 import { DOC_TYPE_SUBFOLDER, detectDocType } from "../../extraction/DocTypeDetector";
 import { isFsAccessSupported } from "../../autoimport/DesktopFolderConnector";
 import type { ExtractionResult } from "../../core/extraction/models";
 
-const SYNC_OPTIONS: { months: number; label: string; pro: boolean }[] = [
-  { months: 1,  label: "1 month",  pro: false },
-  { months: 3,  label: "3 months", pro: false },
-  { months: 6,  label: "6 months", pro: true  },
-  { months: 12, label: "1 year",   pro: true  },
-];
 
 function uploadResultMessage(r: ExtractionResult): string {
   if (r.kind === "success")            return `Saved — ${r.invoice.merchantName ?? "Invoice"}`;
@@ -130,10 +124,6 @@ interface Props {
 export function SettingsScreen({ onSignOut }: Props) {
   const vm = useAutoImportViewModel();
 
-  const [syncMonths, setSyncMonths]     = useState(() => prefs.syncMonths);
-  const [syncSchedule, setSyncSchedule] = useState(() => prefs.syncSchedule);
-  const [syncTime, setSyncTime]         = useState(() => prefs.syncTime);
-  const [showProBanner, setShowProBanner] = useState(false);
   const [showProModal, setShowProModal]   = useState(false);
   const [proName,     setProName]     = useState(() => prefs.customerName);
   const [proEmail,    setProEmail]    = useState(() => prefs.customerEmail);
@@ -215,13 +205,6 @@ export function SettingsScreen({ onSignOut }: Props) {
     onSignOut();
   };
 
-  const handleSyncSelect = (months: number, pro: boolean) => {
-    if (pro && !prefs.isSubscribed) { setShowProBanner(true); return; }
-    setShowProBanner(false);
-    setSyncMonths(months);
-    prefs.syncMonths = months;
-  };
-
   const openProModal = () => {
     setProName(prefs.customerName);
     setProEmail(prefs.customerEmail);
@@ -249,7 +232,6 @@ export function SettingsScreen({ onSignOut }: Props) {
     prefs.customerStatus = "Active";
     prefs.isSubscribed   = true;
     setShowProModal(false);
-    setShowProBanner(false);
   };
 
   const handleFolderScan = async (files: File[]): Promise<string> => {
@@ -306,11 +288,6 @@ export function SettingsScreen({ onSignOut }: Props) {
     setImapMsg(null);
   };
 
-  const selectStyle: React.CSSProperties = {
-    fontSize: 13, padding: "4px 8px", borderRadius: 6,
-    border: "1px solid var(--color-border)",
-    background: "var(--color-surface)", color: "var(--color-text)",
-  };
 
   const refreshGmailLabels = () => {
     const GMAIL_EXCLUDE = new Set(["TRASH", "SPAM", "DRAFT", "SENT", "UNREAD", "STARRED", "IMPORTANT"]);
@@ -369,69 +346,6 @@ export function SettingsScreen({ onSignOut }: Props) {
           <span className="settings-row-value" style={{ fontSize: 12, color: "var(--color-text-secondary)" }} />
           <button className="btn-ghost settings-signout" onClick={handleSignOut}>Sign out</button>
         </div>
-      </section>
-
-      {/* Sync — range + schedule combined */}
-      <section className="settings-section">
-        <div className="settings-section-title">Sync</div>
-        <div className="settings-row">
-          <span className="settings-row-label">Look back</span>
-          <select
-            style={selectStyle}
-            value={syncMonths}
-            onChange={(e) => {
-              const opt = SYNC_OPTIONS.find((o) => o.months === Number(e.target.value));
-              if (opt) handleSyncSelect(opt.months, opt.pro);
-            }}
-          >
-            {SYNC_OPTIONS.map((opt) => (
-              <option key={opt.months} value={opt.months}>
-                {opt.label}{opt.pro ? " — Pro" : ""}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="settings-row">
-          <span className="settings-row-label">Frequency</span>
-          <select
-            style={selectStyle}
-            value={syncSchedule}
-            onChange={(e) => {
-              const v = e.target.value as typeof syncSchedule;
-              prefs.syncSchedule = v;
-              setSyncSchedule(v);
-              schedulePolling();
-            }}
-          >
-            <option value="manual">Manual only</option>
-            <option value="daily">Daily</option>
-            <option value="weekly">Weekly</option>
-            <option value="monthly">Monthly</option>
-          </select>
-        </div>
-        {syncSchedule !== "manual" && (
-          <div className="settings-row">
-            <span className="settings-row-label">Sync at</span>
-            <input
-              type="time"
-              className="settings-input"
-              style={{ maxWidth: 120 }}
-              value={syncTime}
-              onChange={(e) => {
-                prefs.syncTime = e.target.value;
-                setSyncTime(e.target.value);
-                schedulePolling();
-              }}
-            />
-          </div>
-        )}
-        {showProBanner && (
-          <div className="settings-pro-banner">
-            <strong>Subscription required</strong>
-            <p>Syncing beyond 3 months requires a Pro subscription. Upgrade to unlock 6-month and 1-year sync history.</p>
-            <button className="settings-pro-cta" onClick={openProModal}>Upgrade to Pro</button>
-          </div>
-        )}
       </section>
 
       {/* Mail Folders — dropdown per provider */}

@@ -130,6 +130,7 @@ type EmailResult = {
   subject: string;
   senderEmail: string;
   receivedAt: string;
+  accountEmail: string;
 };
 
 export async function poll(): Promise<{ found: number; processed: number; cancelled: boolean }> {
@@ -142,45 +143,51 @@ export async function poll(): Promise<{ found: number; processed: number; cancel
   let processed = 0;
 
   try {
-    if (prefs.gmailEnabled && !_syncCancelled) {
+    // Collect all enabled Gmail accounts (primary + secondary)
+    const gmailAccounts = [
+      ...(prefs.gmailEnabled && prefs.gmailAccessToken
+        ? [{ email: prefs.gmailEmail ?? "", accessToken: prefs.gmailAccessToken, refreshToken: prefs.gmailRefreshToken }]
+        : []),
+      ...prefs.gmailAccounts.filter((a) => a.enabled && a.email !== prefs.gmailEmail),
+    ];
+    if (gmailAccounts.length > 0 && !_syncCancelled) {
       const checker = await makeEmailChecker("gmail");
-      const gmailAccounts = [
-        ...(prefs.gmailAccessToken ? [{ email: prefs.gmailEmail ?? "", accessToken: prefs.gmailAccessToken, refreshToken: prefs.gmailRefreshToken }] : []),
-        ...prefs.gmailAccounts.filter((a) => a.enabled && a.email !== prefs.gmailEmail),
-      ];
       const allResults: EmailResult[] = [];
       for (const acct of gmailAccounts) {
         if (_syncCancelled) break;
-        const results = await new GmailConnector(acct).pollAndDownload(checker);
-        allResults.push(...results);
+        const raw = await new GmailConnector(acct).pollAndDownload(checker);
+        allResults.push(...raw.map((r) => ({ ...r, accountEmail: acct.email })));
       }
       found += allResults.length;
-      await runConcurrent(allResults, CONCURRENT_EXTRACTIONS, async ({ file, messageId, subject, senderEmail, receivedAt }) => {
+      await runConcurrent(allResults, CONCURRENT_EXTRACTIONS, async ({ file, messageId, subject, senderEmail, receivedAt, accountEmail }) => {
         const r = await processFile(file, "gmail", { subject, senderEmail, receivedAt });
         await markAsImported(messageId, "gmail");
-        await savePdfToFolder(file, r, subject);
+        await savePdfToFolder(file, r, subject, accountEmail);
         processed++;
         window.dispatchEvent(new CustomEvent("jinvoice:sync-progress", { detail: { processed, found } }));
       });
     }
 
-    if (prefs.outlookEnabled && !_syncCancelled) {
+    // Collect all enabled Outlook accounts (primary + secondary)
+    const outlookAccounts = [
+      ...(prefs.outlookEnabled && prefs.outlookAccessToken
+        ? [{ email: prefs.outlookEmail ?? "", accessToken: prefs.outlookAccessToken }]
+        : []),
+      ...prefs.outlookAccounts.filter((a) => a.enabled && a.email !== prefs.outlookEmail),
+    ];
+    if (outlookAccounts.length > 0 && !_syncCancelled) {
       const checker = await makeEmailChecker("outlook");
-      const outlookAccounts = [
-        ...(prefs.outlookAccessToken ? [{ email: prefs.outlookEmail ?? "", accessToken: prefs.outlookAccessToken }] : []),
-        ...prefs.outlookAccounts.filter((a) => a.enabled && a.email !== prefs.outlookEmail),
-      ];
       const allResults: EmailResult[] = [];
       for (const acct of outlookAccounts) {
         if (_syncCancelled) break;
-        const results = await new OutlookConnector(acct).pollAndDownload(checker);
-        allResults.push(...results);
+        const raw = await new OutlookConnector(acct).pollAndDownload(checker);
+        allResults.push(...raw.map((r) => ({ ...r, accountEmail: acct.email })));
       }
       found += allResults.length;
-      await runConcurrent(allResults, CONCURRENT_EXTRACTIONS, async ({ file, messageId, subject, senderEmail, receivedAt }) => {
+      await runConcurrent(allResults, CONCURRENT_EXTRACTIONS, async ({ file, messageId, subject, senderEmail, receivedAt, accountEmail }) => {
         const r = await processFile(file, "outlook", { subject, senderEmail, receivedAt });
         await markAsImported(messageId, "outlook");
-        await savePdfToFolder(file, r, subject);
+        await savePdfToFolder(file, r, subject, accountEmail);
         processed++;
         window.dispatchEvent(new CustomEvent("jinvoice:sync-progress", { detail: { processed, found } }));
       });
@@ -193,7 +200,7 @@ export async function poll(): Promise<{ found: number; processed: number; cancel
       await runConcurrent(imapResults, CONCURRENT_EXTRACTIONS, async ({ file, messageId, subject, senderEmail, receivedAt }) => {
         const r = await processFile(file, "imap", { subject, senderEmail, receivedAt });
         await markAsImported(messageId, "imap");
-        await savePdfToFolder(file, r, subject);
+        await savePdfToFolder(file, r, subject, prefs.imapEmail ?? undefined);
         processed++;
         window.dispatchEvent(new CustomEvent("jinvoice:sync-progress", { detail: { processed, found } }));
       });
@@ -229,14 +236,16 @@ export async function poll(): Promise<{ found: number; processed: number; cancel
   }
 }
 
-async function savePdfToFolder(file: File, result: ExtractionResult, subject?: string): Promise<void> {
+async function savePdfToFolder(file: File, result: ExtractionResult, subject?: string, accountEmail?: string): Promise<void> {
   if (!prefs.desktopFolderName) return;
   const docTypes = (result.kind === "success" || result.kind === "lowConfidence")
     ? detectDocType(result.invoice.merchantName, result.invoice.lineItems.map((li) => li.name), file.name, subject)
     : ["other" as const];
   const bytes = new Uint8Array(await file.arrayBuffer());
   for (const docType of docTypes) {
-    await desktopConnector.saveInvoiceToFolder(bytes, file.name, DOC_TYPE_SUBFOLDER[docType]);
+    const docFolder = DOC_TYPE_SUBFOLDER[docType];
+    const subfolder = accountEmail ? `${accountEmail}/${docFolder}` : docFolder;
+    await desktopConnector.saveInvoiceToFolder(bytes, file.name, subfolder);
   }
 }
 

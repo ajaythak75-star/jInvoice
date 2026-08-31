@@ -137,10 +137,13 @@ export class DesktopFolderConnector {
   async saveInvoiceToFolder(data: Uint8Array, filename: string, subfolder?: string): Promise<boolean> {
     if (!this.handle) return false;
     try {
-      const targetDir = subfolder
-        ? await (this.handle as any).getDirectoryHandle(subfolder, { create: true })
-        : this.handle;
-      const fileHandle = await (targetDir as any).getFileHandle(filename, { create: true });
+      let targetDir: any = this.handle;
+      if (subfolder) {
+        for (const part of subfolder.split("/").filter(Boolean)) {
+          targetDir = await targetDir.getDirectoryHandle(part, { create: true });
+        }
+      }
+      const fileHandle = await targetDir.getFileHandle(filename, { create: true });
       const writable = await fileHandle.createWritable();
       await writable.write(data);
       await writable.close();
