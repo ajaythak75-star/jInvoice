@@ -415,19 +415,22 @@ export function AutoImportSettings() {
       });
       const data = await res.json();
       if (!res.ok) { alert(`Diagnose error: ${data.error}`); return; }
-      const pdfEmails = (data.samples ?? []).filter((s: { hasPdf: boolean }) => s.hasPdf);
-      const htmlEmails = (data.samples ?? []).filter((s: { hasPdf: boolean; hasHtml: boolean }) => !s.hasPdf && s.hasHtml);
+      const samples: { subject: string; from: string; date: string; hasPdf: boolean; pdfCount: number; hasHtml: boolean; mimeTree: string }[] = data.samples ?? [];
+      const pdfEmails = samples.filter((s) => s.hasPdf);
+      const htmlEmails = samples.filter((s) => !s.hasPdf && s.hasHtml);
+      const newestDate = samples.reduce((acc, s) => s.date > acc ? s.date : acc, "");
       const lines = [
         `Connected as: ${email}`,
         `Folder searched: ${data.sampleFolder ?? data.targetFolder ?? "?"}`,
-        `Since: ${new Date(data.since).toDateString()}`,
+        `Searching since: ${new Date(data.since).toDateString()}`,
+        `Newest email found: ${newestDate || "none"}`,
         "",
         "Email counts:",
         ...Object.entries(data.counts).map(([k, v]) => `  ${k}: ${v} emails`),
         "",
-        `Last 30 emails — PDF: ${pdfEmails.length}, HTML-only: ${htmlEmails.length}`,
+        `Last 50 emails — PDF: ${pdfEmails.length}, HTML-only: ${htmlEmails.length}`,
         "",
-        ...(data.samples ?? []).slice(-20).map((s: { subject: string; from: string; date: string; hasPdf: boolean; pdfCount: number; hasHtml: boolean; mimeTree: string }) =>
+        ...samples.slice(-30).map((s) =>
           `  [${s.hasPdf ? `PDF×${s.pdfCount}` : s.hasHtml ? "HTML" : "none"}] ${s.date} ${s.subject.slice(0, 40)}\n    mime: ${s.mimeTree}`
         ),
       ];

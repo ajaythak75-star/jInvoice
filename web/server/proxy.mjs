@@ -706,7 +706,7 @@ app.post("/api/imap/diagnose", async (req, res) => {
       const lock = await client.getMailboxLock(sampleFolder);
       try {
         const seqs = await client.search({ since });
-        const slice = seqs.slice(-30);
+        const slice = seqs.slice(-50);
         if (slice.length) {
           for await (const msg of client.fetch(slice, { envelope: true, bodyStructure: true })) {
             const pdfParts = _findPdfParts(msg.bodyStructure);
