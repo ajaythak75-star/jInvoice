@@ -820,9 +820,7 @@ app.post("/api/imap/poll", async (req, res) => {
         for await (const msg of client.fetch(slice, { envelope: true, bodyStructure: true })) {
           totalScanned++;
           const pdfParts = _findPdfParts(msg.bodyStructure);
-          const htmlPart = pdfParts.length === 0 ? _findHtmlPart(msg.bodyStructure) : null;
-          console.log(`[IMAP] ${mb} seq=${msg.seq} subject="${msg.envelope.subject}" pdfParts=${pdfParts.length} hasHtml=${!!htmlPart}`);
-          if (!pdfParts.length && !htmlPart) continue;
+          if (!pdfParts.length) continue;
           const msgId = `imap:${msg.envelope.messageId ?? msg.seq}`;
           if (seenMsgIds.has(msgId)) continue;
           seenMsgIds.add(msgId);
@@ -831,12 +829,12 @@ app.post("/api/imap/poll", async (req, res) => {
             subject: msg.envelope.subject ?? "",
             senderEmail: (msg.envelope.from ?? [])[0]?.address ?? "",
             receivedAt: msg.envelope.date?.toISOString() ?? new Date().toISOString(),
-            pdfParts, htmlPart,
+            pdfParts,
           });
         }
         console.log(`[IMAP] ${mb}: ${toProcess.length} messages to process`);
 
-        for (const { seq, msgId, subject, senderEmail, receivedAt, pdfParts, htmlPart } of toProcess) {
+        for (const { seq, msgId, subject, senderEmail, receivedAt, pdfParts } of toProcess) {
           const attachments = [];
           for (const part of pdfParts) {
             try {
@@ -848,23 +846,6 @@ app.post("/api/imap/poll", async (req, res) => {
               attachments.push({ filename: part.name, data: bytes.toString("base64") });
             } catch (e) {
               console.error(`[IMAP] pdf download failed seq=${seq} part=${part.id}:`, e.message);
-            }
-          }
-          if (attachments.length === 0 && htmlPart) {
-            try {
-              const { content } = await client.download(`${seq}`, htmlPart.id);
-              const chunks = [];
-              for await (const chunk of content) chunks.push(chunk);
-              const html = Buffer.concat(chunks).toString("utf8");
-              if (_looksLikeInvoice(html)) {
-                const b64 = Buffer.from(html).toString("base64");
-                attachments.push({ filename: `${msgId}.html`, data: b64 });
-                console.log(`[IMAP] html invoice: seq=${seq} subject="${subject}"`);
-              } else {
-                console.log(`[IMAP] html skipped (not invoice): seq=${seq} subject="${subject}"`);
-              }
-            } catch (e) {
-              console.error(`[IMAP] html download failed seq=${seq}:`, e.message);
             }
           }
           if (attachments.length) {
