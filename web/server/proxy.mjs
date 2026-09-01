@@ -659,7 +659,7 @@ function _looksLikeInvoice(html) {
   return hits >= 2;
 }
 
-// Diagnostic: list mailboxes + count emails per folder (helps debug missing PDFs)
+// Diagnostic: list mailboxes + count emails + sample attachment status
 app.post("/api/imap/diagnose", async (req, res) => {
   const { email, appPassword } = req.body ?? {};
   if (!email || !appPassword) return res.status(400).json({ error: "email and appPassword required" });
@@ -681,15 +681,14 @@ app.post("/api/imap/diagnose", async (req, res) => {
 
     const since = new Date();
     since.setMonth(since.getMonth() - 3);
-    const counts = {};
-    const checkPaths = list
-      .filter(m => !m.flags?.has?.("\\Noselect") && !([...m.flags ?? []].includes("\\Noselect")))
-      .filter(m => /inbox|all mail|gesamter|todos|всё|tout/i.test(m.path))
-      .map(m => m.path);
-    // Always include INBOX
-    if (!checkPaths.includes("INBOX")) checkPaths.unshift("INBOX");
 
-    for (const path of checkPaths.slice(0, 5)) {
+    // Find All Mail folder (same logic as poll)
+    const allMailFolder = list.find(m => /all\s*mail/i.test(m.name) || m.specialUse === "\\All");
+    const targetFolder = allMailFolder?.path ?? "INBOX";
+
+    const counts = {};
+    const checkPaths = [targetFolder, "INBOX"].filter((v, i, a) => a.indexOf(v) === i);
+    for (const path of checkPaths) {
       try {
         const lock = await client.getMailboxLock(path);
         try {
@@ -699,8 +698,34 @@ app.post("/api/imap/diagnose", async (req, res) => {
       } catch (e) { counts[path] = `error: ${e.message}`; }
     }
 
+    // Sample the last 30 emails from All Mail and check attachment types
+    const samples = [];
+    try {
+      const lock = await client.getMailboxLock(targetFolder);
+      try {
+        const seqs = await client.search({ since });
+        const slice = seqs.slice(-30);
+        if (slice.length) {
+          for await (const msg of client.fetch(slice, { envelope: true, bodyStructure: true })) {
+            const pdfParts = _findPdfParts(msg.bodyStructure);
+            const htmlPart = _findHtmlPart(msg.bodyStructure);
+            samples.push({
+              subject: msg.envelope.subject ?? "(no subject)",
+              from: (msg.envelope.from ?? [])[0]?.address ?? "",
+              date: msg.envelope.date?.toISOString().slice(0, 10) ?? "",
+              hasPdf: pdfParts.length > 0,
+              pdfCount: pdfParts.length,
+              hasHtml: !!htmlPart,
+            });
+          }
+        }
+      } finally { lock.release(); }
+    } catch (e) {
+      samples.push({ subject: `error sampling: ${e.message}`, from: "", date: "", hasPdf: false, pdfCount: 0, hasHtml: false });
+    }
+
     await client.logout();
-    res.json({ mailboxes, counts, since: since.toISOString() });
+    res.json({ mailboxes, counts, since: since.toISOString(), targetFolder, samples });
   } catch (e) {
     try { await client.logout(); } catch {}
     res.status(500).json({ error: String(e) });

@@ -415,14 +415,20 @@ export function AutoImportSettings() {
       });
       const data = await res.json();
       if (!res.ok) { alert(`Diagnose error: ${data.error}`); return; }
+      const pdfEmails = (data.samples ?? []).filter((s: { hasPdf: boolean }) => s.hasPdf);
+      const htmlEmails = (data.samples ?? []).filter((s: { hasPdf: boolean; hasHtml: boolean }) => !s.hasPdf && s.hasHtml);
       const lines = [
+        `Folder searched: ${data.targetFolder ?? "?"}`,
         `Since: ${new Date(data.since).toDateString()}`,
         "",
-        "Email counts per folder:",
+        "Email counts:",
         ...Object.entries(data.counts).map(([k, v]) => `  ${k}: ${v} emails`),
         "",
-        "All mailboxes:",
-        ...data.mailboxes.map((m: { path: string; specialUse: string | null }) => `  ${m.path}${m.specialUse ? ` [${m.specialUse}]` : ""}`),
+        `Last 30 emails — PDF attachments: ${pdfEmails.length}, HTML-only: ${htmlEmails.length}`,
+        "",
+        ...(data.samples ?? []).slice(-20).map((s: { subject: string; from: string; date: string; hasPdf: boolean; pdfCount: number; hasHtml: boolean }) =>
+          `  [${s.hasPdf ? `PDF×${s.pdfCount}` : s.hasHtml ? "HTML" : "none"}] ${s.date} ${s.subject.slice(0, 50)}`
+        ),
       ];
       alert(lines.join("\n"));
     } catch (e) {
