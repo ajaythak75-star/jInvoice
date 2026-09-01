@@ -790,16 +790,20 @@ app.post("/api/imap/poll", async (req, res) => {
   try {
     await client.connect();
 
-    // List all IMAP folders so we can search custom labels too (All Mail has indexing lag).
+    // List folders: All Mail + INBOX + custom (non-[Gmail]/*) labels only.
+    // Avoid [Gmail]/Promotions, [Gmail]/Social etc — they share messages with All Mail
+    // and opening them via IMAP can put the connection in a bad state.
     let allMailPath = null;
-    let allFolders = [];
+    let customLabels = [];
     try {
-      const list = await client.list("", "*");
+      const list = await client.list();
       const allMail = list.find(m => /all\s*mail/i.test(m.name) || m.specialUse === "\\All");
       if (allMail) { allMailPath = allMail.path; console.log(`[IMAP] All Mail: ${allMail.path}`); }
-      // Skip system folders unlikely to have invoices
-      const skipFolders = new Set(["[Gmail]/Trash", "[Gmail]/Spam", "[Gmail]/Drafts", "[Gmail]/Sent Mail", "[Gmail]/Important", "[Gmail]/Starred"]);
-      allFolders = list.map(m => m.path).filter(p => !skipFolders.has(p));
+      // Only user-created labels (no [Gmail]/* system folders)
+      customLabels = list
+        .filter(m => !m.path.startsWith("[Gmail]") && m.path !== "INBOX")
+        .map(m => m.path);
+      console.log(`[IMAP] custom labels: ${customLabels.join(", ") || "none"}`);
     } catch (e) {
       console.log("[IMAP] list() failed:", e.message);
     }
@@ -872,9 +876,8 @@ app.post("/api/imap/poll", async (req, res) => {
       }
     }
 
-    // Search all accessible folders. All Mail covers archived mail; custom labels cover
-    // recent unarchived mail before All Mail indexes it; INBOX catches everything else.
-    const foldersToSearch = [...new Set(["INBOX", ...(allMailPath ? [allMailPath] : []), ...allFolders])];
+    // INBOX + All Mail + custom labels (e.g. "Groww"). Deduplicated by message-id.
+    const foldersToSearch = [...new Set(["INBOX", ...(allMailPath ? [allMailPath] : []), ...customLabels])];
     for (const mb of foldersToSearch) {
       try {
         await processMailbox(mb);
