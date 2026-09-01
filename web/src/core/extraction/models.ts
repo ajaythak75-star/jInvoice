@@ -6,6 +6,7 @@ export type InvoiceStatus =
   | "pending_extraction"
   | "import_blocked_encrypted"
   | "extraction_failed"
+  | "duplicate"
   | "skipped"
   | "downloaded";
 

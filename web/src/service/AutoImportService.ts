@@ -98,6 +98,7 @@ async function makeEmailChecker(importSource: string): Promise<(meta: { id: stri
 }
 
 // Worker-pool: runs up to `concurrency` tasks at a time, respects _syncCancelled.
+// Each item failure is isolated — one bad file doesn't abort the rest.
 async function runConcurrent<T>(
   items: T[],
   concurrency: number,
@@ -109,7 +110,13 @@ async function runConcurrent<T>(
     Array.from({ length: Math.min(concurrency, items.length) }, async () => {
       while (queue.length > 0 && !_syncCancelled) {
         const item = queue.shift();
-        if (item !== undefined) await fn(item);
+        if (item !== undefined) {
+          try {
+            await fn(item);
+          } catch (e) {
+            console.error("[AutoImport] Item processing failed, continuing with next:", e);
+          }
+        }
       }
     })
   );
@@ -161,30 +168,42 @@ export async function poll(): Promise<{ found: number; processed: number; cancel
     // ── fetch ALL accounts across ALL providers in parallel ──────────────
     const [gmailResults, outlookResults, imapResults] = await Promise.all([
       gmailChecker
-        ? Promise.all(gmailAccounts.map((acct) =>
-            new GmailConnector(acct).pollAndDownload(gmailChecker).then((raw) =>
-              raw.map((r): SourcedResult => ({ ...r, accountEmail: acct.email, source: "gmail" }))
-            )
-          )).then((nested) => nested.flat())
+        ? Promise.all(gmailAccounts.map(async (acct) => {
+            try {
+              const raw = await new GmailConnector(acct).pollAndDownload(gmailChecker);
+              return raw.map((r): SourcedResult => ({ ...r, accountEmail: acct.email, source: "gmail" }));
+            } catch (e) {
+              console.error(`[AutoImport] Gmail ${acct.email} sync failed:`, e);
+              return [] as SourcedResult[];
+            }
+          })).then((nested) => nested.flat())
         : Promise.resolve([] as SourcedResult[]),
 
       outlookChecker
-        ? Promise.all(outlookAccounts.map((acct) =>
-            new OutlookConnector(acct).pollAndDownload(outlookChecker).then((raw) =>
-              raw.map((r): SourcedResult => ({ ...r, accountEmail: acct.email, source: "outlook" }))
-            )
-          )).then((nested) => nested.flat())
+        ? Promise.all(outlookAccounts.map(async (acct) => {
+            try {
+              const raw = await new OutlookConnector(acct).pollAndDownload(outlookChecker);
+              return raw.map((r): SourcedResult => ({ ...r, accountEmail: acct.email, source: "outlook" }));
+            } catch (e) {
+              console.error(`[AutoImport] Outlook ${acct.email} sync failed:`, e);
+              return [] as SourcedResult[];
+            }
+          })).then((nested) => nested.flat())
         : Promise.resolve([] as SourcedResult[]),
 
       imapChecker
-        ? Promise.all(enabledImapAccounts.map((acct) =>
-            ImapConnector.pollAndDownload(
-              acct.email, acct.appPassword, prefs.syncMonths, imapChecker,
-              acct.folderPaths.length ? acct.folderPaths : undefined
-            ).then((raw) =>
-              raw.map((r): SourcedResult => ({ ...r, accountEmail: acct.email, source: "imap" }))
-            )
-          )).then((nested) => nested.flat())
+        ? Promise.all(enabledImapAccounts.map(async (acct) => {
+            try {
+              const raw = await ImapConnector.pollAndDownload(
+                acct.email, acct.appPassword, prefs.syncMonths, imapChecker,
+                acct.folderPaths.length ? acct.folderPaths : undefined
+              );
+              return raw.map((r): SourcedResult => ({ ...r, accountEmail: acct.email, source: "imap" }));
+            } catch (e) {
+              console.error(`[AutoImport] IMAP ${acct.email} sync failed:`, e);
+              return [] as SourcedResult[];
+            }
+          })).then((nested) => nested.flat())
         : Promise.resolve([] as SourcedResult[]),
     ]);
 
@@ -193,7 +212,7 @@ export async function poll(): Promise<{ found: number; processed: number; cancel
     found = allEmailResults.length;
 
     await runConcurrent(allEmailResults, CONCURRENT_EXTRACTIONS, async ({ file, messageId, subject, senderEmail, receivedAt, accountEmail, source }) => {
-      await processFile(file, source, { subject, senderEmail, receivedAt });
+      await processFile(file, source, { subject, senderEmail, receivedAt }, { skipGemini: true });
       await markAsImported(messageId, source);
       await savePdfToFolder(file, accountEmail);
       processed++;

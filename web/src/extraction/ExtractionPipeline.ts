@@ -7,7 +7,7 @@ import { extractScannedPdf } from "./WebScannedPdfExtractor";
 import { extractFromCanvas } from "./WebCameraExtractor";
 import { enhanceWithClaude, enhanceWithClaudeVision } from "./ClaudeExtractor";
 import { renderPdfToImages } from "./WebPdfRenderer";
-import { db, insertInvoiceWithItems, isDuplicateInvoice } from "../data/InvoiceDatabase";
+import { db, insertInvoiceWithItems, isDuplicateInvoice, isDuplicateByFilename, markAsDuplicate } from "../data/InvoiceDatabase";
 import type { InvoicePdfFile } from "../data/InvoiceDatabase";
 import { detectCategory } from "../core/extraction/CategoryDetector";
 import { detectDocType } from "./DocTypeDetector";
@@ -215,9 +215,31 @@ async function persistResult(
   if (result.kind === "success" || result.kind === "lowConfidence") {
     const inv = result.invoice;
 
-    // Duplicate check: same merchant + total + date already saved
+    // Filename duplicate — same file already imported; save as duplicate so it's visible in View
+    if (sourceFilename && await isDuplicateByFilename(sourceFilename)) {
+      console.log("[Pipeline] filename duplicate:", sourceFilename);
+      const docTypes = detectDocType(inv.merchantName, inv.lineItems.map(li => li.name), sourceFilename, meta?.subject);
+      await insertInvoiceWithItems(
+        {
+          merchantName: inv.merchantName, merchantAddress: inv.merchantAddress,
+          merchantGstin: inv.merchantGstin, merchantPincode: inv.merchantPincode,
+          invoiceNumber: inv.invoiceNumber, invoiceDate: inv.invoiceDate,
+          subtotalPaise: inv.subtotalPaise, grandTotalPaise: inv.grandTotalPaise,
+          discountPaise: inv.discountPaise, taxPaise: inv.taxPaise, paymentMode: inv.paymentMode,
+          importSource, pdfSourceType: inv.sourceType, importRecordId: null,
+          status: "duplicate", category: detectCategory(inv.merchantName, inv.lineItems.map(li => li.name)),
+          docType: docTypes[0], docTypes, sourceFilename,
+          subject: meta?.subject, senderEmail: meta?.senderEmail, receivedAt: meta?.receivedAt,
+          createdAt: now, updatedAt: now,
+        },
+        [],
+      );
+      return true;
+    }
+
+    // Content duplicate — same merchant + total + date already saved; skip silently
     if (await isDuplicateInvoice(inv.merchantName, inv.grandTotalPaise, inv.invoiceDate)) {
-      console.log("[Pipeline] duplicate skipped:", inv.merchantName, inv.invoiceDate, inv.grandTotalPaise);
+      console.log("[Pipeline] content duplicate skipped:", inv.merchantName, inv.invoiceDate, inv.grandTotalPaise);
       return true;
     }
 
@@ -327,6 +349,14 @@ export async function extractInvoiceWithAI(invoiceId: number): Promise<Extracted
   }
 
   if (!enhanced || (enhanced.grandTotalPaise == null && enhanced.merchantName == null)) return null;
+
+  // Content duplicate check — same merchant + total + date already saved
+  if (await isDuplicateInvoice(enhanced.merchantName, enhanced.grandTotalPaise, enhanced.invoiceDate)) {
+    console.log("[extractInvoiceWithAI] content duplicate:", enhanced.merchantName, enhanced.invoiceDate);
+    await markAsDuplicate(invoiceId);
+    return enhanced;
+  }
+
   const now = new Date().toISOString();
   const lineItemNames = enhanced.lineItems.map((li) => li.name);
   const category = detectCategory(enhanced.merchantName, lineItemNames);

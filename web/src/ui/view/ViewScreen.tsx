@@ -62,6 +62,7 @@ function statusColor(status: string): string {
     case "pending_review":        return "#f59e0b";
     case "pending_extraction":    return "#8b5cf6";
     case "downloaded":            return "#3b82f6";
+    case "duplicate":             return "#f97316";
     case "import_blocked_encrypted":
     case "extraction_failed":     return "#ef4444";
     default:                      return "#6b7280";
@@ -76,6 +77,7 @@ function statusText(status: string): string {
     case "downloaded":                return "Downloaded";
     case "import_blocked_encrypted":  return "Encrypted";
     case "extraction_failed":         return "Failed";
+    case "duplicate":                 return "Duplicate";
     default:                          return status;
   }
 }
@@ -1661,7 +1663,12 @@ export function ViewScreen() {
                             if (inv) {
                               load();
                               const updated = await db.invoices.get(r.id);
-                              if (updated) setDetailRec(updated);
+                              if (updated) {
+                                setDetailRec(updated);
+                                if (updated.status === "duplicate") {
+                                  alert("This invoice is a duplicate of one already imported (same merchant, amount, and date). Marked as Duplicate.");
+                                }
+                              }
                               const items = await db.lineItems.where("invoiceId").equals(r.id).toArray();
                               setDetailItems(items);
                             } else {

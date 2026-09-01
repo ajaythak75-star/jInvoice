@@ -134,6 +134,9 @@ class JInvoiceDB extends Dexie {
     this.version(8).stores({
       pdfFiles: "++id, &invoiceId",
     });
+    this.version(9).stores({
+      invoices: "++id, merchantName, invoiceDate, status, importSource, category, *clientTags, projectTag, sourceFilename",
+    });
   }
 }
 
@@ -159,6 +162,19 @@ export async function insertInvoiceWithItems(
   });
   afterInsertHooks.forEach((fn) => fn(invoiceId));
   return invoiceId;
+}
+
+export async function markAsDuplicate(invoiceId: number): Promise<void> {
+  await db.invoices.update(invoiceId, { status: "duplicate", updatedAt: new Date().toISOString() });
+}
+
+export async function isDuplicateByFilename(filename: string): Promise<boolean> {
+  if (!filename) return false;
+  const count = await db.invoices
+    .where("sourceFilename").equals(filename)
+    .filter((inv) => inv.status !== "duplicate")
+    .count();
+  return count > 0;
 }
 
 export async function isDuplicateInvoice(

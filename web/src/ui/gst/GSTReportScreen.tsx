@@ -154,11 +154,54 @@ function buildCsv(rows: GSTRow[], periodLabel: string): string {
   return [header, ...lines].join("\n");
 }
 
+function DrillDownPanel({ records, onClose }: { records: InvoiceMeta[]; onClose: () => void }) {
+  if (records.length === 0) return null;
+  return (
+    <tr>
+      <td colSpan={99} style={{ padding: 0, background: "var(--color-surface-2)" }}>
+        <div style={{ padding: "10px 16px 14px", borderTop: "1px solid var(--color-primary)", borderBottom: "1px solid var(--color-border)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: "var(--color-primary)", textTransform: "uppercase", letterSpacing: "0.07em" }}>
+              {records.length} Invoice{records.length > 1 ? "s" : ""}
+            </span>
+            <button onClick={onClose} style={{ fontSize: 12, color: "var(--color-text-tertiary)", background: "none", border: "none", cursor: "pointer", padding: "2px 6px" }}>✕ Close</button>
+          </div>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr>
+                  {["Date", "Vendor", "Invoice #", "Amount", "Tax"].map((h, i) => (
+                    <th key={h} style={{ fontSize: 10, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em", padding: "4px 10px", textAlign: i <= 2 ? "left" : "right", whiteSpace: "nowrap" }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {[...records].sort((a, b) => (b.invoiceDate ?? b.createdAt ?? "").localeCompare(a.invoiceDate ?? a.createdAt ?? "")).map((r, i) => (
+                  <tr key={r.id ?? i} style={{ borderTop: "1px solid var(--color-border)" }}>
+                    <td style={{ fontSize: 11.5, color: "var(--color-text-secondary)", padding: "5px 10px", whiteSpace: "nowrap" }}>
+                      {r.invoiceDate ? new Date(r.invoiceDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "2-digit" }) : "—"}
+                    </td>
+                    <td style={{ fontSize: 11.5, color: "var(--color-text)", padding: "5px 10px", maxWidth: 150, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.merchantName ?? "Unknown"}</td>
+                    <td style={{ fontSize: 11, color: "var(--color-text-secondary)", padding: "5px 10px", maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.invoiceNumber ?? "—"}</td>
+                    <td style={{ fontSize: 12, fontWeight: 600, color: "var(--color-text)", padding: "5px 10px", textAlign: "right", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{fmtRupee(r.grandTotalPaise ?? 0)}</td>
+                    <td style={{ fontSize: 11.5, color: "var(--color-text-secondary)", padding: "5px 10px", textAlign: "right", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{r.taxPaise ? fmtRupee(r.taxPaise) : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </td>
+    </tr>
+  );
+}
+
 export function GSTReportScreen() {
   const [records, setRecords]       = useState<InvoiceMeta[]>([]);
   const [loading, setLoading]       = useState(true);
   const [period, setPeriod]         = useState<Period>("this_fy");
   const [filterClient, setFilterClient] = useState<string | null>(null);
+  const [drillGstin, setDrillGstin] = useState<string | null>(null);
   const [cloudSaving, setCloudSaving] = useState(false);
   const [cloudMsg, setCloudMsg]       = useState<string | null>(null);
 
@@ -401,27 +444,37 @@ export function GSTReportScreen() {
               </tr>
             </thead>
             <tbody>
-              {gstRows.map((row, i) => (
-                <tr key={row.gstin}
-                  style={{ borderBottom: i < gstRows.length - 1 ? "1px solid var(--color-border)" : "none",
-                    background: i % 2 === 0 ? "transparent" : "var(--color-surface-2)" }}>
-                  <td style={{ ...tdS, fontFamily: "monospace", fontSize: 11.5 }}>
-                    {row.gstin === "—"
-                      ? <span style={{ color: "var(--color-text-tertiary)", fontFamily: "inherit" }}>No GSTIN</span>
-                      : row.gstin}
-                  </td>
-                  <td style={tdS}>
-                    <div style={{ maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                      title={[...row.names].join(", ")}>
-                      {[...row.names].slice(0, 2).join(", ") || "—"}
-                    </div>
-                  </td>
-                  <td style={{ ...numS, color: "var(--color-text-secondary)", fontSize: 12 }}>{row.count}</td>
-                  <td style={numS}>{fmtRupee(row.taxablePaise)}</td>
-                  <td style={{ ...numS, color: "#0891b2", fontWeight: 600 }}>{fmtRupee(row.gstPaise)}</td>
-                  <td style={{ ...numS, fontWeight: 600 }}>{fmtRupee(row.totalPaise)}</td>
-                </tr>
-              ))}
+              {gstRows.map((row, i) => {
+                const isOpen = drillGstin === row.gstin;
+                const drillRecs = filteredRecords.filter(r => (r.merchantGstin?.trim() || "—") === row.gstin);
+                return (
+                  <React.Fragment key={row.gstin}>
+                    <tr
+                      onClick={() => setDrillGstin(isOpen ? null : row.gstin)}
+                      style={{ borderBottom: i < gstRows.length - 1 && !isOpen ? "1px solid var(--color-border)" : "none",
+                        background: isOpen ? "color-mix(in srgb, var(--color-primary) 6%, transparent)" : i % 2 === 0 ? "transparent" : "var(--color-surface-2)",
+                        cursor: "pointer" }}>
+                      <td style={{ ...tdS, fontFamily: "monospace", fontSize: 11.5 }}>
+                        <span style={{ fontSize: 10, color: "var(--color-primary)", opacity: 0.7, marginRight: 6 }}>{isOpen ? "▼" : "▶"}</span>
+                        {row.gstin === "—"
+                          ? <span style={{ color: "var(--color-text-tertiary)", fontFamily: "inherit" }}>No GSTIN</span>
+                          : row.gstin}
+                      </td>
+                      <td style={tdS}>
+                        <div style={{ maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                          title={[...row.names].join(", ")}>
+                          {[...row.names].slice(0, 2).join(", ") || "—"}
+                        </div>
+                      </td>
+                      <td style={{ ...numS, color: "var(--color-text-secondary)", fontSize: 12 }}>{row.count}</td>
+                      <td style={numS}>{fmtRupee(row.taxablePaise)}</td>
+                      <td style={{ ...numS, color: "#0891b2", fontWeight: 600 }}>{fmtRupee(row.gstPaise)}</td>
+                      <td style={{ ...numS, fontWeight: 600 }}>{fmtRupee(row.totalPaise)}</td>
+                    </tr>
+                    {isOpen && <DrillDownPanel records={drillRecs} onClose={() => setDrillGstin(null)} />}
+                  </React.Fragment>
+                );
+              })}
             </tbody>
             <tfoot>
               <tr style={{ borderTop: "1.5px solid var(--color-border)", background: "var(--color-surface-2)" }}>
