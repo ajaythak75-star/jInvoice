@@ -629,13 +629,34 @@ function _findPdfParts(struct, partId = "") {
     ?? struct.disposition?.parameters?.["filename*"] ?? "";
   const isPdf    = (type === "application" && (subtype === "pdf" || subtype === "octet-stream") && filename.toLowerCase().endsWith(".pdf"))
     || (type === "application" && subtype === "pdf");
-  // For root-level single-part PDF, IMAP part ID is "1"
   if (isPdf) { parts.push({ id: partId || "1", name: filename || "invoice.pdf" }); return parts; }
   (struct.childNodes ?? []).forEach((child, i) => {
     const cId = partId ? `${partId}.${i + 1}` : `${i + 1}`;
     parts.push(..._findPdfParts(child, cId));
   });
   return parts;
+}
+
+// Find the first text/html part in a MIME tree (for HTML invoice fallback)
+function _findHtmlPart(struct, partId = "") {
+  if (!struct) return null;
+  const type    = (struct.type    ?? "").toLowerCase();
+  const subtype = (struct.subtype ?? "").toLowerCase();
+  if (type === "text" && subtype === "html") return { id: partId || "1" };
+  for (const [i, child] of (struct.childNodes ?? []).entries()) {
+    const cId = partId ? `${partId}.${i + 1}` : `${i + 1}`;
+    const found = _findHtmlPart(child, cId);
+    if (found) return found;
+  }
+  return null;
+}
+
+// Heuristic: does the HTML content look like an invoice/receipt?
+function _looksLikeInvoice(html) {
+  const lower = html.toLowerCase();
+  const hits = ["invoice", "receipt", "bill", "payment", "amount due", "total", "order", "subscription", "tax", "due date"]
+    .filter(kw => lower.includes(kw)).length;
+  return hits >= 2;
 }
 
 // Verify credentials reach the server and the IMAP handshake succeeds.
@@ -657,7 +678,7 @@ app.post("/api/imap/test", async (req, res) => {
   }
 });
 
-// Poll INBOX for PDF attachments. Credentials come from the client on each call.
+// Poll Gmail for PDF attachments (or HTML invoice bodies). Credentials come from the client.
 app.post("/api/imap/poll", async (req, res) => {
   const { email, appPassword, months = 3 } = req.body ?? {};
   if (!email || !appPassword) return res.status(400).json({ error: "email and appPassword required" });
@@ -672,50 +693,83 @@ app.post("/api/imap/poll", async (req, res) => {
   });
   try {
     await client.connect();
-    // [Gmail]/All Mail covers INBOX + Promotions + Social + Updates + any label
-    const mailbox = "[Gmail]/All Mail";
+
+    // Pick the right All Mail folder — covers INBOX + Promotions + Social + Updates + all labels.
+    // Fallback to INBOX if the All Mail special folder isn't visible via IMAP.
+    let mailbox = "INBOX";
+    try {
+      const list = await client.list();
+      const allMail = list.find(m =>
+        /all\s*mail/i.test(m.name) || m.specialUse === "\\All"
+      );
+      if (allMail) { mailbox = allMail.path; console.log(`[IMAP] using mailbox: ${allMail.path}`); }
+      else console.log("[IMAP] All Mail not found via list, falling back to INBOX");
+    } catch (e) {
+      console.log("[IMAP] list() failed, falling back to INBOX:", e.message);
+    }
+
     const lock = await client.getMailboxLock(mailbox);
     const results = [];
     const seenMsgIds = new Set();
     try {
       const seqNos = await client.search({ since });
-      console.log(`[IMAP] search found ${seqNos.length} messages, processing last 200`);
+      console.log(`[IMAP] ${mailbox}: found ${seqNos.length} messages since ${since.toDateString()}, processing last 200`);
       const slice = seqNos.slice(-200);
       if (slice.length) {
-        // Collect metadata first, then download (avoids concurrent IMAP commands)
-        const toDownload = [];
+        // Collect metadata first to avoid interleaving IMAP commands during fetch
+        const toProcess = [];
         for await (const msg of client.fetch(slice, { envelope: true, bodyStructure: true })) {
           const pdfParts = _findPdfParts(msg.bodyStructure);
-          console.log(`[IMAP] msg seq=${msg.seq} subject="${msg.envelope.subject}" → pdfParts=${pdfParts.length} (type=${msg.bodyStructure?.type}/${msg.bodyStructure?.subtype})`);
-          if (!pdfParts.length) continue;
+          const htmlPart = pdfParts.length === 0 ? _findHtmlPart(msg.bodyStructure) : null;
+          console.log(`[IMAP] seq=${msg.seq} subject="${msg.envelope.subject}" pdfParts=${pdfParts.length} hasHtml=${!!htmlPart}`);
+          if (!pdfParts.length && !htmlPart) continue;
           const msgId = `imap:${msg.envelope.messageId ?? msg.seq}`;
           if (seenMsgIds.has(msgId)) continue;
           seenMsgIds.add(msgId);
-          toDownload.push({
-            seq: msg.seq,
-            msgId,
+          toProcess.push({
+            seq: msg.seq, msgId,
             subject: msg.envelope.subject ?? "",
             senderEmail: (msg.envelope.from ?? [])[0]?.address ?? "",
             receivedAt: msg.envelope.date?.toISOString() ?? new Date().toISOString(),
-            pdfParts,
+            pdfParts, htmlPart,
           });
         }
-        console.log(`[IMAP] ${toDownload.length} messages have PDF attachments — downloading`);
-        for (const { seq, msgId, subject, senderEmail, receivedAt, pdfParts } of toDownload) {
+        console.log(`[IMAP] ${toProcess.length} messages to process`);
+
+        for (const { seq, msgId, subject, senderEmail, receivedAt, pdfParts, htmlPart } of toProcess) {
           const attachments = [];
+
+          // Download PDF attachments
           for (const part of pdfParts) {
             try {
-              console.log(`[IMAP] downloading seq=${seq} part=${part.id} name="${part.name}"`);
               const { content } = await client.download(`${seq}`, part.id);
               const chunks = [];
               for await (const chunk of content) chunks.push(chunk);
               const bytes = Buffer.concat(chunks);
-              console.log(`[IMAP] downloaded ${bytes.length} bytes for "${part.name}"`);
+              console.log(`[IMAP] pdf downloaded: seq=${seq} part=${part.id} "${part.name}" ${bytes.length}B`);
               attachments.push({ filename: part.name, data: bytes.toString("base64") });
             } catch (e) {
-              console.error(`[IMAP] download failed seq=${seq} part=${part.id}:`, e.message);
+              console.error(`[IMAP] pdf download failed seq=${seq} part=${part.id}:`, e.message);
             }
           }
+
+          // HTML invoice body fallback (no PDF attachment found)
+          if (attachments.length === 0 && htmlPart) {
+            try {
+              const { content } = await client.download(`${seq}`, htmlPart.id);
+              const chunks = [];
+              for await (const chunk of content) chunks.push(chunk);
+              const html = Buffer.concat(chunks).toString("utf8");
+              if (_looksLikeInvoice(html)) {
+                const b64 = Buffer.from(html).toString("base64");
+                attachments.push({ filename: `${msgId}.html`, data: b64 });
+                console.log(`[IMAP] html invoice fallback: seq=${seq} subject="${subject}"`);
+              }
+            } catch (e) {
+              console.error(`[IMAP] html download failed seq=${seq}:`, e.message);
+            }
+          }
+
           if (attachments.length) {
             results.push({ messageId: msgId, subject, senderEmail, receivedAt, attachments });
           }
@@ -725,7 +779,7 @@ app.post("/api/imap/poll", async (req, res) => {
       lock.release();
     }
     await client.logout();
-    console.log(`[IMAP] poll complete: ${results.length} messages with PDFs`);
+    console.log(`[IMAP] poll complete: ${results.length} messages ready`);
     res.json({ results });
   } catch (e) {
     console.error("[IMAP] poll error:", e.message);

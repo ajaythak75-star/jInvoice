@@ -97,11 +97,13 @@ export class ImapConnector {
       }
 
       for (const att of msg.attachments) {
+        const isHtml = att.filename.endsWith(".html");
+        const mimeType = isHtml ? "text/html" : "application/pdf";
         const binary = atob(att.data);
         const bytes = new Uint8Array(binary.length);
         for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
         output.push({
-          file: new File([bytes], att.filename, { type: "application/pdf" }),
+          file: new File([bytes], att.filename, { type: mimeType }),
           messageId: msg.messageId,
           subject: msg.subject,
           senderEmail: msg.senderEmail,
