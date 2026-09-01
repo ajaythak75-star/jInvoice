@@ -430,11 +430,8 @@ export function AutoImportSettings() {
         </span>
       </div>
 
-      {/* Two-column grid: left = Manual + Doc Types, right = Email + Schedule */}
-      <div className="import-two-col">
-
-        {/* ── Left column ── */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {/* Single column — all cards stacked vertically */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <section className="card"
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
@@ -510,10 +507,6 @@ export function AutoImportSettings() {
             )}
           </section>
 
-        </div>
-
-        {/* ── Right column ── */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <section className="card">
             <h3>Email Connectors</h3>
 
@@ -829,9 +822,8 @@ export function AutoImportSettings() {
               </>
             )}
           </section>
-        </div>
 
-      </div>{/* end import-two-col */}
+      </div>{/* end single column */}
 
     </div>
 
