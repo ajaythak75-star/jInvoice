@@ -857,6 +857,7 @@ export function ViewScreen() {
   const [billIssues, setBillIssues] = useState<Map<number, BillIssue[]>>(new Map());
   const [syncingId, setSyncingId] = useState<number | null>(null);
   const hasLoadedRef = useRef(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(() => {
     // Only show the full-page loading screen on the very first load.
@@ -869,7 +870,7 @@ export function ViewScreen() {
         runBillChecksForAll(recs).then(setBillIssues).catch(console.error);
       })
       .catch(console.error)
-      .finally(() => setLoading(false));
+      .finally(() => { setLoading(false); setRefreshing(false); });
   }, []);
 
   useEffect(() => {
@@ -1200,7 +1201,9 @@ export function ViewScreen() {
               <button className="btn-sm" onClick={() => uploadInputRef.current?.click()} disabled={previewLoading}>
                 {previewLoading ? "Extracting…" : "+ Upload PDF"}
               </button>
-            <button className="btn-sm" onClick={load} disabled={loading}>Refresh</button>
+            <button className="btn-sm" onClick={() => { setRefreshing(true); load(); }} disabled={refreshing}>
+              {refreshing ? "Refreshing…" : "Refresh"}
+            </button>
           </div>
         </div>
         <input

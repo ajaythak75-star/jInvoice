@@ -476,7 +476,11 @@ export function AutoImportSettings() {
     poll().catch(() => {}); // state tracked via jinvoice:sync-* events
   };
 
-  const handleCancelSync = () => { cancelSync(); };
+  const handleCancelSync = () => {
+    cancelSync();
+    setSyncing(false);
+    setSyncResult("Sync cancelled.");
+  };
 
   const handleResetSync = async () => {
     await clearAllData();
@@ -748,7 +752,8 @@ export function AutoImportSettings() {
                 <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: "var(--color-surface-2)", border: "1px solid var(--color-primary)", borderRadius: 8 }}>
                   <span style={{ fontSize: 15, lineHeight: 1, flexShrink: 0 }}>✉️</span>
                   <span style={{ flex: 1, fontSize: 13, color: "var(--color-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{imapEmail}</span>
-                  <span style={{ fontSize: 10, fontWeight: 700, color: "var(--color-primary)", background: "color-mix(in srgb, var(--color-primary) 12%, transparent)", borderRadius: 4, padding: "1px 6px", flexShrink: 0 }}>IMAP</span>
+                  <span style={{ fontSize: 11, color: "var(--color-text-tertiary)", flexShrink: 0 }}>Folders</span>
+                  <span style={{ fontSize: 12, padding: "2px 8px", borderRadius: 6, border: "1px solid var(--color-border)", background: "var(--color-surface)", color: "var(--color-text-secondary)", flexShrink: 0 }}>All folders</span>
                   <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, cursor: "pointer", color: "var(--color-text-secondary)", flexShrink: 0 }}>
                     <input type="checkbox" checked={imapActive} style={{ accentColor: "var(--color-primary)" }}
                       onChange={(e) => { prefs.imapEnabled = e.target.checked; setImapActive(e.target.checked); }}
