@@ -9,6 +9,7 @@ import { desktopConnector } from "../../service/AutoImportService";
 import { prefs } from "../../data/AutoImportPreferences";
 import { ImapConnector } from "../../autoimport/ImapConnector";
 import { extractFilePreview, extractInvoiceWithAI } from "../../extraction/ExtractionPipeline";
+import { getBulkExtractionState, runBulkExtraction, type BulkState } from "../../service/BulkExtractionService";
 import type { ExtractedInvoice } from "../../core/extraction/models";
 import { detectCategory } from "../../core/extraction/CategoryDetector";
 import { detectDocType } from "../../extraction/DocTypeDetector";
@@ -855,8 +856,7 @@ export function ViewScreen() {
   const [previewSubmitting, setPreviewSubmitting] = useState(false);
   const [previewCloudSaving, setPreviewCloudSaving] = useState(false);
   const [aiExtracting, setAiExtracting] = useState(false);
-  const [bulkExtracting, setBulkExtracting] = useState(false);
-  const [bulkExtractProgress, setBulkExtractProgress] = useState<{ done: number; total: number } | null>(null);
+  const [bulkState, setBulkState] = useState<BulkState>(() => getBulkExtractionState());
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const [billIssues, setBillIssues] = useState<Map<number, BillIssue[]>>(new Map());
   const [syncingId, setSyncingId] = useState<number | null>(null);
@@ -882,9 +882,14 @@ export function ViewScreen() {
     desktopConnector.preloadHandle();
     window.addEventListener("jinvoice:sync-complete", load);
     window.addEventListener("jinvoice:sync-progress", load);
+    const onBulkProgress = (e: Event) => {
+      setBulkState((e as CustomEvent<BulkState>).detail);
+    };
+    window.addEventListener("jinvoice:bulk-extract-progress", onBulkProgress);
     return () => {
       window.removeEventListener("jinvoice:sync-complete", load);
       window.removeEventListener("jinvoice:sync-progress", load);
+      window.removeEventListener("jinvoice:bulk-extract-progress", onBulkProgress);
     };
   }, []);
 
@@ -1147,24 +1152,13 @@ export function ViewScreen() {
     setTimeout(() => setCloudSyncMsg(null), 3000);
   };
 
-  const handleBulkExtract = async () => {
-    const pending = records.filter((r) => r.status === "pending_extraction" && r.id != null);
-    if (pending.length === 0) return;
-    setBulkExtracting(true);
-    setBulkExtractProgress({ done: 0, total: pending.length });
-    let done = 0;
-    for (const rec of pending) {
-      try {
-        await extractInvoiceWithAI(rec.id!);
-      } catch (e) {
-        console.error("[ViewScreen] bulk extract failed for", rec.id, e);
-      }
-      done++;
-      setBulkExtractProgress({ done, total: pending.length });
-    }
-    setBulkExtracting(false);
-    setBulkExtractProgress(null);
-    load();
+  const handleBulkExtract = () => {
+    // Only extract selected records that still need extraction; skip already-imported ones
+    const ids = records
+      .filter((r) => r.id != null && selected.has(r.id) && r.status === "pending_extraction")
+      .map((r) => r.id!);
+    if (ids.length === 0) return;
+    runBulkExtraction(ids);
   };
 
   if (loading) return <div className="placeholder-screen"><p>Loading…</p></div>;
@@ -1225,18 +1219,24 @@ export function ViewScreen() {
               <button className="btn-sm" onClick={() => uploadInputRef.current?.click()} disabled={previewLoading}>
                 {previewLoading ? "Extracting…" : "+ Upload PDF"}
               </button>
-            {records.some((r) => r.status === "pending_extraction") && (
-              <button
-                className="btn-sm"
-                disabled={bulkExtracting}
-                style={{ background: "#8b5cf6", color: "#fff", border: "none", fontWeight: 700 }}
-                onClick={handleBulkExtract}
-              >
-                {bulkExtracting && bulkExtractProgress
-                  ? `Extracting ${bulkExtractProgress.done}/${bulkExtractProgress.total}…`
-                  : `Extract AI (${records.filter((r) => r.status === "pending_extraction").length})`}
-              </button>
-            )}
+            {(() => {
+              const selectedPending = records.filter(
+                (r) => r.id != null && selected.has(r.id) && r.status === "pending_extraction"
+              );
+              if (!bulkState.running && selectedPending.length === 0) return null;
+              return (
+                <button
+                  className="btn-sm"
+                  disabled={bulkState.running}
+                  style={{ background: "#8b5cf6", color: "#fff", border: "none", fontWeight: 700 }}
+                  onClick={handleBulkExtract}
+                >
+                  {bulkState.running
+                    ? `Extracting ${bulkState.done}/${bulkState.total}…`
+                    : `Extract AI (${selectedPending.length})`}
+                </button>
+              );
+            })()}
             <button className="btn-sm" onClick={() => { setRefreshing(true); load(); }} disabled={refreshing}>
               {refreshing ? "Refreshing…" : "Refresh"}
             </button>
