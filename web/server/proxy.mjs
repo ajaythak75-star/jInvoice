@@ -619,33 +619,29 @@ app.post("/api/auth/verify-otp", async (req, res) => {
 //  No Supabase JWT required. Client stores { email, appPassword } in localStorage
 //  and sends them with every test/poll request.
 
-function _findPdfParts(struct, partId = "") {
+// ImapFlow stores struct.type as the full MIME type string, e.g. "text/html",
+// "application/pdf", "multipart/alternative" — there is no separate subtype field.
+// struct.part is the IMAP part number ("1", "1.2", etc.); absent on the root node.
+function _findPdfParts(struct) {
   if (!struct) return [];
-  const parts = [];
-  const type     = (struct.type    ?? "").toLowerCase();
-  const subtype  = (struct.subtype ?? "").toLowerCase();
+  const mime = (struct.type ?? "").toLowerCase();
   const filename = struct.disposition?.parameters?.filename
     ?? struct.parameters?.name
     ?? struct.disposition?.parameters?.["filename*"] ?? "";
-  const isPdf    = (type === "application" && (subtype === "pdf" || subtype === "octet-stream") && filename.toLowerCase().endsWith(".pdf"))
-    || (type === "application" && subtype === "pdf");
-  if (isPdf) { parts.push({ id: partId || "1", name: filename || "invoice.pdf" }); return parts; }
-  (struct.childNodes ?? []).forEach((child, i) => {
-    const cId = partId ? `${partId}.${i + 1}` : `${i + 1}`;
-    parts.push(..._findPdfParts(child, cId));
-  });
+  const isPdf = mime === "application/pdf"
+    || (mime === "application/octet-stream" && filename.toLowerCase().endsWith(".pdf"));
+  if (isPdf) return [{ id: struct.part || "1", name: filename || "invoice.pdf" }];
+  const parts = [];
+  for (const child of (struct.childNodes ?? [])) parts.push(..._findPdfParts(child));
   return parts;
 }
 
 // Find the first text/html part in a MIME tree (for HTML invoice fallback)
-function _findHtmlPart(struct, partId = "") {
+function _findHtmlPart(struct) {
   if (!struct) return null;
-  const type    = (struct.type    ?? "").toLowerCase();
-  const subtype = (struct.subtype ?? "").toLowerCase();
-  if (type === "text" && subtype === "html") return { id: partId || "1" };
-  for (const [i, child] of (struct.childNodes ?? []).entries()) {
-    const cId = partId ? `${partId}.${i + 1}` : `${i + 1}`;
-    const found = _findHtmlPart(child, cId);
+  if ((struct.type ?? "").toLowerCase() === "text/html") return { id: struct.part || "1" };
+  for (const child of (struct.childNodes ?? [])) {
+    const found = _findHtmlPart(child);
     if (found) return found;
   }
   return null;
