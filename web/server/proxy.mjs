@@ -699,37 +699,46 @@ app.post("/api/imap/diagnose", async (req, res) => {
       } catch (e) { counts[path] = `error: ${e.message}`; }
     }
 
-    // Sample emails: use All Mail if it has any, otherwise fall back to INBOX
-    const sampleFolder = (counts[targetFolder] > 0) ? targetFolder : "INBOX";
+    // Sample emails from All Mail + INBOX combined, deduplicated by message-id
+    const sampleFolder = targetFolder;
     const samples = [];
-    try {
-      const lock = await client.getMailboxLock(sampleFolder);
+    const seenSampleIds = new Set();
+    const sampleFolders = [targetFolder, "INBOX"].filter((v, i, a) => a.indexOf(v) === i);
+    for (const sf of sampleFolders) {
       try {
-        const seqs = await client.search({ since });
-        const slice = seqs.slice(-200);
-        if (slice.length) {
-          for await (const msg of client.fetch(slice, { envelope: true, bodyStructure: true })) {
-            const pdfParts = _findPdfParts(msg.bodyStructure);
-            const htmlPart = _findHtmlPart(msg.bodyStructure);
-            // Capture top-level MIME parts for debugging
-            const mimeTree = (msg.bodyStructure?.childNodes ?? [])
-              .map((c, i) => `${i + 1}:${c.type}/${c.subtype}${c.disposition?.value ? `(${c.disposition.value})` : ""}`)
-              .join(", ") || `${msg.bodyStructure?.type}/${msg.bodyStructure?.subtype}`;
-            samples.push({
-              subject: msg.envelope.subject ?? "(no subject)",
-              from: (msg.envelope.from ?? [])[0]?.address ?? "",
-              date: msg.envelope.date?.toISOString().slice(0, 10) ?? "",
-              hasPdf: pdfParts.length > 0,
-              pdfCount: pdfParts.length,
-              hasHtml: !!htmlPart,
-              mimeTree,
-            });
+        const lock = await client.getMailboxLock(sf);
+        try {
+          const seqs = await client.search({ since });
+          const slice = seqs.slice(-200);
+          if (slice.length) {
+            for await (const msg of client.fetch(slice, { envelope: true, bodyStructure: true })) {
+              const msgId = msg.envelope.messageId ?? `${sf}:${msg.seq}`;
+              if (seenSampleIds.has(msgId)) continue;
+              seenSampleIds.add(msgId);
+              const pdfParts = _findPdfParts(msg.bodyStructure);
+              const htmlPart = _findHtmlPart(msg.bodyStructure);
+              const mimeTree = (msg.bodyStructure?.childNodes ?? [])
+                .map((c, i) => `${i + 1}:${c.type}/${c.subtype}${c.disposition?.value ? `(${c.disposition.value})` : ""}`)
+                .join(", ") || `${msg.bodyStructure?.type}/${msg.bodyStructure?.subtype}`;
+              samples.push({
+                subject: msg.envelope.subject ?? "(no subject)",
+                from: (msg.envelope.from ?? [])[0]?.address ?? "",
+                date: msg.envelope.date?.toISOString().slice(0, 10) ?? "",
+                hasPdf: pdfParts.length > 0,
+                pdfCount: pdfParts.length,
+                hasHtml: !!htmlPart,
+                mimeTree,
+                folder: sf,
+              });
+            }
           }
-        }
-      } finally { lock.release(); }
-    } catch (e) {
-      samples.push({ subject: `error sampling: ${e.message}`, from: "", date: "", hasPdf: false, pdfCount: 0, hasHtml: false });
+        } finally { lock.release(); }
+      } catch (e) {
+        samples.push({ subject: `error sampling ${sf}: ${e.message}`, from: "", date: "", hasPdf: false, pdfCount: 0, hasHtml: false, folder: sf });
+      }
     }
+    // Sort combined samples by date ascending so newest is at the bottom
+    samples.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 
     await client.logout();
     res.json({ mailboxes, counts, since: since.toISOString(), targetFolder, sampleFolder, samples });
@@ -788,33 +797,22 @@ app.post("/api/imap/poll", async (req, res) => {
       console.log("[IMAP] list() failed, falling back to INBOX:", e.message);
     }
 
-    // If All Mail returned 0 results, fall back to INBOX (label may not be IMAP-synced)
-    let seqNosForMailbox = [];
-    {
-      const lock0 = await client.getMailboxLock(mailbox);
-      try { seqNosForMailbox = await client.search({ since }); } finally { lock0.release(); }
-      if (seqNosForMailbox.length === 0 && mailbox !== "INBOX") {
-        console.log(`[IMAP] ${mailbox} returned 0 — falling back to INBOX`);
-        mailbox = "INBOX";
-        const lock1 = await client.getMailboxLock("INBOX");
-        try { seqNosForMailbox = await client.search({ since }); } finally { lock1.release(); }
-      }
-    }
-
-    const lock = await client.getMailboxLock(mailbox);
     const results = [];
     const seenMsgIds = new Set();
-    try {
-      const seqNos = seqNosForMailbox;
-      console.log(`[IMAP] ${mailbox}: found ${seqNos.length} messages since ${since.toDateString()}, processing last 200`);
-      const slice = seqNos.slice(-200);
-      if (slice.length) {
-        // Collect metadata first to avoid interleaving IMAP commands during fetch
-        const toProcess = [];
+
+    // Process one mailbox: fetch envelopes, download PDF/HTML attachments, deduplicate.
+    async function processMailbox(mb) {
+      const lock = await client.getMailboxLock(mb);
+      const toProcess = [];
+      try {
+        const seqNos = await client.search({ since });
+        console.log(`[IMAP] ${mb}: found ${seqNos.length} messages since ${since.toDateString()}, processing last 200`);
+        const slice = seqNos.slice(-200);
+        if (!slice.length) return;
         for await (const msg of client.fetch(slice, { envelope: true, bodyStructure: true })) {
           const pdfParts = _findPdfParts(msg.bodyStructure);
           const htmlPart = pdfParts.length === 0 ? _findHtmlPart(msg.bodyStructure) : null;
-          console.log(`[IMAP] seq=${msg.seq} subject="${msg.envelope.subject}" pdfParts=${pdfParts.length} hasHtml=${!!htmlPart}`);
+          console.log(`[IMAP] ${mb} seq=${msg.seq} subject="${msg.envelope.subject}" pdfParts=${pdfParts.length} hasHtml=${!!htmlPart}`);
           if (!pdfParts.length && !htmlPart) continue;
           const msgId = `imap:${msg.envelope.messageId ?? msg.seq}`;
           if (seenMsgIds.has(msgId)) continue;
@@ -827,12 +825,10 @@ app.post("/api/imap/poll", async (req, res) => {
             pdfParts, htmlPart,
           });
         }
-        console.log(`[IMAP] ${toProcess.length} messages to process`);
+        console.log(`[IMAP] ${mb}: ${toProcess.length} messages to process`);
 
         for (const { seq, msgId, subject, senderEmail, receivedAt, pdfParts, htmlPart } of toProcess) {
           const attachments = [];
-
-          // Download PDF attachments
           for (const part of pdfParts) {
             try {
               const { content } = await client.download(`${seq}`, part.id);
@@ -845,8 +841,6 @@ app.post("/api/imap/poll", async (req, res) => {
               console.error(`[IMAP] pdf download failed seq=${seq} part=${part.id}:`, e.message);
             }
           }
-
-          // HTML invoice body fallback (no PDF attachment found)
           if (attachments.length === 0 && htmlPart) {
             try {
               const { content } = await client.download(`${seq}`, htmlPart.id);
@@ -862,14 +856,26 @@ app.post("/api/imap/poll", async (req, res) => {
               console.error(`[IMAP] html download failed seq=${seq}:`, e.message);
             }
           }
-
           if (attachments.length) {
             results.push({ messageId: msgId, subject, senderEmail, receivedAt, attachments });
           }
         }
+      } finally {
+        lock.release();
       }
-    } finally {
-      lock.release();
+    }
+
+    // Search All Mail first (covers archived/labeled mail)
+    await processMailbox(mailbox);
+
+    // Always also search INBOX — covers messages that haven't been archived/labeled yet.
+    // INBOX can be opened directly even when "Show in IMAP" is disabled in Gmail settings.
+    if (mailbox !== "INBOX") {
+      try {
+        await processMailbox("INBOX");
+      } catch (e) {
+        console.log("[IMAP] INBOX search skipped:", e.message);
+      }
     }
     await client.logout();
     console.log(`[IMAP] poll complete: ${results.length} messages ready`);

@@ -430,8 +430,8 @@ export function AutoImportSettings() {
         "",
         `Last 200 emails — PDF: ${pdfEmails.length}, HTML-only: ${htmlEmails.length}`,
         "",
-        ...samples.slice(-50).map((s) =>
-          `  [${s.hasPdf ? `PDF×${s.pdfCount}` : s.hasHtml ? "HTML" : "none"}] ${s.date} ${s.subject.slice(0, 40)}\n    mime: ${s.mimeTree}`
+        ...samples.slice(-50).map((s: { subject: string; from: string; date: string; hasPdf: boolean; pdfCount: number; hasHtml: boolean; mimeTree: string; folder?: string }) =>
+          `  [${s.hasPdf ? `PDF×${s.pdfCount}` : s.hasHtml ? "HTML" : "none"}] ${s.date} ${s.subject.slice(0, 40)}${s.folder ? ` (${s.folder.includes("INBOX") && !s.folder.includes("All") ? "INBOX" : "AllMail"})` : ""}\n    mime: ${s.mimeTree}`
         ),
       ];
       alert(lines.join("\n"));
