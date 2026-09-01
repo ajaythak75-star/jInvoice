@@ -7,6 +7,7 @@ import { isSupabaseEnabled } from "../../data/supabase";
 import type { ClaudeInvoiceData } from "../../extraction/ClaudeExtractor";
 import { desktopConnector } from "../../service/AutoImportService";
 import { prefs } from "../../data/AutoImportPreferences";
+import { ImapConnector } from "../../autoimport/ImapConnector";
 import { extractFilePreview, extractInvoiceWithAI } from "../../extraction/ExtractionPipeline";
 import type { ExtractedInvoice } from "../../core/extraction/models";
 import { detectCategory } from "../../core/extraction/CategoryDetector";
@@ -37,13 +38,14 @@ function formatSource(src: string): string {
 }
 
 function formatSourceWithEmail(importSource: string): string {
-  if (importSource === "imap") return prefs.imapEmail ?? "IMAP";
   const label = formatSource(importSource);
-  const email = importSource === "gmail"
-    ? prefs.gmailEmail
-    : importSource === "outlook"
-    ? prefs.outlookEmail
-    : null;
+  let email: string | null = null;
+  if (importSource === "gmail") email = prefs.gmailEmail;
+  else if (importSource === "outlook") email = prefs.outlookEmail;
+  else if (importSource === "imap") {
+    const accounts = ImapConnector.getAccounts();
+    email = accounts.length === 1 ? accounts[0].email : (prefs.imapEmail ?? null);
+  }
   return email ? `${label} (${email})` : label;
 }
 
