@@ -27,7 +27,9 @@ function formatSource(src: string): string {
   switch (src) {
     case "gmail":          return "Gmail";
     case "outlook":        return "Outlook";
+    case "imap":           return "IMAP";
     case "manual_upload":  return "Manual";
+    case "manual":         return "Manual";
     case "desktop_folder": return "Desktop";
     case "mobile_upload":  return "Mobile";
     default:               return src;
@@ -35,6 +37,7 @@ function formatSource(src: string): string {
 }
 
 function formatSourceWithEmail(importSource: string): string {
+  if (importSource === "imap") return prefs.imapEmail ?? "IMAP";
   const label = formatSource(importSource);
   const email = importSource === "gmail"
     ? prefs.gmailEmail
@@ -1377,15 +1380,23 @@ export function ViewScreen() {
                     <span className="view-chip" style={{ color: statusColor(rec.status), borderColor: statusColor(rec.status) }}>
                       {statusText(rec.status)}
                     </span>
-                    {rec.id != null && (billIssues.get(rec.id) ?? []).map((issue, i) => (
-                      <span key={i} className="view-chip" style={{
-                        color: issue.severity === "error" ? "#dc2626" : "#d97706",
-                        borderColor: issue.severity === "error" ? "#dc2626" : "#d97706",
-                        background: issue.severity === "error" ? "#fee2e2" : "#fef3c7",
-                      }} title={issue.message}>
-                        {issue.type === "duplicate" ? "⚠ Duplicate" : "⚠ Fraud Risk"}
-                      </span>
-                    ))}
+                    {rec.id != null && (billIssues.get(rec.id) ?? []).map((issue, i) => {
+                      const dupRec = issue.type === "duplicate" && issue.duplicateId != null
+                        ? records.find((r) => r.id === issue.duplicateId) : null;
+                      const dupName = dupRec ? cardHeading(dupRec) : null;
+                      return (
+                        <span key={i} className="view-chip" style={{
+                          color: issue.severity === "error" ? "#dc2626" : "#d97706",
+                          borderColor: issue.severity === "error" ? "#dc2626" : "#d97706",
+                          background: issue.severity === "error" ? "#fee2e2" : "#fef3c7",
+                          maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                        }} title={issue.message}>
+                          {issue.type === "duplicate"
+                            ? `⚠ Dup: ${dupName ? dupName.slice(0, 24) + (dupName.length > 24 ? "…" : "") : "#" + issue.duplicateId}`
+                            : "⚠ Fraud Risk"}
+                        </span>
+                      );
+                    })}
                   </div>
                   <span className="view-card-amount">{formatAmount(rec.grandTotalPaise)}</span>
                 </div>

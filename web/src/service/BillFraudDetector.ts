@@ -5,6 +5,7 @@ export interface BillIssue {
   type: "duplicate" | "fraud";
   severity: "warning" | "error";
   message: string;
+  duplicateId?: number;
 }
 
 const VALID_GST_RATES = [0, 5, 12, 18, 28];
@@ -34,6 +35,7 @@ export async function detectBillIssues(inv: InvoiceFields): Promise<BillIssue[]>
         type: "duplicate",
         severity: "warning",
         message: `Possible duplicate of #${dupe.id} — same merchant, amount & date`,
+        duplicateId: dupe.id,
       });
     }
   }
