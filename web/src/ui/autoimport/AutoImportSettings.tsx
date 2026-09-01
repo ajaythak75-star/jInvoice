@@ -418,6 +418,7 @@ export function AutoImportSettings() {
       const pdfEmails = (data.samples ?? []).filter((s: { hasPdf: boolean }) => s.hasPdf);
       const htmlEmails = (data.samples ?? []).filter((s: { hasPdf: boolean; hasHtml: boolean }) => !s.hasPdf && s.hasHtml);
       const lines = [
+        `Connected as: ${email}`,
         `Folder searched: ${data.targetFolder ?? "?"}`,
         `Since: ${new Date(data.since).toDateString()}`,
         "",
