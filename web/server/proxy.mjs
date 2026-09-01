@@ -770,9 +770,42 @@ app.post("/api/imap/test", async (req, res) => {
   }
 });
 
+// List available IMAP folders (excluding system/spam/trash), so the client can show a picker.
+app.post("/api/imap/folders", async (req, res) => {
+  const { email, appPassword } = req.body ?? {};
+  if (!email || !appPassword) return res.status(400).json({ error: "email and appPassword required" });
+  const SYSTEM_EXCLUDE = new Set(["Drafts", "Sent", "Spam", "Trash", "Junk", "Deleted Items", "Deleted Messages", "Archive", "All Mail"]);
+  const SYSTEM_SPECIAL_USE = new Set(["\\Drafts", "\\Sent", "\\Spam", "\\Trash", "\\Junk", "\\Archive", "\\All"]);
+  try {
+    const { ImapFlow } = await import("imapflow");
+    const client = new ImapFlow({
+      host: "imap.gmail.com", port: 993, secure: true,
+      auth: { user: email, pass: appPassword },
+      logger: false,
+    });
+    await client.connect();
+    const list = await client.list();
+    await client.logout();
+    const folders = list
+      .filter((m) => {
+        if (m.path.startsWith("[Gmail]") || m.path.startsWith("[IMAP]")) return false;
+        if (m.specialUse && SYSTEM_SPECIAL_USE.has(m.specialUse)) return false;
+        if (SYSTEM_EXCLUDE.has(m.name)) return false;
+        return true;
+      })
+      .map((m) => ({ path: m.path, name: m.name }));
+    // Always include INBOX first
+    const hasInbox = folders.some((f) => f.path === "INBOX");
+    const result = hasInbox ? folders : [{ path: "INBOX", name: "INBOX" }, ...folders];
+    res.json({ folders: result });
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
 // Poll Gmail for PDF attachments (or HTML invoice bodies). Credentials come from the client.
 app.post("/api/imap/poll", async (req, res) => {
-  const { email, appPassword, months = 3 } = req.body ?? {};
+  const { email, appPassword, months = 3, folderPaths } = req.body ?? {};
   if (!email || !appPassword) return res.status(400).json({ error: "email and appPassword required" });
   const since = new Date();
   since.setMonth(since.getMonth() - months);
@@ -857,8 +890,10 @@ app.post("/api/imap/poll", async (req, res) => {
       }
     }
 
-    // INBOX + All Mail + custom labels (e.g. "Groww"). Deduplicated by message-id.
-    const foldersToSearch = [...new Set(["INBOX", ...(allMailPath ? [allMailPath] : []), ...customLabels])];
+    // Use caller-provided folder paths if given; otherwise auto-discover INBOX + All Mail + custom labels.
+    const foldersToSearch = Array.isArray(folderPaths) && folderPaths.length > 0
+      ? [...new Set(folderPaths)]
+      : [...new Set(["INBOX", ...(allMailPath ? [allMailPath] : []), ...customLabels])];
     for (const mb of foldersToSearch) {
       try {
         await processMailbox(mb);

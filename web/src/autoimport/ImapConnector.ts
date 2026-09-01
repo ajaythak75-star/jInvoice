@@ -33,6 +33,20 @@ export class ImapConnector {
     saveCreds({ email, appPassword });
   }
 
+  static async fetchFolders(email: string, appPassword: string): Promise<{ path: string; name: string }[]> {
+    const res = await fetch("/api/imap/folders", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, appPassword }),
+    });
+    if (!res.ok) {
+      const { error } = await res.json().catch(() => ({ error: "Failed to load folders" }));
+      throw new Error(error);
+    }
+    const { folders } = await res.json() as { folders: { path: string; name: string }[] };
+    return folders;
+  }
+
   static async testConnection(email: string, appPassword: string): Promise<void> {
     const res = await fetch("/api/imap/test", {
       method: "POST",
@@ -51,7 +65,8 @@ export class ImapConnector {
 
   static async pollAndDownload(
     months: number,
-    onEmail?: (meta: { id: string; subject: string; senderEmail: string; receivedAt: string }) => Promise<"allow" | "block">
+    onEmail?: (meta: { id: string; subject: string; senderEmail: string; receivedAt: string }) => Promise<"allow" | "block">,
+    folderPaths?: string[]
   ): Promise<{ file: File; messageId: string; subject: string; senderEmail: string; receivedAt: string }[]> {
     const creds = loadCreds();
     if (!creds) return [];
@@ -59,7 +74,7 @@ export class ImapConnector {
     const res = await fetch("/api/imap/poll", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: creds.email, appPassword: creds.appPassword, months }),
+      body: JSON.stringify({ email: creds.email, appPassword: creds.appPassword, months, ...(folderPaths?.length ? { folderPaths } : {}) }),
     });
     if (!res.ok) {
       const { error } = await res.json().catch(() => ({ error: "Poll failed" }));

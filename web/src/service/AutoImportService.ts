@@ -141,11 +141,10 @@ export async function poll(): Promise<{ found: number; processed: number; cancel
   let processed = 0;
 
   try {
-    // If IMAP is configured, prefer it over Gmail OAuth for email sync
     const { configured: imapConfigured } = await ImapConnector.status();
 
-    // Collect all enabled Gmail accounts (primary + secondary) — skipped when IMAP is active
-    const gmailAccounts = imapConfigured ? [] : [
+    // Collect all enabled Gmail accounts (primary + secondary)
+    const gmailAccounts = [
       ...(prefs.gmailEnabled && prefs.gmailAccessToken
         ? [{ email: prefs.gmailEmail ?? "", accessToken: prefs.gmailAccessToken, refreshToken: prefs.gmailRefreshToken }]
         : []),
@@ -200,7 +199,8 @@ export async function poll(): Promise<{ found: number; processed: number; cancel
 
     if (imapConfigured && isImapAvailable() && !_syncCancelled) {
       const checker = await makeEmailChecker("imap");
-      const imapResults = await ImapConnector.pollAndDownload(prefs.syncMonths, checker);
+      const selectedPaths = prefs.imapFolderPaths;
+      const imapResults = await ImapConnector.pollAndDownload(prefs.syncMonths, checker, selectedPaths.length ? selectedPaths : undefined);
       found += imapResults.length;
       await runConcurrent(imapResults, CONCURRENT_EXTRACTIONS, async ({ file, messageId, subject, senderEmail, receivedAt }) => {
         await processFile(file, "imap", { subject, senderEmail, receivedAt });

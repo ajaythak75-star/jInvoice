@@ -249,6 +249,12 @@ export function AutoImportSettings() {
   const [imapMsg,         setImapMsg]         = useState<{ ok: boolean; text: string } | null>(null);
   const [imapActive,      setImapActive]      = useState(() => prefs.imapEnabled);
 
+  // IMAP folder picker state
+  const [imapFolders,        setImapFolders]        = useState<{ path: string; name: string }[]>([]);
+  const [imapFolderPaths,    setImapFolderPaths]    = useState<string[]>(() => prefs.imapFolderPaths);
+  const [imapFoldersLoading, setImapFoldersLoading] = useState(false);
+  const [imapFoldersError,   setImapFoldersError]   = useState<string | null>(null);
+
   const handleSyncSelect = (months: number, pro: boolean) => {
     if (pro && !prefs.isSubscribed) { setShowProBanner(true); return; }
     setShowProBanner(false);
@@ -335,8 +341,13 @@ export function AutoImportSettings() {
     ImapConnector.status().then(({ configured, email }) => {
       setImapConfigured(configured);
       setImapEmail(email);
-      if (configured && email) { prefs.imapEnabled = true; prefs.imapEmail = email; }
+      if (configured && email) {
+        prefs.imapEnabled = true;
+        prefs.imapEmail = email;
+        refreshImapFolders(email);
+      }
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const refreshGmailLabels = () => {
@@ -379,6 +390,27 @@ export function AutoImportSettings() {
       })
       .catch((err: unknown) => setOutlookFoldersError(err instanceof Error ? err.message : "Failed to load folders"))
       .finally(() => setOutlookFoldersLoading(false));
+  };
+
+  const refreshImapFolders = (email: string) => {
+    const storedPass = (() => {
+      try { const raw = localStorage.getItem("jinvoice_imap_creds"); return raw ? (JSON.parse(raw) as { appPassword: string }).appPassword : null; } catch { return null; }
+    })();
+    if (!storedPass) return;
+    setImapFoldersLoading(true);
+    setImapFoldersError(null);
+    ImapConnector.fetchFolders(email, storedPass)
+      .then((folders) => {
+        setImapFolders(folders);
+        // On first load, select all folders
+        if (!prefs.imapFolderPaths.length) {
+          const paths = folders.map((f) => f.path);
+          prefs.imapFolderPaths = paths;
+          setImapFolderPaths(paths);
+        }
+      })
+      .catch((err: unknown) => setImapFoldersError(err instanceof Error ? err.message : "Failed to load folders"))
+      .finally(() => setImapFoldersLoading(false));
   };
 
   useEffect(() => {
@@ -515,6 +547,7 @@ export function AutoImportSettings() {
       setImapInputPass("");
       setImapShowForm(false);
       setImapMsg({ ok: true, text: "Connected." });
+      refreshImapFolders(imapInputEmail.trim());
     } catch (e) {
       setImapMsg({ ok: false, text: e instanceof Error ? e.message : "Connection failed. Check your App Password." });
     } finally {
@@ -526,9 +559,13 @@ export function AutoImportSettings() {
     await ImapConnector.disconnect();
     prefs.imapEnabled = false;
     prefs.imapEmail = null;
+    prefs.imapFolderPaths = [];
     setImapConfigured(false);
     setImapEmail(null);
     setImapActive(false);
+    setImapFolders([]);
+    setImapFolderPaths([]);
+    setImapFoldersError(null);
     setImapInputEmail("");
     setImapInputPass("");
     setImapMsg(null);
@@ -763,7 +800,18 @@ export function AutoImportSettings() {
                   <span style={{ fontSize: 15, lineHeight: 1, flexShrink: 0 }}>✉️</span>
                   <span style={{ flex: 1, fontSize: 13, color: "var(--color-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{imapEmail}</span>
                   <span style={{ fontSize: 11, color: "var(--color-text-tertiary)", flexShrink: 0 }}>Folders</span>
-                  <span style={{ fontSize: 12, padding: "2px 8px", borderRadius: 6, border: "1px solid var(--color-border)", background: "var(--color-surface)", color: "var(--color-text-secondary)", flexShrink: 0 }}>All folders</span>
+                  {imapFolders.length === 0 ? (
+                    <span style={{ fontSize: 11, color: imapFoldersError ? "#ef4444" : "var(--color-text-tertiary)" }}>
+                      {imapFoldersLoading ? "Loading…" : imapFoldersError ?? "—"}
+                    </span>
+                  ) : (
+                    <FolderPicker
+                      options={imapFolders.map((f) => ({ id: f.path, label: f.name }))}
+                      selected={imapFolderPaths}
+                      fallbackId="INBOX"
+                      onChange={(paths) => { prefs.imapFolderPaths = paths; setImapFolderPaths(paths); }}
+                    />
+                  )}
                   <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, cursor: "pointer", color: "var(--color-text-secondary)", flexShrink: 0 }}>
                     <input type="checkbox" checked={imapActive} style={{ accentColor: "var(--color-primary)" }}
                       onChange={(e) => { prefs.imapEnabled = e.target.checked; setImapActive(e.target.checked); }}
