@@ -799,6 +799,7 @@ app.post("/api/imap/poll", async (req, res) => {
 
     const results = [];
     const seenMsgIds = new Set();
+    let totalScanned = 0;
 
     // Process one mailbox: fetch envelopes, download PDF/HTML attachments, deduplicate.
     async function processMailbox(mb) {
@@ -810,6 +811,7 @@ app.post("/api/imap/poll", async (req, res) => {
         const slice = seqNos.slice(-200);
         if (!slice.length) return;
         for await (const msg of client.fetch(slice, { envelope: true, bodyStructure: true })) {
+          totalScanned++;
           const pdfParts = _findPdfParts(msg.bodyStructure);
           const htmlPart = pdfParts.length === 0 ? _findHtmlPart(msg.bodyStructure) : null;
           console.log(`[IMAP] ${mb} seq=${msg.seq} subject="${msg.envelope.subject}" pdfParts=${pdfParts.length} hasHtml=${!!htmlPart}`);
@@ -876,8 +878,8 @@ app.post("/api/imap/poll", async (req, res) => {
       }
     }
     await client.logout();
-    console.log(`[IMAP] poll complete: ${results.length} messages ready`);
-    res.json({ results });
+    console.log(`[IMAP] poll complete: scanned=${totalScanned} results=${results.length}`);
+    res.json({ results, scanned: totalScanned });
   } catch (e) {
     console.error("[IMAP] poll error:", e.message);
     try { await client.logout(); } catch {}

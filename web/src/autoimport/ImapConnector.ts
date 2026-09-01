@@ -65,7 +65,8 @@ export class ImapConnector {
       const { error } = await res.json().catch(() => ({ error: "Poll failed" }));
       throw new Error(error);
     }
-    const { results } = await res.json() as {
+    const { results, scanned } = await res.json() as {
+      scanned: number;
       results: {
         messageId: string;
         subject: string;
@@ -74,6 +75,7 @@ export class ImapConnector {
         attachments: { filename: string; data: string }[];
       }[]
     };
+    console.log(`[IMAP] server scanned ${scanned} emails, returned ${results.length} with attachments`);
 
     const output: { file: File; messageId: string; subject: string; senderEmail: string; receivedAt: string }[] = [];
 
