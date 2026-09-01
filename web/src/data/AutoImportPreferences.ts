@@ -49,6 +49,9 @@ export const prefs = {
     try { return v ? JSON.parse(v) : []; } catch { return []; }
   },
   set imapFolderPaths(v: string[]) { set("imap_folder_paths", JSON.stringify(v)); },
+
+  get imapConsentGiven(): boolean { return get("imap_consent") === "true"; },
+  set imapConsentGiven(v: boolean) { set("imap_consent", String(v)); },
   set outlookConsentGiven(v: boolean) { set("outlook_consent", String(v)); },
 
   // OPFS (Origin Private File System) handle key stored as name — actual handle is held in memory

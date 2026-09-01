@@ -141,8 +141,6 @@ export async function poll(): Promise<{ found: number; processed: number; cancel
   let processed = 0;
 
   try {
-    const { configured: imapConfigured } = await ImapConnector.status();
-
     // Collect all enabled Gmail accounts (primary + secondary)
     const gmailAccounts = [
       ...(prefs.gmailEnabled && prefs.gmailAccessToken
@@ -197,18 +195,24 @@ export async function poll(): Promise<{ found: number; processed: number; cancel
       });
     }
 
-    if (imapConfigured && isImapAvailable() && !_syncCancelled) {
+    const enabledImapAccounts = isImapAvailable() ? ImapConnector.getAccounts().filter((a) => a.enabled) : [];
+    if (enabledImapAccounts.length > 0 && !_syncCancelled) {
       const checker = await makeEmailChecker("imap");
-      const selectedPaths = prefs.imapFolderPaths;
-      const imapResults = await ImapConnector.pollAndDownload(prefs.syncMonths, checker, selectedPaths.length ? selectedPaths : undefined);
-      found += imapResults.length;
-      await runConcurrent(imapResults, CONCURRENT_EXTRACTIONS, async ({ file, messageId, subject, senderEmail, receivedAt }) => {
-        await processFile(file, "imap", { subject, senderEmail, receivedAt });
-        await markAsImported(messageId, "imap");
-        await savePdfToFolder(file, prefs.imapEmail ?? undefined);
-        processed++;
-        window.dispatchEvent(new CustomEvent("jinvoice:sync-progress", { detail: { processed, found } }));
-      });
+      for (const acct of enabledImapAccounts) {
+        if (_syncCancelled) break;
+        const imapResults = await ImapConnector.pollAndDownload(
+          acct.email, acct.appPassword, prefs.syncMonths, checker,
+          acct.folderPaths.length ? acct.folderPaths : undefined
+        );
+        found += imapResults.length;
+        await runConcurrent(imapResults, CONCURRENT_EXTRACTIONS, async ({ file, messageId, subject, senderEmail, receivedAt }) => {
+          await processFile(file, "imap", { subject, senderEmail, receivedAt });
+          await markAsImported(messageId, "imap");
+          await savePdfToFolder(file, acct.email);
+          processed++;
+          window.dispatchEvent(new CustomEvent("jinvoice:sync-progress", { detail: { processed, found } }));
+        });
+      }
     }
 
     if (prefs.desktopFolderName && !_syncCancelled) {

@@ -774,8 +774,8 @@ app.post("/api/imap/test", async (req, res) => {
 app.post("/api/imap/folders", async (req, res) => {
   const { email, appPassword } = req.body ?? {};
   if (!email || !appPassword) return res.status(400).json({ error: "email and appPassword required" });
-  const SYSTEM_EXCLUDE = new Set(["Drafts", "Sent", "Spam", "Trash", "Junk", "Deleted Items", "Deleted Messages", "Archive", "All Mail"]);
-  const SYSTEM_SPECIAL_USE = new Set(["\\Drafts", "\\Sent", "\\Spam", "\\Trash", "\\Junk", "\\Archive", "\\All"]);
+  const SYSTEM_EXCLUDE = new Set(["Spam", "Trash", "Junk", "Deleted Items", "Deleted Messages", "Archive", "All Mail"]);
+  const SYSTEM_SPECIAL_USE = new Set(["\\Spam", "\\Trash", "\\Junk", "\\Archive", "\\All"]);
   try {
     const { ImapFlow } = await import("imapflow");
     const client = new ImapFlow({

@@ -1,17 +1,27 @@
 import { useState } from "react";
 
 interface Props {
-  provider: "Gmail" | "Outlook";
+  provider: "Gmail" | "Outlook" | "IMAP";
   onAccept: () => void;
   onDecline: () => void;
 }
 
-const DISCLOSURES = (provider: string): string[] => [
-  `jInvoice will scan your ${provider} subject lines to find emails likely to contain invoice or receipt PDFs.`,
-  "Matching PDF attachments will be downloaded directly to this device. No email content or attachment is ever sent to jInvoice servers.",
-  "All invoice data extraction happens entirely in your browser — on this device — nothing leaves your device.",
-  `You can revoke ${provider} access at any time from Settings. Revocation stops all background polling immediately.`,
-];
+const DISCLOSURES = (provider: string): string[] => {
+  if (provider === "IMAP") {
+    return [
+      "jInvoice will connect to your email account via IMAP to find emails with invoice or receipt PDFs.",
+      "Your email address and App Password are stored only on this device — never sent to jInvoice servers.",
+      "Matching PDF attachments are downloaded directly to this device. No email content is ever shared with jInvoice.",
+      "You can disconnect your IMAP account at any time from Settings. Disconnection immediately stops all email access.",
+    ];
+  }
+  return [
+    `jInvoice will scan your ${provider} subject lines to find emails likely to contain invoice or receipt PDFs.`,
+    "Matching PDF attachments will be downloaded directly to this device. No email content or attachment is ever sent to jInvoice servers.",
+    "All invoice data extraction happens entirely in your browser — on this device — nothing leaves your device.",
+    `You can revoke ${provider} access at any time from Settings. Revocation stops all background polling immediately.`,
+  ];
+};
 
 export function ConsentModal({ provider, onAccept, onDecline }: Props) {
   const [checked, setChecked] = useState([false, false, false, false]);

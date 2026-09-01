@@ -3,7 +3,7 @@ import { useAutoImportViewModel } from "./useAutoImportViewModel";
 import { ConsentModal } from "./ConsentModal";
 import { GmailConnector } from "../../autoimport/GmailConnector";
 import { OutlookConnector } from "../../autoimport/OutlookConnector";
-import { ImapConnector, isImapAvailable } from "../../autoimport/ImapConnector";
+import { ImapConnector, isImapAvailable, type ImapAccount } from "../../autoimport/ImapConnector";
 import { poll, cancelSync, isSyncing, desktopConnector, schedulePolling } from "../../service/AutoImportService";
 import { clearAllData, db } from "../../data/InvoiceDatabase";
 import { processFile } from "../../extraction/ExtractionPipeline";
@@ -198,7 +198,7 @@ function FolderPicker({
   );
 }
 
-type PendingConsent = "gmail" | "outlook" | null;
+type PendingConsent = "gmail" | "outlook" | "imap" | null;
 
 type FileEntry = { name: string; status: "waiting" | "processing" | "done"; result?: ExtractionResult; invoiceId?: number; cloudSaved?: boolean; cloudSaving?: boolean };
 type DetailView = { inv: ExtractedInvoice; filename: string };
@@ -239,21 +239,15 @@ export function AutoImportSettings() {
   const [outlookFoldersLoading, setOutlookFoldersLoading] = useState(false);
   const [outlookFoldersError,   setOutlookFoldersError]   = useState<string | null>(null);
 
-  // IMAP connector state
-  const [imapConfigured,  setImapConfigured]  = useState(false);
-  const [imapEmail,       setImapEmail]       = useState<string | null>(null);
+  // IMAP multi-account state
+  const [imapAccounts,    setImapAccounts]    = useState<ImapAccount[]>(() => ImapConnector.getAccounts());
   const [imapShowForm,    setImapShowForm]    = useState(false);
-  const [imapInputEmail,  setImapInputEmail]  = useState(() => prefs.imapEmail ?? "");
+  const [imapInputEmail,  setImapInputEmail]  = useState("");
   const [imapInputPass,   setImapInputPass]   = useState("");
   const [imapBusy,        setImapBusy]        = useState(false);
   const [imapMsg,         setImapMsg]         = useState<{ ok: boolean; text: string } | null>(null);
-  const [imapActive,      setImapActive]      = useState(() => prefs.imapEnabled);
-
-  // IMAP folder picker state
-  const [imapFolders,        setImapFolders]        = useState<{ path: string; name: string }[]>([]);
-  const [imapFolderPaths,    setImapFolderPaths]    = useState<string[]>(() => prefs.imapFolderPaths);
-  const [imapFoldersLoading, setImapFoldersLoading] = useState(false);
-  const [imapFoldersError,   setImapFoldersError]   = useState<string | null>(null);
+  // Per-account folder state keyed by email
+  const [imapFolderState, setImapFolderState] = useState<Record<string, { folders: { path: string; name: string }[]; loading: boolean; error: string | null }>>({});
 
   const handleSyncSelect = (months: number, pro: boolean) => {
     if (pro && !prefs.isSubscribed) { setShowProBanner(true); return; }
@@ -338,32 +332,26 @@ export function AutoImportSettings() {
 
   useEffect(() => {
     if (!isImapAvailable()) return;
-    ImapConnector.status().then(({ configured, email }) => {
-      setImapConfigured(configured);
-      setImapEmail(email);
-      if (configured && email) {
-        prefs.imapEnabled = true;
-        prefs.imapEmail = email;
-        refreshImapFolders(email);
-      }
-    });
+    for (const acct of ImapConnector.getAccounts()) {
+      refreshImapFolders(acct.email, acct.appPassword);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const refreshGmailLabels = () => {
     const GMAIL_EXCLUDE = new Set([
-      "TRASH", "SPAM", "DRAFT", "SENT", "UNREAD", "STARRED", "IMPORTANT", "JUNK",
+      "TRASH", "SPAM", "UNREAD", "STARRED", "IMPORTANT", "JUNK",
       "CATEGORY_PROMOTIONS", "CATEGORY_FORUMS", "CATEGORY_SOCIAL",
       "CATEGORY_UPDATES", "CATEGORY_PERSONAL",
     ]);
+    const GMAIL_RENAME: Record<string, string> = { INBOX: "Inbox", SENT: "Sent", DRAFT: "Drafts" };
     setGmailLabelsLoading(true);
     setGmailLabelsError(null);
     new GmailConnector().fetchLabels()
       .then((labels) => {
-        const filtered = labels.filter((l) => {
-          const id = l.id.toUpperCase();
-          return !GMAIL_EXCLUDE.has(id) && !id.startsWith("CATEGORY_");
-        });
+        const filtered = labels
+          .filter((l) => { const id = l.id.toUpperCase(); return !GMAIL_EXCLUDE.has(id) && !id.startsWith("CATEGORY_"); })
+          .map((l) => ({ ...l, name: GMAIL_RENAME[l.id.toUpperCase()] ?? l.name }));
         setGmailLabels(filtered);
         const allIds = filtered.map((l) => l.id);
         prefs.gmailLabelIds = allIds;
@@ -375,7 +363,7 @@ export function AutoImportSettings() {
 
   const refreshOutlookFolders = () => {
     const OUTLOOK_EXCLUDE = new Set([
-      "Deleted Items", "Junk Email", "Junk", "Drafts", "Sent Items",
+      "Deleted Items", "Junk Email", "Junk",
       "Outbox", "Trash", "Spam", "Promotions", "Clutter", "Archive",
     ]);
     setOutlookFoldersLoading(true);
@@ -392,25 +380,23 @@ export function AutoImportSettings() {
       .finally(() => setOutlookFoldersLoading(false));
   };
 
-  const refreshImapFolders = (email: string) => {
-    const storedPass = (() => {
-      try { const raw = localStorage.getItem("jinvoice_imap_creds"); return raw ? (JSON.parse(raw) as { appPassword: string }).appPassword : null; } catch { return null; }
-    })();
-    if (!storedPass) return;
-    setImapFoldersLoading(true);
-    setImapFoldersError(null);
-    ImapConnector.fetchFolders(email, storedPass)
+  const refreshImapFolders = (email: string, appPassword: string) => {
+    setImapFolderState((prev) => ({ ...prev, [email]: { folders: prev[email]?.folders ?? [], loading: true, error: null } }));
+    ImapConnector.fetchFolders(email, appPassword)
       .then((folders) => {
-        setImapFolders(folders);
-        // On first load, select all folders
-        if (!prefs.imapFolderPaths.length) {
-          const paths = folders.map((f) => f.path);
-          prefs.imapFolderPaths = paths;
-          setImapFolderPaths(paths);
+        setImapFolderState((prev) => ({ ...prev, [email]: { folders, loading: false, error: null } }));
+        // Pre-select all folders on first connect
+        const accounts = ImapConnector.getAccounts();
+        const acct = accounts.find((a) => a.email === email);
+        if (acct && !acct.folderPaths.length) {
+          ImapConnector.setFolderPaths(email, folders.map((f) => f.path));
+          setImapAccounts(ImapConnector.getAccounts());
         }
       })
-      .catch((err: unknown) => setImapFoldersError(err instanceof Error ? err.message : "Failed to load folders"))
-      .finally(() => setImapFoldersLoading(false));
+      .catch((err: unknown) => {
+        const error = err instanceof Error ? err.message : "Failed to load folders";
+        setImapFolderState((prev) => ({ ...prev, [email]: { folders: [], loading: false, error } }));
+      });
   };
 
   useEffect(() => {
@@ -531,23 +517,22 @@ export function AutoImportSettings() {
 
   const handleImapConnect = async () => {
     if (!imapInputEmail.trim() || !imapInputPass.trim()) {
-      setImapMsg({ ok: false, text: "Enter your Gmail address and App Password." });
+      setImapMsg({ ok: false, text: "Enter your email address and App Password." });
       return;
     }
     setImapBusy(true);
     setImapMsg(null);
+    const email = imapInputEmail.trim();
+    const pass  = imapInputPass.trim();
     try {
-      await ImapConnector.testConnection(imapInputEmail.trim(), imapInputPass.trim());
-      await ImapConnector.saveCredentials(imapInputEmail.trim(), imapInputPass.trim());
-      prefs.imapEnabled = true;
-      prefs.imapEmail = imapInputEmail.trim();
-      setImapConfigured(true);
-      setImapEmail(imapInputEmail.trim());
-      setImapActive(true);
+      await ImapConnector.testConnection(email, pass);
+      await ImapConnector.addAccount(email, pass);
+      setImapAccounts(ImapConnector.getAccounts());
+      setImapInputEmail("");
       setImapInputPass("");
       setImapShowForm(false);
       setImapMsg({ ok: true, text: "Connected." });
-      refreshImapFolders(imapInputEmail.trim());
+      refreshImapFolders(email, pass);
     } catch (e) {
       setImapMsg({ ok: false, text: e instanceof Error ? e.message : "Connection failed. Check your App Password." });
     } finally {
@@ -555,21 +540,10 @@ export function AutoImportSettings() {
     }
   };
 
-  const handleImapDisconnect = async () => {
-    await ImapConnector.disconnect();
-    prefs.imapEnabled = false;
-    prefs.imapEmail = null;
-    prefs.imapFolderPaths = [];
-    setImapConfigured(false);
-    setImapEmail(null);
-    setImapActive(false);
-    setImapFolders([]);
-    setImapFolderPaths([]);
-    setImapFoldersError(null);
-    setImapInputEmail("");
-    setImapInputPass("");
-    setImapMsg(null);
-    setImapShowForm(false);
+  const handleImapRemove = async (email: string) => {
+    await ImapConnector.removeAccount(email);
+    setImapAccounts(ImapConnector.getAccounts());
+    setImapFolderState((prev) => { const next = { ...prev }; delete next[email]; return next; });
   };
 
   const handleConsentAccept = () => {
@@ -581,6 +555,11 @@ export function AutoImportSettings() {
       vm.acceptOutlookConsent();
       setPendingConsent(null);
       new OutlookConnector().startSignIn();
+    } else if (pendingConsent === "imap") {
+      prefs.imapConsentGiven = true;
+      setPendingConsent(null);
+      setImapShowForm(true);
+      setImapMsg(null);
     }
   };
 
@@ -795,34 +774,37 @@ export function AutoImportSettings() {
                 );
               })}
 
-              {imapConfigured && imapEmail && (
-                <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: "var(--color-surface-2)", border: "1px solid var(--color-primary)", borderRadius: 8 }}>
-                  <span style={{ fontSize: 15, lineHeight: 1, flexShrink: 0 }}>✉️</span>
-                  <span style={{ flex: 1, fontSize: 13, color: "var(--color-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{imapEmail}</span>
-                  <span style={{ fontSize: 11, color: "var(--color-text-tertiary)", flexShrink: 0 }}>Folders</span>
-                  {imapFolders.length === 0 ? (
-                    <span style={{ fontSize: 11, color: imapFoldersError ? "#ef4444" : "var(--color-text-tertiary)" }}>
-                      {imapFoldersLoading ? "Loading…" : imapFoldersError ?? "—"}
-                    </span>
-                  ) : (
-                    <FolderPicker
-                      options={imapFolders.map((f) => ({ id: f.path, label: f.name }))}
-                      selected={imapFolderPaths}
-                      fallbackId="INBOX"
-                      onChange={(paths) => { prefs.imapFolderPaths = paths; setImapFolderPaths(paths); }}
-                    />
-                  )}
-                  <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, cursor: "pointer", color: "var(--color-text-secondary)", flexShrink: 0 }}>
-                    <input type="checkbox" checked={imapActive} style={{ accentColor: "var(--color-primary)" }}
-                      onChange={(e) => { prefs.imapEnabled = e.target.checked; setImapActive(e.target.checked); }}
-                    />
-                    Active
-                  </label>
-                  <button className="btn-ghost-sm" style={{ fontSize: 11, color: "#ef4444", flexShrink: 0 }} onClick={handleImapDisconnect}>Remove</button>
-                </div>
-              )}
+              {imapAccounts.map((acct) => {
+                const st = imapFolderState[acct.email] ?? { folders: [], loading: false, error: null };
+                return (
+                  <div key={acct.email} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: "var(--color-surface-2)", border: "1px solid var(--color-border)", borderRadius: 8 }}>
+                    <img src="/icons/mail.svg" alt="" style={{ width: 16, height: 16, flexShrink: 0 }} />
+                    <span style={{ flex: 1, fontSize: 13, color: "var(--color-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{acct.email}</span>
+                    <span style={{ fontSize: 11, color: "var(--color-text-tertiary)", flexShrink: 0 }}>Folders</span>
+                    {st.folders.length === 0 ? (
+                      <span style={{ fontSize: 11, color: st.error ? "#ef4444" : "var(--color-text-tertiary)" }}>
+                        {st.loading ? "Loading…" : st.error ?? "—"}
+                      </span>
+                    ) : (
+                      <FolderPicker
+                        options={st.folders.map((f) => ({ id: f.path, label: f.name }))}
+                        selected={acct.folderPaths}
+                        fallbackId="INBOX"
+                        onChange={(paths) => { ImapConnector.setFolderPaths(acct.email, paths); setImapAccounts(ImapConnector.getAccounts()); }}
+                      />
+                    )}
+                    <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, cursor: "pointer", color: "var(--color-text-secondary)", flexShrink: 0 }}>
+                      <input type="checkbox" checked={acct.enabled} style={{ accentColor: "var(--color-primary)" }}
+                        onChange={(e) => { ImapConnector.setEnabled(acct.email, e.target.checked); setImapAccounts(ImapConnector.getAccounts()); }}
+                      />
+                      Active
+                    </label>
+                    <button className="btn-ghost-sm" style={{ fontSize: 11, color: "#ef4444", flexShrink: 0 }} onClick={() => handleImapRemove(acct.email)}>Remove</button>
+                  </div>
+                );
+              })}
 
-              {totalAccounts === 0 && !imapConfigured && (
+              {totalAccounts === 0 && imapAccounts.length === 0 && (
                 <p style={{ fontSize: 12.5, color: "var(--color-text-tertiary)", padding: "4px 0 4px" }}>No accounts connected. Add one below.</p>
               )}
             </div>
@@ -839,8 +821,11 @@ export function AutoImportSettings() {
                 onClick={() => { if (!vm.state.outlook.hasConsent) { setPendingConsent("outlook"); } else { new OutlookConnector().startSignIn(); } }}>
                 + Add Outlook
               </button>
-              {isImapAvailable() && !imapConfigured && (
-                <button className="btn-sm" onClick={() => { setImapShowForm((v) => !v); setImapMsg(null); }}>
+              {isImapAvailable() && (
+                <button className="btn-sm" onClick={() => {
+                  if (!prefs.imapConsentGiven) { setPendingConsent("imap"); }
+                  else { setImapShowForm((v) => !v); setImapMsg(null); }
+                }}>
                   {imapShowForm ? "Cancel" : "+ Add via IMAP"}
                 </button>
               )}
@@ -850,7 +835,7 @@ export function AutoImportSettings() {
             </div>
 
             {/* IMAP inline form */}
-            {isImapAvailable() && !imapConfigured && imapShowForm && (
+            {isImapAvailable() && imapShowForm && (
               <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 10, padding: "10px 12px", background: "var(--color-surface-2)", borderRadius: 8, border: "1px solid var(--color-border)" }}>
                 <input className="settings-input" type="email" placeholder="your@gmail.com" value={imapInputEmail} onChange={(e) => setImapInputEmail(e.target.value)} style={{ fontSize: 13 }} />
                 <input className="settings-input" type="password" placeholder="App Password (16 chars)" value={imapInputPass} onChange={(e) => setImapInputPass(e.target.value)} style={{ fontSize: 13 }} />
@@ -867,7 +852,7 @@ export function AutoImportSettings() {
             )}
 
             <div className="sync-actions">
-              {(vm.state.gmail.enabled || vm.state.outlook.enabled || imapActive) ? (
+              {(vm.state.gmail.enabled || vm.state.outlook.enabled || imapAccounts.some((a) => a.enabled)) ? (
                 <>
                   <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                     <button className="btn-sync-primary" onClick={handleSyncNow} disabled={syncing}>
@@ -967,7 +952,7 @@ export function AutoImportSettings() {
 
     {pendingConsent && (
       <ConsentModal
-        provider={pendingConsent === "gmail" ? "Gmail" : "Outlook"}
+        provider={pendingConsent === "gmail" ? "Gmail" : pendingConsent === "outlook" ? "Outlook" : "IMAP"}
         onAccept={handleConsentAccept}
         onDecline={() => setPendingConsent(null)}
       />
