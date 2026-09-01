@@ -686,17 +686,17 @@ app.post("/api/imap/diagnose", async (req, res) => {
     const allMailFolder = list.find(m => /all\s*mail/i.test(m.name) || m.specialUse === "\\All");
     const targetFolder = allMailFolder?.path ?? "INBOX";
 
-    // Count emails in each folder (always check INBOX separately)
+    // Count emails in ALL accessible folders so we can see where the email landed
     const counts = {};
-    const checkPaths = [targetFolder, "INBOX"].filter((v, i, a) => a.indexOf(v) === i);
-    for (const path of checkPaths) {
+    const allPaths = [...new Set([targetFolder, "INBOX", ...list.map(m => m.path)])];
+    for (const path of allPaths) {
       try {
         const lock = await client.getMailboxLock(path);
         try {
           const seqs = await client.search({ since });
           counts[path] = seqs.length;
         } finally { lock.release(); }
-      } catch (e) { counts[path] = `error: ${e.message}`; }
+      } catch (e) { counts[path] = `err: ${e.message.slice(0, 40)}`; }
     }
 
     // Sample emails from All Mail + INBOX combined, deduplicated by message-id
