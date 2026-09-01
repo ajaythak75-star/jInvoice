@@ -65,6 +65,50 @@ function useInvoices() {
   return { records, loading };
 }
 
+// ── drill-down panel ──────────────────────────────────────────────────────────
+
+function DrillDownPanel({ records, onClose }: { records: InvoiceMeta[]; onClose: () => void }) {
+  if (records.length === 0) return null;
+  return (
+    <tr>
+      <td colSpan={99} style={{ padding: 0, background: "var(--color-surface-2)" }}>
+        <div style={{ padding: "10px 16px 14px", borderTop: "1px solid var(--color-primary)", borderBottom: "1px solid var(--color-border)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: "var(--color-primary)", textTransform: "uppercase", letterSpacing: "0.07em" }}>
+              {records.length} Invoice{records.length > 1 ? "s" : ""}
+            </span>
+            <button onClick={onClose} style={{ fontSize: 12, color: "var(--color-text-tertiary)", background: "none", border: "none", cursor: "pointer", padding: "2px 6px" }}>✕ Close</button>
+          </div>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr>
+                  {["Date", "Vendor", "Invoice #", "Amount", "Tax"].map((h, i) => (
+                    <th key={h} style={{ fontSize: 10, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em", padding: "4px 10px", textAlign: i <= 2 ? "left" : "right", whiteSpace: "nowrap" }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {[...records].sort((a, b) => (b.invoiceDate ?? b.createdAt ?? "").localeCompare(a.invoiceDate ?? a.createdAt ?? "")).map((r, i) => (
+                  <tr key={r.id ?? i} style={{ borderTop: "1px solid var(--color-border)" }}>
+                    <td style={{ fontSize: 11.5, color: "var(--color-text-secondary)", padding: "5px 10px", whiteSpace: "nowrap" }}>
+                      {r.invoiceDate ? new Date(r.invoiceDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "2-digit" }) : "—"}
+                    </td>
+                    <td style={{ fontSize: 11.5, color: "var(--color-text)", padding: "5px 10px", maxWidth: 150, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.merchantName ?? "Unknown"}</td>
+                    <td style={{ fontSize: 11, color: "var(--color-text-secondary)", padding: "5px 10px", maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.invoiceNumber ?? "—"}</td>
+                    <td style={{ fontSize: 12, fontWeight: 600, color: "var(--color-text)", padding: "5px 10px", textAlign: "right", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{fmtRupee(r.grandTotalPaise ?? 0)}</td>
+                    <td style={{ fontSize: 11.5, color: "var(--color-text-secondary)", padding: "5px 10px", textAlign: "right", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{r.taxPaise ? fmtRupee(r.taxPaise) : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </td>
+    </tr>
+  );
+}
+
 // ── shared UI ─────────────────────────────────────────────────────────────────
 
 function chipStyle(active: boolean): React.CSSProperties {
@@ -150,6 +194,7 @@ function periodLabel(k: string, view: PeriodView): string {
 function PeriodReportTab({ records }: { records: InvoiceMeta[] }) {
   const [view, setView] = useState<PeriodView>("monthly");
   const [year, setYear] = useState<number | null>(null);
+  const [drillKey, setDrillKey] = useState<string | null>(null);
   const [customFrom, setCustomFrom] = useState(() => {
     const d = new Date(); d.setMonth(d.getMonth() - 3); return d.toISOString().slice(0, 10);
   });
@@ -168,6 +213,19 @@ function PeriodReportTab({ records }: { records: InvoiceMeta[] }) {
     const to   = new Date(customTo + "T23:59:59");
     return records.filter(r => { const d = recDate(r); return d ? d >= from && d <= to : false; });
   }, [records, base, view, customFrom, customTo]);
+
+  const drillRecords = useMemo(() => {
+    const map = new Map<string, InvoiceMeta[]>();
+    const effectiveView: PeriodView = view === "custom" ? "daily" : view;
+    for (const rec of filtered) {
+      const d = recDate(rec);
+      if (!d) continue;
+      const k = toDateKey(d, effectiveView);
+      if (!map.has(k)) map.set(k, []);
+      map.get(k)!.push(rec);
+    }
+    return map;
+  }, [filtered, view]);
 
   const buckets = useMemo(() => {
     const map = new Map<string, { label: string; count: number; totalPaise: number; taxPaise: number }>();
@@ -283,14 +341,28 @@ function PeriodReportTab({ records }: { records: InvoiceMeta[] }) {
                 </tr>
               </thead>
               <tbody>
-                {[...buckets].reverse().map((b, i) => (
-                  <tr key={b.label} style={{ borderBottom: i < buckets.length - 1 ? "1px solid var(--color-border)" : "none", background: i % 2 === 0 ? "transparent" : "var(--color-surface-2)" }}>
-                    <td style={{ fontSize: 12.5, color: "var(--color-text)", padding: "10px 14px" }}>{b.label}</td>
-                    <td style={{ fontSize: 12.5, color: "var(--color-text-secondary)", padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{b.count}</td>
-                    <td style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-text)", padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(b.totalPaise)}</td>
-                    <td style={{ fontSize: 12.5, color: "var(--color-text-secondary)", padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{b.taxPaise ? fmtRupee(b.taxPaise) : "—"}</td>
-                  </tr>
-                ))}
+                {[...buckets].reverse().map((b, i) => {
+                  const effectiveView: PeriodView = view === "custom" ? "daily" : view;
+                  const bKey = [...drillRecords.keys()].find(k => periodLabel(k, effectiveView) === b.label) ?? b.label;
+                  const isOpen = drillKey === bKey;
+                  return (
+                    <React.Fragment key={b.label}>
+                      <tr
+                        onClick={() => setDrillKey(isOpen ? null : bKey)}
+                        style={{ borderBottom: i < buckets.length - 1 && !isOpen ? "1px solid var(--color-border)" : "none", background: isOpen ? "color-mix(in srgb, var(--color-primary) 6%, transparent)" : i % 2 === 0 ? "transparent" : "var(--color-surface-2)", cursor: "pointer" }}
+                      >
+                        <td style={{ fontSize: 12.5, color: "var(--color-text)", padding: "10px 14px", display: "flex", alignItems: "center", gap: 6 }}>
+                          <span style={{ fontSize: 10, color: "var(--color-primary)", opacity: 0.7 }}>{isOpen ? "▼" : "▶"}</span>
+                          {b.label}
+                        </td>
+                        <td style={{ fontSize: 12.5, color: "var(--color-text-secondary)", padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{b.count}</td>
+                        <td style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-text)", padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(b.totalPaise)}</td>
+                        <td style={{ fontSize: 12.5, color: "var(--color-text-secondary)", padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{b.taxPaise ? fmtRupee(b.taxPaise) : "—"}</td>
+                      </tr>
+                      {isOpen && <DrillDownPanel records={drillRecords.get(bKey) ?? []} onClose={() => setDrillKey(null)} />}
+                    </React.Fragment>
+                  );
+                })}
               </tbody>
               <tfoot>
                 <tr style={{ borderTop: "1.5px solid var(--color-border)", background: "var(--color-surface-2)" }}>
@@ -313,6 +385,7 @@ function PeriodReportTab({ records }: { records: InvoiceMeta[] }) {
 function VendorReportTab({ records }: { records: InvoiceMeta[] }) {
   const [year, setYear] = useState<number | null>(null);
   const [sortBy, setSortBy] = useState<"total" | "count" | "name">("total");
+  const [drillVendor, setDrillVendor] = useState<string | null>(null);
 
   const years = useMemo(() => availableYears(records), [records]);
   const filtered = useMemo(() => filterByYear(records, year), [records, year]);
@@ -392,18 +465,31 @@ function VendorReportTab({ records }: { records: InvoiceMeta[] }) {
                 </tr>
               </thead>
               <tbody>
-                {list.map((v, i) => (
-                  <tr key={v.name} style={{ borderBottom: i < list.length - 1 ? "1px solid var(--color-border)" : "none", background: i % 2 === 0 ? "transparent" : "var(--color-surface-2)" }}>
-                    <td style={{ fontSize: 11, color: "var(--color-text-tertiary)", padding: "10px 14px", fontVariantNumeric: "tabular-nums" }}>{i + 1}</td>
-                    <td style={{ fontSize: 12.5, color: "var(--color-text)", padding: "10px 14px", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v.name}</td>
-                    <td style={{ fontSize: 12.5, color: "var(--color-text-secondary)", padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{v.count}</td>
-                    <td style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-text)", padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(v.totalPaise)}</td>
-                    <td style={{ fontSize: 12, color: "var(--color-text-secondary)", padding: "10px 14px", textAlign: "right" }}>{pct(v.totalPaise, grandTotal)}</td>
-                    <td style={{ fontSize: 11.5, color: "var(--color-text-secondary)", padding: "10px 14px", textAlign: "right" }}>
-                      {v.lastDate ? new Date(v.lastDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "2-digit" }) : "—"}
-                    </td>
-                  </tr>
-                ))}
+                {list.map((v, i) => {
+                  const isOpen = drillVendor === v.name;
+                  const drillRecs = filtered.filter(r => (r.merchantName?.trim() || "Unknown") === v.name);
+                  return (
+                    <React.Fragment key={v.name}>
+                      <tr
+                        onClick={() => setDrillVendor(isOpen ? null : v.name)}
+                        style={{ borderBottom: i < list.length - 1 && !isOpen ? "1px solid var(--color-border)" : "none", background: isOpen ? "color-mix(in srgb, var(--color-primary) 6%, transparent)" : i % 2 === 0 ? "transparent" : "var(--color-surface-2)", cursor: "pointer" }}
+                      >
+                        <td style={{ fontSize: 11, color: "var(--color-text-tertiary)", padding: "10px 14px", fontVariantNumeric: "tabular-nums" }}>{i + 1}</td>
+                        <td style={{ fontSize: 12.5, color: "var(--color-text)", padding: "10px 14px", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          <span style={{ marginRight: 5, fontSize: 10, color: "var(--color-primary)", opacity: 0.7 }}>{isOpen ? "▼" : "▶"}</span>
+                          {v.name}
+                        </td>
+                        <td style={{ fontSize: 12.5, color: "var(--color-text-secondary)", padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{v.count}</td>
+                        <td style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-text)", padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(v.totalPaise)}</td>
+                        <td style={{ fontSize: 12, color: "var(--color-text-secondary)", padding: "10px 14px", textAlign: "right" }}>{pct(v.totalPaise, grandTotal)}</td>
+                        <td style={{ fontSize: 11.5, color: "var(--color-text-secondary)", padding: "10px 14px", textAlign: "right" }}>
+                          {v.lastDate ? new Date(v.lastDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "2-digit" }) : "—"}
+                        </td>
+                      </tr>
+                      {isOpen && <DrillDownPanel records={drillRecs} onClose={() => setDrillVendor(null)} />}
+                    </React.Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -418,6 +504,7 @@ function VendorReportTab({ records }: { records: InvoiceMeta[] }) {
 function TagsReportTab({ records }: { records: InvoiceMeta[] }) {
   const [year, setYear] = useState<number | null>(null);
   const [mode, setMode] = useState<"client" | "project">("client");
+  const [drillTag, setDrillTag] = useState<string | null>(null);
 
   const years = useMemo(() => availableYears(records), [records]);
   const filtered = useMemo(() => filterByYear(records, year), [records, year]);
@@ -510,24 +597,54 @@ function TagsReportTab({ records }: { records: InvoiceMeta[] }) {
                 </tr>
               </thead>
               <tbody>
-                {tagged.map((t, i) => (
-                  <tr key={t.tag} style={{ borderBottom: "1px solid var(--color-border)", background: i % 2 === 0 ? "transparent" : "var(--color-surface-2)" }}>
-                    <td style={{ fontSize: 12.5, color: "var(--color-text)", padding: "10px 14px" }}>
-                      <span style={{ background: "color-mix(in srgb, var(--color-primary) 12%, transparent)", color: "var(--color-primary)", borderRadius: 4, padding: "2px 8px", fontSize: 12, fontWeight: 600 }}>{t.tag}</span>
-                    </td>
-                    <td style={{ fontSize: 12.5, color: "var(--color-text-secondary)", padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{t.count}</td>
-                    <td style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-text)", padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(t.totalPaise)}</td>
-                    <td style={{ fontSize: 12, color: "var(--color-text-secondary)", padding: "10px 14px", textAlign: "right" }}>{pct(t.totalPaise, grandTotal)}</td>
-                  </tr>
-                ))}
-                {untaggedCount > 0 && (
-                  <tr style={{ borderBottom: "none" }}>
-                    <td style={{ fontSize: 12, color: "var(--color-text-tertiary)", padding: "10px 14px", fontStyle: "italic" }}>Untagged</td>
-                    <td style={{ fontSize: 12.5, color: "var(--color-text-tertiary)", padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{untaggedCount}</td>
-                    <td style={{ fontSize: 12.5, color: "var(--color-text-tertiary)", padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(untaggedPaise)}</td>
-                    <td style={{ fontSize: 12, color: "var(--color-text-tertiary)", padding: "10px 14px", textAlign: "right" }}>{pct(untaggedPaise, grandTotal)}</td>
-                  </tr>
-                )}
+                {tagged.map((t, i) => {
+                  const isOpen = drillTag === t.tag;
+                  const drillRecs = filtered.filter(r =>
+                    mode === "client"
+                      ? (r.clientTags ?? []).includes(t.tag)
+                      : r.projectTag === t.tag
+                  );
+                  return (
+                    <React.Fragment key={t.tag}>
+                      <tr
+                        onClick={() => setDrillTag(isOpen ? null : t.tag)}
+                        style={{ borderBottom: !isOpen ? "1px solid var(--color-border)" : "none", background: isOpen ? "color-mix(in srgb, var(--color-primary) 6%, transparent)" : i % 2 === 0 ? "transparent" : "var(--color-surface-2)", cursor: "pointer" }}
+                      >
+                        <td style={{ fontSize: 12.5, color: "var(--color-text)", padding: "10px 14px" }}>
+                          <span style={{ fontSize: 10, color: "var(--color-primary)", opacity: 0.7, marginRight: 6 }}>{isOpen ? "▼" : "▶"}</span>
+                          <span style={{ background: "color-mix(in srgb, var(--color-primary) 12%, transparent)", color: "var(--color-primary)", borderRadius: 4, padding: "2px 8px", fontSize: 12, fontWeight: 600 }}>{t.tag}</span>
+                        </td>
+                        <td style={{ fontSize: 12.5, color: "var(--color-text-secondary)", padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{t.count}</td>
+                        <td style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-text)", padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(t.totalPaise)}</td>
+                        <td style={{ fontSize: 12, color: "var(--color-text-secondary)", padding: "10px 14px", textAlign: "right" }}>{pct(t.totalPaise, grandTotal)}</td>
+                      </tr>
+                      {isOpen && <DrillDownPanel records={drillRecs} onClose={() => setDrillTag(null)} />}
+                    </React.Fragment>
+                  );
+                })}
+                {untaggedCount > 0 && (() => {
+                  const isOpen = drillTag === "__untagged__";
+                  const drillRecs = filtered.filter(r =>
+                    mode === "client" ? !(r.clientTags?.length) : !r.projectTag
+                  );
+                  return (
+                    <React.Fragment key="__untagged__">
+                      <tr
+                        onClick={() => setDrillTag(isOpen ? null : "__untagged__")}
+                        style={{ borderBottom: "none", cursor: "pointer", background: isOpen ? "color-mix(in srgb, var(--color-primary) 6%, transparent)" : "transparent" }}
+                      >
+                        <td style={{ fontSize: 12, color: "var(--color-text-tertiary)", padding: "10px 14px", fontStyle: "italic" }}>
+                          <span style={{ fontSize: 10, opacity: 0.7, marginRight: 6 }}>{isOpen ? "▼" : "▶"}</span>
+                          Untagged
+                        </td>
+                        <td style={{ fontSize: 12.5, color: "var(--color-text-tertiary)", padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{untaggedCount}</td>
+                        <td style={{ fontSize: 12.5, color: "var(--color-text-tertiary)", padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(untaggedPaise)}</td>
+                        <td style={{ fontSize: 12, color: "var(--color-text-tertiary)", padding: "10px 14px", textAlign: "right" }}>{pct(untaggedPaise, grandTotal)}</td>
+                      </tr>
+                      {isOpen && <DrillDownPanel records={drillRecs} onClose={() => setDrillTag(null)} />}
+                    </React.Fragment>
+                  );
+                })()}
               </tbody>
             </table>
           </div>
@@ -546,12 +663,14 @@ const PAYMENT_MODE_LABEL: Record<string, string> = {
   upi: "UPI", card: "Card", cash: "Cash", bnpl: "Buy Now Pay Later", credit: "Credit", unknown: "Not Captured",
 };
 
-function GroupSection({ title, rows, grandTotal, csvName }: {
+function GroupSection({ title, rows, grandTotal, csvName, getDrillRecords }: {
   title: string;
   rows: { label: string; count: number; totalPaise: number }[];
   grandTotal: number;
   csvName: string;
+  getDrillRecords: (label: string) => InvoiceMeta[];
 }) {
+  const [drillLabel, setDrillLabel] = useState<string | null>(null);
   const max = useMemo(() => Math.max(...rows.map(r => r.totalPaise), 1), [rows]);
   return (
     <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10, marginBottom: 16 }}>
@@ -569,14 +688,26 @@ function GroupSection({ title, rows, grandTotal, csvName }: {
             </tr>
           </thead>
           <tbody>
-            {rows.map((r, i) => (
-              <tr key={r.label} style={{ borderBottom: i < rows.length - 1 ? "1px solid var(--color-border)" : "none", background: i % 2 === 0 ? "transparent" : "var(--color-surface-2)" }}>
-                <td style={{ fontSize: 12.5, color: "var(--color-text)", padding: "9px 16px" }}>{r.label}</td>
-                <td style={{ fontSize: 12.5, color: "var(--color-text-secondary)", padding: "9px 16px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{r.count}</td>
-                <td style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-text)", padding: "9px 16px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(r.totalPaise)}</td>
-                <td style={{ fontSize: 12, color: "var(--color-text-secondary)", padding: "9px 16px", textAlign: "right" }}>{pct(r.totalPaise, grandTotal)}</td>
-              </tr>
-            ))}
+            {rows.map((r, i) => {
+              const isOpen = drillLabel === r.label;
+              return (
+                <React.Fragment key={r.label}>
+                  <tr
+                    onClick={() => setDrillLabel(isOpen ? null : r.label)}
+                    style={{ borderBottom: i < rows.length - 1 && !isOpen ? "1px solid var(--color-border)" : "none", background: isOpen ? "color-mix(in srgb, var(--color-primary) 6%, transparent)" : i % 2 === 0 ? "transparent" : "var(--color-surface-2)", cursor: "pointer" }}
+                  >
+                    <td style={{ fontSize: 12.5, color: "var(--color-text)", padding: "9px 16px" }}>
+                      <span style={{ fontSize: 10, color: "var(--color-primary)", opacity: 0.7, marginRight: 6 }}>{isOpen ? "▼" : "▶"}</span>
+                      {r.label}
+                    </td>
+                    <td style={{ fontSize: 12.5, color: "var(--color-text-secondary)", padding: "9px 16px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{r.count}</td>
+                    <td style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-text)", padding: "9px 16px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(r.totalPaise)}</td>
+                    <td style={{ fontSize: 12, color: "var(--color-text-secondary)", padding: "9px 16px", textAlign: "right" }}>{pct(r.totalPaise, grandTotal)}</td>
+                  </tr>
+                  {isOpen && <DrillDownPanel records={getDrillRecords(r.label)} onClose={() => setDrillLabel(null)} />}
+                </React.Fragment>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -644,8 +775,17 @@ function CategoryReportTab({ records }: { records: InvoiceMeta[] }) {
         <div style={{ textAlign: "center", padding: "48px 0", color: "var(--color-text-secondary)", fontSize: 13 }}>No data available.</div>
       ) : (
         <>
-          <GroupSection title="By Document Type" rows={docTypes}  grandTotal={grandTotal} csvName="category-by-type.csv" />
-          <GroupSection title="By Payment Mode"  rows={payModes}  grandTotal={grandTotal} csvName="category-by-payment.csv" />
+          <GroupSection
+            title="By Document Type" rows={docTypes} grandTotal={grandTotal} csvName="category-by-type.csv"
+            getDrillRecords={(label) => filtered.filter(r => {
+              const types = r.docTypes?.length ? r.docTypes : (r.docType ? [r.docType] : ["other"]);
+              return types.some(t => (DOC_TYPE_LABEL[t] ?? t) === label);
+            })}
+          />
+          <GroupSection
+            title="By Payment Mode" rows={payModes} grandTotal={grandTotal} csvName="category-by-payment.csv"
+            getDrillRecords={(label) => filtered.filter(r => (PAYMENT_MODE_LABEL[r.paymentMode ?? "unknown"] ?? r.paymentMode ?? "unknown") === label)}
+          />
         </>
       )}
     </div>
