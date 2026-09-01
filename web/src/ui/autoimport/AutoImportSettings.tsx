@@ -175,7 +175,7 @@ function FolderPicker({
       </button>
       {open && (
         <div style={{ position: "fixed", top: dropPos.top, left: dropPos.left, zIndex: 100, background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,.14)", minWidth: 210, maxHeight: 260, display: "flex", flexDirection: "column" }}>
-          <div style={{ overflowY: "auto", flex: 1 }}>
+          <div style={{ overflowY: "auto", flex: 1, minHeight: 0 }}>
             {options.map((o) => (
               <label key={o.id}
                 style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", fontSize: 12.5, cursor: "pointer", color: "var(--color-text)" }}
@@ -340,12 +340,19 @@ export function AutoImportSettings() {
   }, []);
 
   const refreshGmailLabels = () => {
-    const GMAIL_EXCLUDE = new Set(["TRASH", "SPAM", "DRAFT", "SENT", "UNREAD", "STARRED", "IMPORTANT"]);
+    const GMAIL_EXCLUDE = new Set([
+      "TRASH", "SPAM", "DRAFT", "SENT", "UNREAD", "STARRED", "IMPORTANT", "JUNK",
+      "CATEGORY_PROMOTIONS", "CATEGORY_FORUMS", "CATEGORY_SOCIAL",
+      "CATEGORY_UPDATES", "CATEGORY_PERSONAL",
+    ]);
     setGmailLabelsLoading(true);
     setGmailLabelsError(null);
     new GmailConnector().fetchLabels()
       .then((labels) => {
-        const filtered = labels.filter((l) => !GMAIL_EXCLUDE.has(l.id.toUpperCase()));
+        const filtered = labels.filter((l) => {
+          const id = l.id.toUpperCase();
+          return !GMAIL_EXCLUDE.has(id) && !id.startsWith("CATEGORY_");
+        });
         setGmailLabels(filtered);
         const allIds = filtered.map((l) => l.id);
         prefs.gmailLabelIds = allIds;
@@ -356,7 +363,10 @@ export function AutoImportSettings() {
   };
 
   const refreshOutlookFolders = () => {
-    const OUTLOOK_EXCLUDE = new Set(["Deleted Items", "Junk Email", "Drafts", "Sent Items", "Outbox", "Trash"]);
+    const OUTLOOK_EXCLUDE = new Set([
+      "Deleted Items", "Junk Email", "Junk", "Drafts", "Sent Items",
+      "Outbox", "Trash", "Spam", "Promotions", "Clutter", "Archive",
+    ]);
     setOutlookFoldersLoading(true);
     setOutlookFoldersError(null);
     new OutlookConnector().fetchFolders()
