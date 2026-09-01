@@ -3,6 +3,7 @@ import { useAutoImportViewModel } from "./useAutoImportViewModel";
 import { ConsentModal } from "./ConsentModal";
 import { GmailConnector } from "../../autoimport/GmailConnector";
 import { OutlookConnector } from "../../autoimport/OutlookConnector";
+import { ImapConnector, isImapAvailable } from "../../autoimport/ImapConnector";
 import { poll, cancelSync, isSyncing, desktopConnector, schedulePolling } from "../../service/AutoImportService";
 import { clearAllData, db } from "../../data/InvoiceDatabase";
 import { processFile } from "../../extraction/ExtractionPipeline";
@@ -161,6 +162,15 @@ export function AutoImportSettings() {
   const [syncTime,     setSyncTime]     = useState(() => prefs.syncTime);
   const [showProBanner, setShowProBanner] = useState(false);
 
+  // IMAP connector state
+  const [imapConfigured,  setImapConfigured]  = useState(false);
+  const [imapEmail,       setImapEmail]       = useState<string | null>(null);
+  const [imapShowForm,    setImapShowForm]    = useState(false);
+  const [imapInputEmail,  setImapInputEmail]  = useState(() => prefs.imapEmail ?? "");
+  const [imapInputPass,   setImapInputPass]   = useState("");
+  const [imapBusy,        setImapBusy]        = useState(false);
+  const [imapMsg,         setImapMsg]         = useState<{ ok: boolean; text: string } | null>(null);
+
   const handleSyncSelect = (months: number, pro: boolean) => {
     if (pro && !prefs.isSubscribed) { setShowProBanner(true); return; }
     setShowProBanner(false);
@@ -241,6 +251,15 @@ export function AutoImportSettings() {
   };
 
   useEffect(() => { isFsAccessSupported().then(setFsSupported); }, []);
+
+  useEffect(() => {
+    if (!isImapAvailable()) return;
+    ImapConnector.status().then(({ configured, email }) => {
+      setImapConfigured(configured);
+      setImapEmail(email);
+      if (configured && email) { prefs.imapEnabled = true; prefs.imapEmail = email; }
+    });
+  }, []);
 
   // Track sync state via module-level events so progress survives tab switches
   useEffect(() => {
@@ -364,6 +383,42 @@ export function AutoImportSettings() {
     } else {
       vm.toggleOutlook(enabled);
     }
+  };
+
+  const handleImapConnect = async () => {
+    if (!imapInputEmail.trim() || !imapInputPass.trim()) {
+      setImapMsg({ ok: false, text: "Enter your Gmail address and App Password." });
+      return;
+    }
+    setImapBusy(true);
+    setImapMsg(null);
+    try {
+      await ImapConnector.testConnection(imapInputEmail.trim(), imapInputPass.trim());
+      await ImapConnector.saveCredentials(imapInputEmail.trim(), imapInputPass.trim());
+      prefs.imapEnabled = true;
+      prefs.imapEmail = imapInputEmail.trim();
+      setImapConfigured(true);
+      setImapEmail(imapInputEmail.trim());
+      setImapInputPass("");
+      setImapShowForm(false);
+      setImapMsg({ ok: true, text: "Connected." });
+    } catch (e) {
+      setImapMsg({ ok: false, text: e instanceof Error ? e.message : "Connection failed. Check your App Password." });
+    } finally {
+      setImapBusy(false);
+    }
+  };
+
+  const handleImapDisconnect = async () => {
+    await ImapConnector.disconnect();
+    prefs.imapEnabled = false;
+    prefs.imapEmail = null;
+    setImapConfigured(false);
+    setImapEmail(null);
+    setImapInputEmail("");
+    setImapInputPass("");
+    setImapMsg(null);
+    setImapShowForm(false);
   };
 
   const handleConsentAccept = () => {
@@ -542,6 +597,61 @@ export function AutoImportSettings() {
                 </label>
               </div>
             </div>
+
+            {/* IMAP / App Password connector */}
+            {isImapAvailable() && (
+              <div style={{ marginTop: 10, padding: "10px 12px", background: "var(--color-surface-2)", borderRadius: 8, border: `1px solid ${imapConfigured ? "var(--color-primary)" : "var(--color-border)"}` }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 18, lineHeight: 1 }}>✉️</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="connector-name">IMAP (Gmail App Password)</div>
+                    {imapConfigured && imapEmail && (
+                      <div className="connector-email" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{imapEmail}</div>
+                    )}
+                  </div>
+                  {imapConfigured ? (
+                    <button className="btn-link-danger" style={{ fontSize: 11, flexShrink: 0 }} onClick={handleImapDisconnect}>Disconnect</button>
+                  ) : (
+                    <button className="btn-sm" style={{ flexShrink: 0, fontSize: 12 }} onClick={() => { setImapShowForm((v) => !v); setImapMsg(null); }}>
+                      {imapShowForm ? "Cancel" : "Connect"}
+                    </button>
+                  )}
+                </div>
+
+                {imapMsg && (
+                  <div style={{ marginTop: 6, fontSize: 12, color: imapMsg.ok ? "#22c55e" : "#ef4444" }}>{imapMsg.text}</div>
+                )}
+
+                {!imapConfigured && imapShowForm && (
+                  <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+                    <input
+                      className="settings-input"
+                      type="email"
+                      placeholder="your@gmail.com"
+                      value={imapInputEmail}
+                      onChange={(e) => setImapInputEmail(e.target.value)}
+                      style={{ fontSize: 13 }}
+                    />
+                    <input
+                      className="settings-input"
+                      type="password"
+                      placeholder="App Password (16 chars)"
+                      value={imapInputPass}
+                      onChange={(e) => setImapInputPass(e.target.value)}
+                      style={{ fontSize: 13 }}
+                    />
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <button className="btn-sync-primary" onClick={handleImapConnect} disabled={imapBusy} style={{ fontSize: 13 }}>
+                        {imapBusy ? "Connecting…" : "Connect"}
+                      </button>
+                      <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}>
+                        How to get an App Password ↗
+                      </a>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="sync-actions">
               {(vm.state.gmail.enabled || vm.state.outlook.enabled) ? (
