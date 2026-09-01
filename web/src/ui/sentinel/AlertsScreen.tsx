@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { getActiveSentinels, dismissSentinel, dismissAllSentinels, daysUntilExpiry } from "../../service/ExpirySentinel";
 import { db } from "../../data/InvoiceDatabase";
 import type { SentinelRecord, InvoiceMeta } from "../../data/InvoiceDatabase";
+import { detectBillIssues } from "../../service/BillFraudDetector";
 
 const TYPE_ICON: Record<string, string> = {
   warranty: "🛡️",
@@ -79,11 +80,20 @@ export function AlertsScreen() {
 
   const load = async () => {
     const data = await getActiveSentinels();
-    setRecords(data);
     const ids = [...new Set(data.map((r) => r.invoiceId))];
     const invs = await db.invoices.bulkGet(ids);
     const map = new Map<number, InvoiceMeta>();
     invs.forEach((inv) => { if (inv?.id != null) map.set(inv.id, inv); });
+
+    // Exclude alerts for duplicate invoices
+    const duplicateIds = new Set<number>();
+    for (const inv of map.values()) {
+      const issues = await detectBillIssues(inv);
+      if (issues.some((issue) => issue.type === "duplicate")) {
+        duplicateIds.add(inv.id!);
+      }
+    }
+    setRecords(data.filter((r) => !duplicateIds.has(r.invoiceId)));
     setInvoiceMap(map);
     setLoaded(true);
   };

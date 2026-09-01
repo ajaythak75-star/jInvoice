@@ -521,44 +521,6 @@ export function AutoImportSettings() {
     setImapShowForm(false);
   };
 
-  const handleImapDiagnose = async () => {
-    const creds = await ImapConnector.status();
-    if (!creds.configured) { alert("IMAP not configured."); return; }
-    const raw = localStorage.getItem("jinvoice_imap_creds");
-    const { email, appPassword } = raw ? JSON.parse(raw) : {};
-    try {
-      const res = await fetch("/api/imap/diagnose", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, appPassword }),
-      });
-      const data = await res.json();
-      if (!res.ok) { alert(`Diagnose error: ${data.error}`); return; }
-      const samples: { subject: string; from: string; date: string; hasPdf: boolean; pdfCount: number; hasHtml: boolean; mimeTree: string }[] = data.samples ?? [];
-      const pdfEmails = samples.filter((s) => s.hasPdf);
-      const htmlEmails = samples.filter((s) => !s.hasPdf && s.hasHtml);
-      const newestDate = samples.reduce((acc, s) => s.date > acc ? s.date : acc, "");
-      const lines = [
-        `Connected as: ${email}`,
-        `Folder searched: ${data.sampleFolder ?? data.targetFolder ?? "?"}`,
-        `Searching since: ${new Date(data.since).toDateString()}`,
-        `Newest email found: ${newestDate || "none"}`,
-        "",
-        "Email counts:",
-        ...Object.entries(data.counts).map(([k, v]) => `  ${k}: ${v} emails`),
-        "",
-        `Last 200 emails — PDF: ${pdfEmails.length}, HTML-only: ${htmlEmails.length}`,
-        "",
-        ...samples.slice(-50).map((s: { subject: string; from: string; date: string; hasPdf: boolean; pdfCount: number; hasHtml: boolean; mimeTree: string; folder?: string }) =>
-          `  [${s.hasPdf ? `PDF×${s.pdfCount}` : s.hasHtml ? "HTML" : "none"}] ${s.date} ${s.subject.slice(0, 40)}${s.folder ? ` (${s.folder.includes("INBOX") && !s.folder.includes("All") ? "INBOX" : "AllMail"})` : ""}\n    mime: ${s.mimeTree}`
-        ),
-      ];
-      alert(lines.join("\n"));
-    } catch (e) {
-      alert(`Diagnose failed: ${e instanceof Error ? e.message : String(e)}`);
-    }
-  };
-
   const handleConsentAccept = () => {
     if (pendingConsent === "gmail") {
       vm.acceptGmailConsent();
@@ -713,42 +675,35 @@ export function AutoImportSettings() {
               {effectiveGmailAccounts.map((acct) => {
                 const isPrimary = acct.email === primaryGmailEmail;
                 return (
-                  <div key={acct.email} style={{ display: "flex", flexDirection: "column", background: "var(--color-surface-2)", border: "1px solid var(--color-border)", borderRadius: 8, overflow: "hidden" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px" }}>
-                      <img src="/icons/gmail.svg" alt="" style={{ width: 16, height: 16, flexShrink: 0 }} />
-                      <span style={{ flex: 1, fontSize: 13, color: "var(--color-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{acct.email}</span>
-                      <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, cursor: "pointer", color: "var(--color-text-secondary)", flexShrink: 0 }}>
-                        <input type="checkbox" checked={acct.enabled} style={{ accentColor: "var(--color-primary)" }}
-                          onChange={(e) => {
-                            if (isPrimary) { vm.toggleGmail(e.target.checked); }
-                            else { const updated = gmailAccounts.map((a) => a.email === acct.email ? { ...a, enabled: e.target.checked } : a); prefs.gmailAccounts = updated; setGmailAccounts(updated); }
-                          }}
-                        />
-                        Active
-                      </label>
-                      <button className="btn-ghost-sm" style={{ fontSize: 11, color: "#ef4444", flexShrink: 0 }}
-                        onClick={() => { if (isPrimary) { vm.revokeGmail(); } else { const updated = gmailAccounts.filter((a) => a.email !== acct.email); prefs.gmailAccounts = updated; setGmailAccounts(updated); } }}>
-                        Remove
-                      </button>
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 10px 6px", borderTop: "1px solid var(--color-border)" }}>
-                      <span style={{ fontSize: 11, color: "var(--color-text-tertiary)", flexShrink: 0 }}>Folders</span>
-                      {gmailLabels.length === 0 ? (
-                        <span style={{ fontSize: 11, color: gmailLabelsError ? "#ef4444" : "var(--color-text-tertiary)" }}>
-                          {gmailLabelsLoading ? "Loading…" : gmailLabelsError ?? "—"}
-                        </span>
-                      ) : (
-                        <FolderPicker
-                          options={gmailLabels.map((l) => ({ id: l.id, label: l.name }))}
-                          selected={gmailLabelIds}
-                          fallbackId="INBOX"
-                          onChange={(ids) => { prefs.gmailLabelIds = ids; setGmailLabelIds(ids); }}
-                        />
-                      )}
-                      <button className="btn-ghost-sm" style={{ fontSize: 11, marginLeft: "auto" }} disabled={gmailLabelsLoading} onClick={refreshGmailLabels}>
-                        {gmailLabelsLoading ? "…" : "Refresh"}
-                      </button>
-                    </div>
+                  <div key={acct.email} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: "var(--color-surface-2)", border: "1px solid var(--color-border)", borderRadius: 8 }}>
+                    <img src="/icons/gmail.svg" alt="" style={{ width: 16, height: 16, flexShrink: 0 }} />
+                    <span style={{ flex: 1, fontSize: 13, color: "var(--color-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{acct.email}</span>
+                    <span style={{ fontSize: 11, color: "var(--color-text-tertiary)", flexShrink: 0 }}>Folders</span>
+                    {gmailLabels.length === 0 ? (
+                      <span style={{ fontSize: 11, color: gmailLabelsError ? "#ef4444" : "var(--color-text-tertiary)" }}>
+                        {gmailLabelsLoading ? "Loading…" : gmailLabelsError ?? "—"}
+                      </span>
+                    ) : (
+                      <FolderPicker
+                        options={gmailLabels.map((l) => ({ id: l.id, label: l.name }))}
+                        selected={gmailLabelIds}
+                        fallbackId="INBOX"
+                        onChange={(ids) => { prefs.gmailLabelIds = ids; setGmailLabelIds(ids); }}
+                      />
+                    )}
+                    <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, cursor: "pointer", color: "var(--color-text-secondary)", flexShrink: 0 }}>
+                      <input type="checkbox" checked={acct.enabled} style={{ accentColor: "var(--color-primary)" }}
+                        onChange={(e) => {
+                          if (isPrimary) { vm.toggleGmail(e.target.checked); }
+                          else { const updated = gmailAccounts.map((a) => a.email === acct.email ? { ...a, enabled: e.target.checked } : a); prefs.gmailAccounts = updated; setGmailAccounts(updated); }
+                        }}
+                      />
+                      Active
+                    </label>
+                    <button className="btn-ghost-sm" style={{ fontSize: 11, color: "#ef4444", flexShrink: 0 }}
+                      onClick={() => { if (isPrimary) { vm.revokeGmail(); } else { const updated = gmailAccounts.filter((a) => a.email !== acct.email); prefs.gmailAccounts = updated; setGmailAccounts(updated); } }}>
+                      Remove
+                    </button>
                   </div>
                 );
               })}
@@ -756,42 +711,35 @@ export function AutoImportSettings() {
               {effectiveOutlookAccounts.map((acct) => {
                 const isPrimary = acct.email === primaryOutlookEmail;
                 return (
-                  <div key={acct.email} style={{ display: "flex", flexDirection: "column", background: "var(--color-surface-2)", border: "1px solid var(--color-border)", borderRadius: 8, overflow: "hidden" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px" }}>
-                      <img src="/icons/outlook.svg" alt="" style={{ width: 16, height: 16, flexShrink: 0 }} />
-                      <span style={{ flex: 1, fontSize: 13, color: "var(--color-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{acct.email}</span>
-                      <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, cursor: "pointer", color: "var(--color-text-secondary)", flexShrink: 0 }}>
-                        <input type="checkbox" checked={acct.enabled} style={{ accentColor: "var(--color-primary)" }}
-                          onChange={(e) => {
-                            if (isPrimary) { vm.toggleOutlook(e.target.checked); }
-                            else { const updated = outlookAccounts.map((a) => a.email === acct.email ? { ...a, enabled: e.target.checked } : a); prefs.outlookAccounts = updated; setOutlookAccounts(updated); }
-                          }}
-                        />
-                        Active
-                      </label>
-                      <button className="btn-ghost-sm" style={{ fontSize: 11, color: "#ef4444", flexShrink: 0 }}
-                        onClick={() => { if (isPrimary) { vm.revokeOutlook(); } else { const updated = outlookAccounts.filter((a) => a.email !== acct.email); prefs.outlookAccounts = updated; setOutlookAccounts(updated); } }}>
-                        Remove
-                      </button>
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 10px 6px", borderTop: "1px solid var(--color-border)" }}>
-                      <span style={{ fontSize: 11, color: "var(--color-text-tertiary)", flexShrink: 0 }}>Folders</span>
-                      {outlookFolders.length === 0 ? (
-                        <span style={{ fontSize: 11, color: outlookFoldersError ? "#ef4444" : "var(--color-text-tertiary)" }}>
-                          {outlookFoldersLoading ? "Loading…" : outlookFoldersError ?? "—"}
-                        </span>
-                      ) : (
-                        <FolderPicker
-                          options={outlookFolders.map((f) => ({ id: f.id, label: f.displayName }))}
-                          selected={outlookFolderIds}
-                          fallbackId="inbox"
-                          onChange={(ids) => { prefs.outlookFolderIds = ids; setOutlookFolderIds(ids); }}
-                        />
-                      )}
-                      <button className="btn-ghost-sm" style={{ fontSize: 11, marginLeft: "auto" }} disabled={outlookFoldersLoading} onClick={refreshOutlookFolders}>
-                        {outlookFoldersLoading ? "…" : "Refresh"}
-                      </button>
-                    </div>
+                  <div key={acct.email} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: "var(--color-surface-2)", border: "1px solid var(--color-border)", borderRadius: 8 }}>
+                    <img src="/icons/outlook.svg" alt="" style={{ width: 16, height: 16, flexShrink: 0 }} />
+                    <span style={{ flex: 1, fontSize: 13, color: "var(--color-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{acct.email}</span>
+                    <span style={{ fontSize: 11, color: "var(--color-text-tertiary)", flexShrink: 0 }}>Folders</span>
+                    {outlookFolders.length === 0 ? (
+                      <span style={{ fontSize: 11, color: outlookFoldersError ? "#ef4444" : "var(--color-text-tertiary)" }}>
+                        {outlookFoldersLoading ? "Loading…" : outlookFoldersError ?? "—"}
+                      </span>
+                    ) : (
+                      <FolderPicker
+                        options={outlookFolders.map((f) => ({ id: f.id, label: f.displayName }))}
+                        selected={outlookFolderIds}
+                        fallbackId="inbox"
+                        onChange={(ids) => { prefs.outlookFolderIds = ids; setOutlookFolderIds(ids); }}
+                      />
+                    )}
+                    <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, cursor: "pointer", color: "var(--color-text-secondary)", flexShrink: 0 }}>
+                      <input type="checkbox" checked={acct.enabled} style={{ accentColor: "var(--color-primary)" }}
+                        onChange={(e) => {
+                          if (isPrimary) { vm.toggleOutlook(e.target.checked); }
+                          else { const updated = outlookAccounts.map((a) => a.email === acct.email ? { ...a, enabled: e.target.checked } : a); prefs.outlookAccounts = updated; setOutlookAccounts(updated); }
+                        }}
+                      />
+                      Active
+                    </label>
+                    <button className="btn-ghost-sm" style={{ fontSize: 11, color: "#ef4444", flexShrink: 0 }}
+                      onClick={() => { if (isPrimary) { vm.revokeOutlook(); } else { const updated = outlookAccounts.filter((a) => a.email !== acct.email); prefs.outlookAccounts = updated; setOutlookAccounts(updated); } }}>
+                      Remove
+                    </button>
                   </div>
                 );
               })}
@@ -807,7 +755,6 @@ export function AutoImportSettings() {
                     />
                     Active
                   </label>
-                  <button className="btn-ghost-sm" style={{ fontSize: 11, color: "var(--color-text-tertiary)", flexShrink: 0 }} onClick={handleImapDiagnose}>Diagnose</button>
                   <button className="btn-ghost-sm" style={{ fontSize: 11, color: "#ef4444", flexShrink: 0 }} onClick={handleImapDisconnect}>Remove</button>
                 </div>
               )}

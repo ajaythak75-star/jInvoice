@@ -3,7 +3,6 @@ import { auth } from "../../data/AuthStore";
 import { prefs } from "../../data/AutoImportPreferences";
 import { useAutoImportViewModel } from "../autoimport/useAutoImportViewModel";
 import { DesktopFolderSettings } from "../autoimport/DesktopFolderSettings";
-import { ImapConnector, isImapAvailable } from "../../autoimport/ImapConnector";
 import { desktopConnector } from "../../service/AutoImportService";
 import { startMobileSync, stopMobileSync, syncMobileNow } from "../../service/MobileSyncService";
 import { processFile } from "../../extraction/ExtractionPipeline";
@@ -43,13 +42,6 @@ export function SettingsScreen({ onSignOut }: Props) {
 
   const [fsSupported, setFsSupported] = useState(false);
 
-  const [imapConfigured, setImapConfigured] = useState(false);
-  const [imapConnectedEmail, setImapConnectedEmail] = useState<string | null>(null);
-  const [imapInputEmail, setImapInputEmail] = useState(() => prefs.imapEmail ?? "");
-  const [imapInputPassword, setImapInputPassword] = useState("");
-  const [imapBusy, setImapBusy] = useState(false);
-  const [imapMsg, setImapMsg] = useState<{ ok: boolean; text: string } | null>(null);
-
   const [geminiApiKey, setGeminiApiKey] = useState(() => prefs.geminiApiKey);
   const [geminiKeySaved, setGeminiKeySaved] = useState(false);
 
@@ -73,15 +65,6 @@ export function SettingsScreen({ onSignOut }: Props) {
   }, []);
 
   useEffect(() => { loadMobileInfo(); }, [loadMobileInfo]);
-
-  useEffect(() => {
-    if (!isImapAvailable()) return;
-    ImapConnector.status().then(({ configured, email }) => {
-      setImapConfigured(configured);
-      setImapConnectedEmail(email);
-      if (configured && email) { prefs.imapEnabled = true; prefs.imapEmail = email; }
-    }).catch(() => {});
-  }, []);
 
   useEffect(() => { isFsAccessSupported().then(setFsSupported); }, []);
 
@@ -139,39 +122,6 @@ export function SettingsScreen({ onSignOut }: Props) {
   const gmailAuthenticated   = vm.state.gmail.isAuthenticated;
   const outlookAuthenticated = vm.state.outlook.isAuthenticated;
 
-  const handleImapConnect = async () => {
-    if (!imapInputEmail.trim() || !imapInputPassword.trim()) {
-      setImapMsg({ ok: false, text: "Enter your Gmail address and App Password." });
-      return;
-    }
-    setImapBusy(true);
-    setImapMsg(null);
-    try {
-      await ImapConnector.testConnection(imapInputEmail.trim(), imapInputPassword.trim());
-      await ImapConnector.saveCredentials(imapInputEmail.trim(), imapInputPassword.trim());
-      prefs.imapEnabled = true;
-      prefs.imapEmail = imapInputEmail.trim();
-      setImapConfigured(true);
-      setImapConnectedEmail(imapInputEmail.trim());
-      setImapInputPassword("");
-      setImapMsg({ ok: true, text: "Connected successfully." });
-    } catch (e) {
-      setImapMsg({ ok: false, text: e instanceof Error ? e.message : "Connection failed. Check your App Password." });
-    } finally {
-      setImapBusy(false);
-    }
-  };
-
-  const handleImapDisconnect = async () => {
-    await ImapConnector.disconnect();
-    prefs.imapEnabled = false;
-    prefs.imapEmail = null;
-    setImapConfigured(false);
-    setImapConnectedEmail(null);
-    setImapInputEmail("");
-    setImapInputPassword("");
-    setImapMsg(null);
-  };
 
 
   return (
@@ -203,64 +153,6 @@ export function SettingsScreen({ onSignOut }: Props) {
           onScanFiles={handleFolderScan}
         />
       </section>
-
-      {isImapAvailable() && (
-        <section className="settings-section">
-          <div className="settings-section-title">
-            Gmail via App Password
-            <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 600, color: imapConfigured ? "#22c55e" : "var(--color-text-secondary)", background: imapConfigured ? "color-mix(in srgb, #22c55e 12%, transparent)" : "var(--color-surface-2, #f4f4f8)", padding: "2px 7px", borderRadius: 10 }}>
-              {imapConfigured ? "Connected" : "Not connected"}
-            </span>
-          </div>
-          <p style={{ fontSize: 12.5, color: "var(--color-text-secondary)", marginBottom: 12 }}>
-            Connect Gmail using an App Password instead of OAuth — no 100-user limit.{" "}
-            <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noreferrer"
-              style={{ color: "var(--color-primary)" }}>
-              Generate App Password ↗
-            </a>
-          </p>
-          {imapConfigured ? (
-            <div>
-              <div className="settings-row" style={{ marginBottom: 10 }}>
-                <span className="settings-row-label" style={{ fontWeight: 500 }}>{imapConnectedEmail}</span>
-                <button className="btn-sm" style={{ color: "#ef4444", borderColor: "#ef4444" }}
-                  onClick={handleImapDisconnect}>
-                  Disconnect
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <input
-                className="settings-input"
-                type="email"
-                placeholder="your@gmail.com"
-                value={imapInputEmail}
-                onChange={(e) => setImapInputEmail(e.target.value)}
-                autoComplete="email"
-              />
-              <div style={{ display: "flex", gap: 8 }}>
-                <input
-                  className="settings-input"
-                  type="password"
-                  placeholder="App Password (16 chars)"
-                  value={imapInputPassword}
-                  onChange={(e) => setImapInputPassword(e.target.value)}
-                  style={{ flex: 1 }}
-                />
-                <button className="btn-sm" onClick={handleImapConnect} disabled={imapBusy}>
-                  {imapBusy ? "Testing…" : "Connect"}
-                </button>
-              </div>
-            </div>
-          )}
-          {imapMsg && (
-            <p className={`settings-msg ${imapMsg.ok ? "settings-msg--ok" : "settings-msg--err"}`} style={{ marginTop: 8 }}>
-              {imapMsg.text}
-            </p>
-          )}
-        </section>
-      )}
 
       {(gmailAuthenticated || outlookAuthenticated) && (
         <section className="settings-section">
