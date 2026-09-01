@@ -48,14 +48,6 @@ function formatSourceWithEmail(importSource: string): string {
   return formatSource(importSource);
 }
 
-function logicalFileType(rec: InvoiceMeta): string {
-  const types = rec.docTypes ?? (rec.docType ? [rec.docType] : []);
-  if (types.includes("travel")) return "Travel";
-  if (types.includes("tax"))    return "Tax";
-  if (types.includes("coupon")) return "Coupon";
-  if (types.includes("other"))  return "Other";
-  return "Invoice";
-}
 
 function statusColor(status: string): string {
   switch (status) {
@@ -1396,13 +1388,12 @@ export function ViewScreen() {
                     style={{ flexShrink: 0, background: "none", border: "none", cursor: "pointer", color: "var(--color-text-tertiary)", padding: "2px 4px", fontSize: 13, lineHeight: 1 }}
                   >👁</button>
                 </div>
-                {/* Line 2: source (with account email) + logical file type + status chips + amount */}
+                {/* Line 2: source (with account email) + status chips + amount */}
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 5 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
                     <span className="view-chip view-chip--source" style={{ maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={formatSourceWithEmail(rec.importSource)}>
                       {formatSourceWithEmail(rec.importSource)}
                     </span>
-                    <span className="view-chip view-chip--doctype">{logicalFileType(rec)}</span>
                     {(rec.clientTags ?? []).map((tag) => (
                       <span key={tag} className="view-chip" style={{ color: "#0891b2", borderColor: "#0891b2", background: "#ecfeff", display: "inline-flex", alignItems: "center", gap: 2 }}>
                         {tag}
@@ -1448,10 +1439,10 @@ export function ViewScreen() {
                     <span style={labelStyle}>Received</span>{rec.receivedAt ? formatDate(rec.receivedAt) : formatDate(rec.createdAt)}
                   </span>
                 </div>
-                {/* Line 4: Sender */}
+                {/* Line 4: Received from */}
                 <div style={{ display: "flex", alignItems: "center", gap: 12, ...metaStyle }}>
                   <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    <span style={labelStyle}>Sender</span>{rec.senderEmail ?? "—"}
+                    <span style={labelStyle}>Received from</span>{rec.senderEmail ?? "—"}
                   </span>
                 </div>
               </div>
