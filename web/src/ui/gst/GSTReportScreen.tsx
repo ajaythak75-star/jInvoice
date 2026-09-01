@@ -154,6 +154,59 @@ function buildCsv(rows: GSTRow[], periodLabel: string): string {
   return [header, ...lines].join("\n");
 }
 
+function ClientTagDrillDown({ tag, records }: { tag: string; records: InvoiceMeta[] }) {
+  if (records.length === 0) return null;
+  const taxTotal   = records.reduce((s, r) => s + ((r.grandTotalPaise ?? 0) - (r.taxPaise ?? 0)), 0);
+  const gstTotal   = records.reduce((s, r) => s + (r.taxPaise ?? 0), 0);
+  const grandTotal = records.reduce((s, r) => s + (r.grandTotalPaise ?? 0), 0);
+  return (
+    <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10, marginBottom: 16, overflow: "hidden" }}>
+      <div style={{ padding: "10px 14px 8px", borderBottom: "1px solid var(--color-border)", display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ fontSize: 11, fontWeight: 700, color: "#0891b2", textTransform: "uppercase", letterSpacing: "0.07em" }}>
+          {tag}
+        </span>
+        <span style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}>
+          · {records.length} invoice{records.length !== 1 ? "s" : ""}
+        </span>
+      </div>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr style={{ borderBottom: "1px solid var(--color-border)" }}>
+              {(["Invoice No", "Taxable Amt", "GST Paid", "Total"] as const).map((h, i) => (
+                <th key={h} style={{ fontSize: 10, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em", padding: "7px 12px", textAlign: i === 0 ? "left" : "right", whiteSpace: "nowrap" }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {[...records].sort((a, b) => (b.invoiceDate ?? b.createdAt ?? "").localeCompare(a.invoiceDate ?? a.createdAt ?? "")).map((r, i) => {
+              const taxable = (r.grandTotalPaise ?? 0) - (r.taxPaise ?? 0);
+              return (
+                <tr key={r.id ?? i} style={{ borderBottom: "1px solid var(--color-border)", background: i % 2 === 0 ? "transparent" : "var(--color-surface-2)" }}>
+                  <td style={{ fontSize: 12, color: "var(--color-text)", padding: "8px 12px", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {r.invoiceNumber ?? <span style={{ color: "var(--color-text-tertiary)" }}>—</span>}
+                  </td>
+                  <td style={{ fontSize: 12, color: "var(--color-text)", padding: "8px 12px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(taxable)}</td>
+                  <td style={{ fontSize: 12, color: "#0891b2", fontWeight: 600, padding: "8px 12px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{r.taxPaise ? fmtRupee(r.taxPaise) : <span style={{ color: "var(--color-text-tertiary)" }}>—</span>}</td>
+                  <td style={{ fontSize: 12, fontWeight: 700, color: "var(--color-primary)", padding: "8px 12px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(r.grandTotalPaise ?? 0)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+          <tfoot>
+            <tr style={{ borderTop: "1.5px solid var(--color-border)", background: "var(--color-surface-2)" }}>
+              <td style={{ fontSize: 11, fontWeight: 700, color: "var(--color-text-secondary)", padding: "8px 12px" }}>Total</td>
+              <td style={{ fontSize: 12, fontWeight: 700, padding: "8px 12px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(taxTotal)}</td>
+              <td style={{ fontSize: 12, fontWeight: 700, color: "#0891b2", padding: "8px 12px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(gstTotal)}</td>
+              <td style={{ fontSize: 12, fontWeight: 700, color: "var(--color-primary)", padding: "8px 12px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(grandTotal)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function DrillDownPanel({ records, onClose }: { records: InvoiceMeta[]; onClose: () => void }) {
   if (records.length === 0) return null;
   return (
@@ -408,6 +461,11 @@ export function GSTReportScreen() {
             </button>
           ))}
         </div>
+      )}
+
+      {/* ── Client tag drill-down ── */}
+      {filterClient && (
+        <ClientTagDrillDown tag={filterClient} records={filteredRecords} />
       )}
 
       {/* ── Summary cards ── */}
