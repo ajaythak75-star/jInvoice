@@ -624,9 +624,13 @@ function _findPdfParts(struct, partId = "") {
   const parts = [];
   const type     = (struct.type    ?? "").toLowerCase();
   const subtype  = (struct.subtype ?? "").toLowerCase();
-  const filename = struct.disposition?.parameters?.filename ?? struct.parameters?.name ?? "";
-  const isPdf    = (type === "application" && subtype === "pdf") || filename.toLowerCase().endsWith(".pdf");
-  if (isPdf && partId) { parts.push({ id: partId, name: filename || "invoice.pdf" }); return parts; }
+  const filename = struct.disposition?.parameters?.filename
+    ?? struct.parameters?.name
+    ?? struct.disposition?.parameters?.["filename*"] ?? "";
+  const isPdf    = (type === "application" && (subtype === "pdf" || subtype === "octet-stream") && filename.toLowerCase().endsWith(".pdf"))
+    || (type === "application" && subtype === "pdf");
+  // For root-level single-part PDF, IMAP part ID is "1"
+  if (isPdf) { parts.push({ id: partId || "1", name: filename || "invoice.pdf" }); return parts; }
   (struct.childNodes ?? []).forEach((child, i) => {
     const cId = partId ? `${partId}.${i + 1}` : `${i + 1}`;
     parts.push(..._findPdfParts(child, cId));
@@ -659,6 +663,7 @@ app.post("/api/imap/poll", async (req, res) => {
   if (!email || !appPassword) return res.status(400).json({ error: "email and appPassword required" });
   const since = new Date();
   since.setMonth(since.getMonth() - months);
+  console.log(`[IMAP] poll start: ${email}, since=${since.toISOString()}, months=${months}`);
   const { ImapFlow } = await import("imapflow");
   const client = new ImapFlow({
     host: "imap.gmail.com", port: 993, secure: true,
@@ -671,31 +676,42 @@ app.post("/api/imap/poll", async (req, res) => {
     const results = [];
     try {
       const seqNos = await client.search({ since });
+      console.log(`[IMAP] search found ${seqNos.length} messages, processing last 200`);
       const slice = seqNos.slice(-200);
       if (slice.length) {
+        // Collect metadata first, then download (avoids concurrent IMAP commands)
+        const toDownload = [];
         for await (const msg of client.fetch(slice, { envelope: true, bodyStructure: true })) {
           const pdfParts = _findPdfParts(msg.bodyStructure);
+          console.log(`[IMAP] msg seq=${msg.seq} subject="${msg.envelope.subject}" → pdfParts=${pdfParts.length} (type=${msg.bodyStructure?.type}/${msg.bodyStructure?.subtype})`);
           if (!pdfParts.length) continue;
-          const msgId = `imap:${msg.envelope.messageId ?? msg.seq}`;
+          toDownload.push({
+            seq: msg.seq,
+            msgId: `imap:${msg.envelope.messageId ?? msg.seq}`,
+            subject: msg.envelope.subject ?? "",
+            senderEmail: (msg.envelope.from ?? [])[0]?.address ?? "",
+            receivedAt: msg.envelope.date?.toISOString() ?? new Date().toISOString(),
+            pdfParts,
+          });
+        }
+        console.log(`[IMAP] ${toDownload.length} messages have PDF attachments — downloading`);
+        for (const { seq, msgId, subject, senderEmail, receivedAt, pdfParts } of toDownload) {
           const attachments = [];
           for (const part of pdfParts) {
             try {
-              const { content } = await client.download(`${msg.seq}`, part.id);
+              console.log(`[IMAP] downloading seq=${seq} part=${part.id} name="${part.name}"`);
+              const { content } = await client.download(`${seq}`, part.id);
               const chunks = [];
               for await (const chunk of content) chunks.push(chunk);
-              attachments.push({ filename: part.name, data: Buffer.concat(chunks).toString("base64") });
+              const bytes = Buffer.concat(chunks);
+              console.log(`[IMAP] downloaded ${bytes.length} bytes for "${part.name}"`);
+              attachments.push({ filename: part.name, data: bytes.toString("base64") });
             } catch (e) {
-              console.error("[IMAP] download part failed:", e.message);
+              console.error(`[IMAP] download failed seq=${seq} part=${part.id}:`, e.message);
             }
           }
           if (attachments.length) {
-            results.push({
-              messageId: msgId,
-              subject: msg.envelope.subject ?? "",
-              senderEmail: (msg.envelope.from ?? [])[0]?.address ?? "",
-              receivedAt: msg.envelope.date?.toISOString() ?? new Date().toISOString(),
-              attachments,
-            });
+            results.push({ messageId: msgId, subject, senderEmail, receivedAt, attachments });
           }
         }
       }
@@ -703,8 +719,10 @@ app.post("/api/imap/poll", async (req, res) => {
       lock.release();
     }
     await client.logout();
+    console.log(`[IMAP] poll complete: ${results.length} messages with PDFs`);
     res.json({ results });
   } catch (e) {
+    console.error("[IMAP] poll error:", e.message);
     try { await client.logout(); } catch {}
     res.status(500).json({ error: String(e) });
   }
