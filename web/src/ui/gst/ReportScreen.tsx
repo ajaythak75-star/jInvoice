@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useCallback, useEffect, useState, useMemo } from "react";
 import { GSTReportScreen } from "./GSTReportScreen";
 import { db, type InvoiceMeta } from "../../data/InvoiceDatabase";
 import { prefs } from "../../data/AutoImportPreferences";
@@ -54,15 +54,28 @@ function filterByYear(records: InvoiceMeta[], year: number | null): InvoiceMeta[
 function useInvoices() {
   const [records, setRecords] = useState<InvoiceMeta[]>([]);
   const [loading, setLoading] = useState(true);
-  useEffect(() => {
+
+  const load = useCallback(() => {
     db.invoices.toArray().then(rows =>
       setRecords(rows.filter(r =>
         r.grandTotalPaise != null &&
         r.status !== "extraction_failed" &&
         r.status !== "import_blocked_encrypted"
       ))
-    ).finally(() => setLoading(false));
+    ).catch(console.error)
+     .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    load();
+    window.addEventListener("jinvoice:sync-complete", load);
+    window.addEventListener("jinvoice:tags-changed", load);
+    return () => {
+      window.removeEventListener("jinvoice:sync-complete", load);
+      window.removeEventListener("jinvoice:tags-changed", load);
+    };
+  }, [load]);
+
   return { records, loading };
 }
 
@@ -81,12 +94,14 @@ function TagCell({ rec }: { rec: InvoiceMeta }) {
     setInput("");
     await db.invoices.update(rec.id!, { clientTags: next, updatedAt: new Date().toISOString() });
     if (!knownTags.includes(t)) prefs.clientTags = [...knownTags, t].sort();
+    window.dispatchEvent(new CustomEvent("jinvoice:tags-changed"));
   };
 
   const removeTag = async (tag: string) => {
     const next = tags.filter((t) => t !== tag);
     setTags(next);
     await db.invoices.update(rec.id!, { clientTags: next, updatedAt: new Date().toISOString() });
+    window.dispatchEvent(new CustomEvent("jinvoice:tags-changed"));
   };
 
   return (
