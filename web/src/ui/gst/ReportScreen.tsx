@@ -224,7 +224,7 @@ function PeriodReportTab({ records }: { records: InvoiceMeta[] }) {
     <div style={{ padding: "20px", maxWidth: 900, margin: "0 auto" }}>
       <div style={{ marginBottom: 16 }}>
         <h2 style={{ fontSize: 18, fontWeight: 700, color: "var(--color-text)", margin: 0 }}>Expense by Period</h2>
-        <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 3 }}>Invoice spend grouped by time period</p>
+        <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 3 }}>Monthly, quarterly, or yearly spend — for bookkeepers, tax consultants, societies, and individuals</p>
       </div>
 
       <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 14 }}>
@@ -342,7 +342,7 @@ function VendorReportTab({ records }: { records: InvoiceMeta[] }) {
     <div style={{ padding: "20px", maxWidth: 900, margin: "0 auto" }}>
       <div style={{ marginBottom: 16 }}>
         <h2 style={{ fontSize: 18, fontWeight: 700, color: "var(--color-text)", margin: 0 }}>By Vendor / Merchant</h2>
-        <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 3 }}>Spending by supplier — track where your money goes</p>
+        <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 3 }}>Spending by supplier — for shopkeepers, bookkeepers, real estate agents, and societies</p>
       </div>
 
       <YearRow years={years} year={year} setYear={setYear} />
@@ -457,7 +457,7 @@ function TagsReportTab({ records }: { records: InvoiceMeta[] }) {
       <div style={{ marginBottom: 16 }}>
         <h2 style={{ fontSize: 18, fontWeight: 700, color: "var(--color-text)", margin: 0 }}>By Tags</h2>
         <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 3 }}>
-          Spending by client or project — for freelancers, advocates, and consultants
+          Spending by client or project — for freelancers, advocates, real estate agents, and bookkeepers
         </p>
       </div>
 
@@ -477,7 +477,11 @@ function TagsReportTab({ records }: { records: InvoiceMeta[] }) {
       {tagged.length === 0 ? (
         <div style={{ textAlign: "center", padding: "48px 0", color: "var(--color-text-secondary)", fontSize: 13 }}>
           No {mode === "client" ? "client tags" : "project tags"} found.{" "}
-          <span style={{ opacity: 0.7 }}>Tag invoices in View screen to see them here.</span>
+          <span style={{ opacity: 0.7 }}>
+            {mode === "client"
+              ? "Tag invoices with a client name (e.g. buyer, tenant, or company) in the View screen."
+              : "Tag invoices with a project (e.g. property address, deal name, or account) in the View screen."}
+          </span>
         </div>
       ) : (
         <>
@@ -624,7 +628,7 @@ function CategoryReportTab({ records }: { records: InvoiceMeta[] }) {
     <div style={{ padding: "20px", maxWidth: 900, margin: "0 auto" }}>
       <div style={{ marginBottom: 16 }}>
         <h2 style={{ fontSize: 18, fontWeight: 700, color: "var(--color-text)", margin: 0 }}>By Category</h2>
-        <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 3 }}>Breakdown by document type and payment method</p>
+        <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 3 }}>Breakdown by document type and payment method — for bookkeepers, tax consultants, and normal users</p>
       </div>
 
       <YearRow years={years} year={year} setYear={setYear} />
