@@ -38,15 +38,13 @@ function formatSource(src: string): string {
 }
 
 function formatSourceWithEmail(importSource: string): string {
-  const label = formatSource(importSource);
-  let email: string | null = null;
-  if (importSource === "gmail") email = prefs.gmailEmail;
-  else if (importSource === "outlook") email = prefs.outlookEmail;
-  else if (importSource === "imap") {
+  if (importSource === "gmail") return prefs.gmailEmail ?? formatSource(importSource);
+  if (importSource === "outlook") return prefs.outlookEmail ?? formatSource(importSource);
+  if (importSource === "imap") {
     const accounts = ImapConnector.getAccounts();
-    email = accounts[0]?.email ?? (prefs.imapEmail ?? null);
+    return accounts[0]?.email ?? prefs.imapEmail ?? formatSource(importSource);
   }
-  return email ? `${label} (${email})` : label;
+  return formatSource(importSource);
 }
 
 function logicalFileType(rec: InvoiceMeta): string {
