@@ -855,6 +855,8 @@ export function ViewScreen() {
   const [previewSubmitting, setPreviewSubmitting] = useState(false);
   const [previewCloudSaving, setPreviewCloudSaving] = useState(false);
   const [aiExtracting, setAiExtracting] = useState(false);
+  const [bulkExtracting, setBulkExtracting] = useState(false);
+  const [bulkExtractProgress, setBulkExtractProgress] = useState<{ done: number; total: number } | null>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const [billIssues, setBillIssues] = useState<Map<number, BillIssue[]>>(new Map());
   const [syncingId, setSyncingId] = useState<number | null>(null);
@@ -1145,6 +1147,26 @@ export function ViewScreen() {
     setTimeout(() => setCloudSyncMsg(null), 3000);
   };
 
+  const handleBulkExtract = async () => {
+    const pending = records.filter((r) => r.status === "pending_extraction" && r.id != null);
+    if (pending.length === 0) return;
+    setBulkExtracting(true);
+    setBulkExtractProgress({ done: 0, total: pending.length });
+    let done = 0;
+    for (const rec of pending) {
+      try {
+        await extractInvoiceWithAI(rec.id!);
+      } catch (e) {
+        console.error("[ViewScreen] bulk extract failed for", rec.id, e);
+      }
+      done++;
+      setBulkExtractProgress({ done, total: pending.length });
+    }
+    setBulkExtracting(false);
+    setBulkExtractProgress(null);
+    load();
+  };
+
   if (loading) return <div className="placeholder-screen"><p>Loading…</p></div>;
 
   if (records.length === 0) {
@@ -1203,6 +1225,18 @@ export function ViewScreen() {
               <button className="btn-sm" onClick={() => uploadInputRef.current?.click()} disabled={previewLoading}>
                 {previewLoading ? "Extracting…" : "+ Upload PDF"}
               </button>
+            {records.some((r) => r.status === "pending_extraction") && (
+              <button
+                className="btn-sm"
+                disabled={bulkExtracting}
+                style={{ background: "#8b5cf6", color: "#fff", border: "none", fontWeight: 700 }}
+                onClick={handleBulkExtract}
+              >
+                {bulkExtracting && bulkExtractProgress
+                  ? `Extracting ${bulkExtractProgress.done}/${bulkExtractProgress.total}…`
+                  : `Extract AI (${records.filter((r) => r.status === "pending_extraction").length})`}
+              </button>
+            )}
             <button className="btn-sm" onClick={() => { setRefreshing(true); load(); }} disabled={refreshing}>
               {refreshing ? "Refreshing…" : "Refresh"}
             </button>

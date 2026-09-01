@@ -413,14 +413,14 @@ export function AutoImportSettings() {
   useEffect(() => {
     const onStart = () => { setSyncing(true); setSyncResult(null); };
     const onDone  = (e: Event) => {
-      const { found, processed, cancelled } = (e as CustomEvent).detail as { found: number; processed: number; cancelled: boolean };
+      const { found, cancelled } = (e as CustomEvent).detail as { found: number; processed: number; cancelled: boolean };
       setSyncing(false);
       if (cancelled) {
         setSyncResult("Sync cancelled.");
       } else {
         setSyncResult(found === 0
           ? "No new PDFs found. Make sure your email has a .pdf attachment."
-          : `Found ${found} PDF(s). Processed ${processed}.`
+          : `Found ${found} PDF(s). Saved as Pending AI — click Extract AI on each card to extract.`
         );
       }
     };
@@ -428,13 +428,22 @@ export function AutoImportSettings() {
       setSyncing(false);
       setSyncResult(`Error: ${(e as CustomEvent).detail?.message ?? "Unknown error"}`);
     };
+    const onAccountFailed = (e: Event) => {
+      const { accounts } = (e as CustomEvent).detail as { accounts: string[] };
+      setSyncResult((prev) => {
+        const warning = `Session expired for: ${accounts.join(", ")} — reconnect to sync these accounts.`;
+        return prev ? `${prev} ${warning}` : warning;
+      });
+    };
     window.addEventListener("jinvoice:sync-start", onStart);
     window.addEventListener("jinvoice:sync-done",  onDone);
     window.addEventListener("jinvoice:sync-error", onError);
+    window.addEventListener("jinvoice:sync-account-failed", onAccountFailed);
     return () => {
       window.removeEventListener("jinvoice:sync-start", onStart);
       window.removeEventListener("jinvoice:sync-done",  onDone);
       window.removeEventListener("jinvoice:sync-error", onError);
+      window.removeEventListener("jinvoice:sync-account-failed", onAccountFailed);
     };
   }, []);
 

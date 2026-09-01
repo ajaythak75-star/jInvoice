@@ -91,6 +91,31 @@ export async function processFile(
   // Skip Gemini — save file metadata with pending_extraction status for later AI processing in View screen
   if (options?.skipGemini) {
     if (classification === "encrypted") return { kind: "encryptedPdf" };
+
+    // Filename duplicate — same file was already saved; mark visible as duplicate
+    if (file.name && await isDuplicateByFilename(file.name)) {
+      console.log("[Pipeline] skipGemini filename duplicate:", file.name);
+      const pdfSourceType =
+        classification === "native" ? "NATIVE_PDF" :
+        classification === "scanned" ? "SCANNED_PDF" : "MIXED_PDF";
+      const now = new Date().toISOString();
+      await insertInvoiceWithItems(
+        {
+          merchantName: null, merchantAddress: null, merchantGstin: null,
+          merchantPincode: null, invoiceNumber: null, invoiceDate: null,
+          subtotalPaise: null, grandTotalPaise: null, discountPaise: 0,
+          taxPaise: null, paymentMode: null,
+          importSource, pdfSourceType, importRecordId: null,
+          status: "duplicate", docType: "other", docTypes: ["other"],
+          sourceFilename: file.name,
+          subject: meta?.subject, senderEmail: meta?.senderEmail, receivedAt: meta?.receivedAt,
+          createdAt: now, updatedAt: now,
+        },
+        [],
+      );
+      return { kind: "pendingExtraction" };
+    }
+
     const now = new Date().toISOString();
     const pdfSourceType =
       classification === "native" ? "NATIVE_PDF" :

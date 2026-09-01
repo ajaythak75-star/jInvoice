@@ -166,6 +166,8 @@ export async function poll(): Promise<{ found: number; processed: number; cancel
     const imapChecker    = enabledImapAccounts.length  > 0 ? await makeEmailChecker("imap")    : null;
 
     // ── fetch ALL accounts across ALL providers in parallel ──────────────
+    const failedAccounts: string[] = [];
+
     const [gmailResults, outlookResults, imapResults] = await Promise.all([
       gmailChecker
         ? Promise.all(gmailAccounts.map(async (acct) => {
@@ -174,6 +176,7 @@ export async function poll(): Promise<{ found: number; processed: number; cancel
               return raw.map((r): SourcedResult => ({ ...r, accountEmail: acct.email, source: "gmail" }));
             } catch (e) {
               console.error(`[AutoImport] Gmail ${acct.email} sync failed:`, e);
+              failedAccounts.push(acct.email);
               return [] as SourcedResult[];
             }
           })).then((nested) => nested.flat())
@@ -186,6 +189,7 @@ export async function poll(): Promise<{ found: number; processed: number; cancel
               return raw.map((r): SourcedResult => ({ ...r, accountEmail: acct.email, source: "outlook" }));
             } catch (e) {
               console.error(`[AutoImport] Outlook ${acct.email} sync failed:`, e);
+              failedAccounts.push(acct.email);
               return [] as SourcedResult[];
             }
           })).then((nested) => nested.flat())
@@ -201,11 +205,16 @@ export async function poll(): Promise<{ found: number; processed: number; cancel
               return raw.map((r): SourcedResult => ({ ...r, accountEmail: acct.email, source: "imap" }));
             } catch (e) {
               console.error(`[AutoImport] IMAP ${acct.email} sync failed:`, e);
+              failedAccounts.push(acct.email);
               return [] as SourcedResult[];
             }
           })).then((nested) => nested.flat())
         : Promise.resolve([] as SourcedResult[]),
     ]);
+
+    if (failedAccounts.length > 0) {
+      window.dispatchEvent(new CustomEvent("jinvoice:sync-account-failed", { detail: { accounts: failedAccounts } }));
+    }
 
     // ── extract all email results through a shared concurrent pool ────────
     const allEmailResults = [...gmailResults, ...outlookResults, ...imapResults];

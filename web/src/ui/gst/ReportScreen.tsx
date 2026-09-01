@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { GSTReportScreen } from "./GSTReportScreen";
 import { db, type InvoiceMeta } from "../../data/InvoiceDatabase";
+import { prefs } from "../../data/AutoImportPreferences";
 
 type ReportTab = "gst" | "period" | "vendor" | "tags" | "category";
 type PeriodView = "daily" | "monthly" | "quarterly" | "yearly" | "custom";
@@ -67,6 +68,49 @@ function useInvoices() {
 
 // ── drill-down panel ──────────────────────────────────────────────────────────
 
+function TagCell({ rec }: { rec: InvoiceMeta }) {
+  const [tags, setTags] = useState<string[]>(rec.clientTags ?? []);
+  const [input, setInput] = useState("");
+  const knownTags = prefs.clientTags;
+
+  const addTag = async (tag: string) => {
+    const t = tag.trim();
+    if (!t || tags.includes(t)) return;
+    const next = [...tags, t];
+    setTags(next);
+    setInput("");
+    await db.invoices.update(rec.id!, { clientTags: next, updatedAt: new Date().toISOString() });
+    if (!knownTags.includes(t)) prefs.clientTags = [...knownTags, t].sort();
+  };
+
+  const removeTag = async (tag: string) => {
+    const next = tags.filter((t) => t !== tag);
+    setTags(next);
+    await db.invoices.update(rec.id!, { clientTags: next, updatedAt: new Date().toISOString() });
+  };
+
+  return (
+    <td style={{ padding: "5px 10px", minWidth: 150 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
+        {tags.map((t) => (
+          <span key={t} style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, background: "color-mix(in srgb, var(--color-primary) 12%, transparent)", color: "var(--color-primary)", borderRadius: 4, padding: "1px 6px", fontWeight: 600 }}>
+            {t}
+            <button onClick={() => removeTag(t)} style={{ fontSize: 10, background: "none", border: "none", cursor: "pointer", color: "var(--color-primary)", padding: 0, lineHeight: 1 }}>×</button>
+          </span>
+        ))}
+        <input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTag(input); } }}
+          onBlur={() => { if (input.trim()) addTag(input); }}
+          placeholder="+ tag"
+          style={{ fontSize: 11, width: 60, border: "none", background: "transparent", color: "var(--color-text-secondary)", outline: "none", cursor: "text" }}
+        />
+      </div>
+    </td>
+  );
+}
+
 function DrillDownPanel({ records, onClose }: { records: InvoiceMeta[]; onClose: () => void }) {
   if (records.length === 0) return null;
   return (
@@ -83,8 +127,8 @@ function DrillDownPanel({ records, onClose }: { records: InvoiceMeta[]; onClose:
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr>
-                  {["Date", "Vendor", "Invoice #", "Amount", "Tax"].map((h, i) => (
-                    <th key={h} style={{ fontSize: 10, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em", padding: "4px 10px", textAlign: i <= 2 ? "left" : "right", whiteSpace: "nowrap" }}>{h}</th>
+                  {["Date", "Vendor", "Invoice #", "Amount", "Tax", "Tags"].map((h, i) => (
+                    <th key={h} style={{ fontSize: 10, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em", padding: "4px 10px", textAlign: i >= 3 && i <= 4 ? "right" : "left", whiteSpace: "nowrap" }}>{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -98,6 +142,7 @@ function DrillDownPanel({ records, onClose }: { records: InvoiceMeta[]; onClose:
                     <td style={{ fontSize: 11, color: "var(--color-text-secondary)", padding: "5px 10px", maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.invoiceNumber ?? "—"}</td>
                     <td style={{ fontSize: 12, fontWeight: 600, color: "var(--color-text)", padding: "5px 10px", textAlign: "right", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{fmtRupee(r.grandTotalPaise ?? 0)}</td>
                     <td style={{ fontSize: 11.5, color: "var(--color-text-secondary)", padding: "5px 10px", textAlign: "right", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{r.taxPaise ? fmtRupee(r.taxPaise) : "—"}</td>
+                    <TagCell rec={r} />
                   </tr>
                 ))}
               </tbody>
