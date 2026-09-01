@@ -651,11 +651,18 @@ function _findHtmlPart(struct, partId = "") {
   return null;
 }
 
-// Heuristic: does the HTML content look like an invoice/receipt?
+// Heuristic: does the HTML content look like an invoice, receipt, or financial transaction?
 function _looksLikeInvoice(html) {
   const lower = html.toLowerCase();
-  const hits = ["invoice", "receipt", "bill", "payment", "amount due", "total", "order", "subscription", "tax", "due date"]
-    .filter(kw => lower.includes(kw)).length;
+  const hits = [
+    // Standard invoice/receipt terms
+    "invoice", "receipt", "bill", "payment", "amount due", "total", "order",
+    "subscription", "tax", "due date",
+    // Investment / transaction terms (Groww, Zerodha, Kite, mutual funds, etc.)
+    "transaction", "purchase", "statement", "amount", "debit", "credit",
+    "units", "folio", "confirmation", "invested", "redeemed", "sip",
+    "mutual fund", "nav", "₹", "inr",
+  ].filter(kw => lower.includes(kw)).length;
   return hits >= 2;
 }
 
