@@ -44,7 +44,7 @@ function formatSourceWithEmail(importSource: string): string {
   else if (importSource === "outlook") email = prefs.outlookEmail;
   else if (importSource === "imap") {
     const accounts = ImapConnector.getAccounts();
-    email = accounts.length === 1 ? accounts[0].email : (prefs.imapEmail ?? null);
+    email = accounts[0]?.email ?? (prefs.imapEmail ?? null);
   }
   return email ? `${label} (${email})` : label;
 }
