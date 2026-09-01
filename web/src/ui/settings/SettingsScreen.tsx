@@ -1,10 +1,8 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { auth } from "../../data/AuthStore";
 import { prefs } from "../../data/AutoImportPreferences";
 import { useAutoImportViewModel } from "../autoimport/useAutoImportViewModel";
 import { DesktopFolderSettings } from "../autoimport/DesktopFolderSettings";
-import { GmailConnector } from "../../autoimport/GmailConnector";
-import { OutlookConnector } from "../../autoimport/OutlookConnector";
 import { ImapConnector, isImapAvailable } from "../../autoimport/ImapConnector";
 import { desktopConnector } from "../../service/AutoImportService";
 import { startMobileSync, stopMobileSync, syncMobileNow } from "../../service/MobileSyncService";
@@ -24,99 +22,6 @@ function uploadResultMessage(r: ExtractionResult): string {
   return "Unknown result";
 }
 
-function FolderPicker({
-  options,
-  selected,
-  onChange,
-  fallbackId,
-}: {
-  options: { id: string; label: string }[];
-  selected: string[];
-  onChange: (ids: string[]) => void;
-  fallbackId: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const [dropPos, setDropPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
-  const btnRef = useRef<HTMLButtonElement>(null);
-
-  const selectedSet = new Set(selected);
-  const allSelected = options.length > 0 && options.every((o) => selectedSet.has(o.id));
-
-  const toggle = (id: string) => {
-    if (selectedSet.has(id)) {
-      const next = selected.filter((s) => s !== id);
-      onChange(next.length ? next : [fallbackId]);
-    } else {
-      onChange([...selected, id]);
-    }
-  };
-
-  const handleOpen = () => {
-    if (open) { setOpen(false); return; }
-    if (btnRef.current) {
-      const r = btnRef.current.getBoundingClientRect();
-      setDropPos({ top: r.bottom + 4, left: r.left });
-    }
-    setOpen(true);
-  };
-
-  const label = allSelected
-    ? "All folders"
-    : selected.length === 0
-    ? "No folders"
-    : `${selected.length} of ${options.length} folders`;
-
-  return (
-    <div style={{ display: "inline-block" }}>
-      {open && <div style={{ position: "fixed", inset: 0, zIndex: 99 }} onClick={() => setOpen(false)} />}
-      <button
-        ref={btnRef}
-        onClick={handleOpen}
-        style={{ fontSize: 13, padding: "4px 10px", borderRadius: 6, border: "1px solid var(--color-border)", background: "var(--color-surface)", color: "var(--color-text)", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 5 }}
-      >
-        {label}
-        <span style={{ fontSize: 10, opacity: 0.55 }}>▾</span>
-      </button>
-      {open && (
-        <div style={{ position: "fixed", top: dropPos.top, left: dropPos.left, zIndex: 100, background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,.14)", minWidth: 210, maxHeight: 260, display: "flex", flexDirection: "column" }}>
-          <div style={{ overflowY: "auto", flex: 1 }}>
-            {options.map((o) => (
-              <label
-                key={o.id}
-                style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", fontSize: 12.5, cursor: "pointer", color: "var(--color-text)" }}
-                onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "var(--color-surface-2)"; }}
-                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = ""; }}
-              >
-                <input
-                  type="checkbox"
-                  checked={selectedSet.has(o.id)}
-                  onChange={() => toggle(o.id)}
-                  style={{ accentColor: "var(--color-primary)" }}
-                />
-                {o.label}
-              </label>
-            ))}
-          </div>
-          <div style={{ display: "flex", gap: 6, padding: "7px 10px", borderTop: "1px solid var(--color-border)" }}>
-            <button
-              onClick={() => onChange(options.map((o) => o.id))}
-              style={{ flex: 1, fontSize: 11.5, padding: "3px 6px", borderRadius: 4, border: "1px solid var(--color-border)", background: "var(--color-surface)", color: "var(--color-primary)", cursor: "pointer", fontWeight: 600 }}
-            >
-              All
-            </button>
-            <button
-              onClick={() => onChange([fallbackId])}
-              style={{ flex: 1, fontSize: 11.5, padding: "3px 6px", borderRadius: 4, border: "1px solid var(--color-border)", background: "var(--color-surface)", color: "var(--color-text-secondary)", cursor: "pointer" }}
-            >
-              Clear
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 interface Props {
   onSignOut: () => void;
 }
@@ -131,16 +36,6 @@ export function SettingsScreen({ onSignOut }: Props) {
   const [proPin,      setProPin]      = useState(() => prefs.customerPin);
   const [proCountry,  setProCountry]  = useState(() => prefs.customerCountry);
   const [proFormErr,  setProFormErr]  = useState<string | null>(null);
-
-  const [gmailLabels, setGmailLabels]               = useState<{ id: string; name: string }[]>([]);
-  const [gmailLabelIds, setGmailLabelIds]           = useState<string[]>(() => prefs.gmailLabelIds);
-  const [gmailLabelsLoading, setGmailLabelsLoading] = useState(false);
-  const [gmailLabelsError, setGmailLabelsError]     = useState<string | null>(null);
-
-  const [outlookFolders, setOutlookFolders]               = useState<{ id: string; displayName: string }[]>([]);
-  const [outlookFolderIds, setOutlookFolderIds]           = useState<string[]>(() => prefs.outlookFolderIds);
-  const [outlookFoldersLoading, setOutlookFoldersLoading] = useState(false);
-  const [outlookFoldersError, setOutlookFoldersError]     = useState<string | null>(null);
 
   const [notificationsEnabled, setNotificationsEnabled] = useState(() => prefs.notificationsEnabled);
   const [allowedSenders, setAllowedSenders] = useState<string[]>(() => prefs.allowedSenders);
@@ -189,16 +84,6 @@ export function SettingsScreen({ onSignOut }: Props) {
   }, []);
 
   useEffect(() => { isFsAccessSupported().then(setFsSupported); }, []);
-
-  useEffect(() => {
-    if (vm.state.gmail.isAuthenticated) refreshGmailLabels();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vm.state.gmail.isAuthenticated]);
-
-  useEffect(() => {
-    if (vm.state.outlook.isAuthenticated) refreshOutlookFolders();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vm.state.outlook.isAuthenticated]);
 
   const handleSignOut = () => {
     auth.signOut();
@@ -289,44 +174,6 @@ export function SettingsScreen({ onSignOut }: Props) {
   };
 
 
-  const refreshGmailLabels = () => {
-    const GMAIL_EXCLUDE = new Set(["TRASH", "SPAM", "DRAFT", "SENT", "UNREAD", "STARRED", "IMPORTANT"]);
-    setGmailLabelsLoading(true);
-    setGmailLabelsError(null);
-    new GmailConnector().fetchLabels()
-      .then((labels) => {
-        const filtered = labels.filter((l) => !GMAIL_EXCLUDE.has(l.id.toUpperCase()));
-        setGmailLabels(filtered);
-        const allIds = filtered.map((l) => l.id);
-        prefs.gmailLabelIds = allIds;
-        setGmailLabelIds(allIds);
-      })
-      .catch((err: unknown) => {
-        console.error("[Settings] Gmail label fetch failed:", err);
-        setGmailLabelsError(err instanceof Error ? err.message : "Failed to load folders");
-      })
-      .finally(() => setGmailLabelsLoading(false));
-  };
-
-  const refreshOutlookFolders = () => {
-    const OUTLOOK_EXCLUDE = new Set(["Deleted Items", "Junk Email", "Drafts", "Sent Items", "Outbox", "Trash"]);
-    setOutlookFoldersLoading(true);
-    setOutlookFoldersError(null);
-    new OutlookConnector().fetchFolders()
-      .then((folders) => {
-        const filtered = folders.filter((f) => !OUTLOOK_EXCLUDE.has(f.displayName));
-        setOutlookFolders(filtered);
-        const allIds = filtered.map((f) => f.id);
-        prefs.outlookFolderIds = allIds;
-        setOutlookFolderIds(allIds);
-      })
-      .catch((err: unknown) => {
-        console.error("[Settings] Outlook folder fetch failed:", err);
-        setOutlookFoldersError(err instanceof Error ? err.message : "Failed to load folders");
-      })
-      .finally(() => setOutlookFoldersLoading(false));
-  };
-
   return (
     <>
     <div className="settings-screen">
@@ -347,62 +194,6 @@ export function SettingsScreen({ onSignOut }: Props) {
           <button className="btn-ghost settings-signout" onClick={handleSignOut}>Sign out</button>
         </div>
       </section>
-
-      {/* Mail Folders — dropdown per provider */}
-      {(gmailAuthenticated || outlookAuthenticated) && (
-        <section className="settings-section">
-          <div className="settings-section-title">Mail Folders</div>
-          <p style={{ fontSize: 12.5, color: "var(--color-text-secondary)", marginBottom: 10 }}>
-            Choose which folders to scan for PDF attachments during sync.
-          </p>
-
-          {gmailAuthenticated && (
-            <div className="settings-row" style={{ alignItems: "flex-start", gap: 8 }}>
-              <span className="settings-row-label" style={{ paddingTop: 4 }}>Gmail</span>
-              <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
-                {gmailLabels.length === 0 ? (
-                  <span style={{ fontSize: 12.5, color: gmailLabelsError ? "#ef4444" : "var(--color-text-secondary)", paddingTop: 4 }}>
-                    {gmailLabelsLoading ? "Loading…" : gmailLabelsError ?? "No folders found"}
-                  </span>
-                ) : (
-                  <FolderPicker
-                    options={gmailLabels.map((l) => ({ id: l.id, label: l.name }))}
-                    selected={gmailLabelIds}
-                    fallbackId="INBOX"
-                    onChange={(ids: string[]) => { prefs.gmailLabelIds = ids; setGmailLabelIds(ids); }}
-                  />
-                )}
-                <button className="btn-sm" disabled={gmailLabelsLoading} onClick={refreshGmailLabels}>
-                  {gmailLabelsLoading ? "…" : "Refresh"}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {outlookAuthenticated && (
-            <div className="settings-row" style={{ alignItems: "flex-start", gap: 8, marginTop: gmailAuthenticated ? 10 : 0 }}>
-              <span className="settings-row-label" style={{ paddingTop: 4 }}>Outlook</span>
-              <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
-                {outlookFolders.length === 0 ? (
-                  <span style={{ fontSize: 12.5, color: outlookFoldersError ? "#ef4444" : "var(--color-text-secondary)", paddingTop: 4 }}>
-                    {outlookFoldersLoading ? "Loading…" : outlookFoldersError ?? "No folders found"}
-                  </span>
-                ) : (
-                  <FolderPicker
-                    options={outlookFolders.map((f) => ({ id: f.id, label: f.displayName }))}
-                    selected={outlookFolderIds}
-                    fallbackId="inbox"
-                    onChange={(ids: string[]) => { prefs.outlookFolderIds = ids; setOutlookFolderIds(ids); }}
-                  />
-                )}
-                <button className="btn-sm" disabled={outlookFoldersLoading} onClick={refreshOutlookFolders}>
-                  {outlookFoldersLoading ? "…" : "Refresh"}
-                </button>
-              </div>
-            </div>
-          )}
-        </section>
-      )}
 
       <section className="settings-section">
         <div className="settings-section-title">Desktop Folder</div>

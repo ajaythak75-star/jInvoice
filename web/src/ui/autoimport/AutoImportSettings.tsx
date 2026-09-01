@@ -133,6 +133,71 @@ const SYNC_OPTIONS: { months: number; label: string; pro: boolean }[] = [
   { months: 12, label: "1 year",   pro: true  },
 ];
 
+function FolderPicker({
+  options,
+  selected,
+  onChange,
+  fallbackId,
+}: {
+  options: { id: string; label: string }[];
+  selected: string[];
+  onChange: (ids: string[]) => void;
+  fallbackId: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [dropPos, setDropPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const selectedSet = new Set(selected);
+  const allSelected = options.length > 0 && options.every((o) => selectedSet.has(o.id));
+  const toggle = (id: string) => {
+    if (selectedSet.has(id)) {
+      const next = selected.filter((s) => s !== id);
+      onChange(next.length ? next : [fallbackId]);
+    } else {
+      onChange([...selected, id]);
+    }
+  };
+  const handleOpen = () => {
+    if (open) { setOpen(false); return; }
+    if (btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect();
+      setDropPos({ top: r.bottom + 4, left: r.left });
+    }
+    setOpen(true);
+  };
+  const label = allSelected ? "All folders" : selected.length === 0 ? "No folders" : `${selected.length} of ${options.length} folders`;
+  return (
+    <div style={{ display: "inline-block" }}>
+      {open && <div style={{ position: "fixed", inset: 0, zIndex: 99 }} onClick={() => setOpen(false)} />}
+      <button ref={btnRef} onClick={handleOpen}
+        style={{ fontSize: 12, padding: "2px 8px", borderRadius: 6, border: "1px solid var(--color-border)", background: "var(--color-surface)", color: "var(--color-text)", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 5 }}>
+        {label}<span style={{ fontSize: 10, opacity: 0.55 }}>▾</span>
+      </button>
+      {open && (
+        <div style={{ position: "fixed", top: dropPos.top, left: dropPos.left, zIndex: 100, background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,.14)", minWidth: 210, maxHeight: 260, display: "flex", flexDirection: "column" }}>
+          <div style={{ overflowY: "auto", flex: 1 }}>
+            {options.map((o) => (
+              <label key={o.id}
+                style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", fontSize: 12.5, cursor: "pointer", color: "var(--color-text)" }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "var(--color-surface-2)"; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = ""; }}>
+                <input type="checkbox" checked={selectedSet.has(o.id)} onChange={() => toggle(o.id)} style={{ accentColor: "var(--color-primary)" }} />
+                {o.label}
+              </label>
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: 6, padding: "7px 10px", borderTop: "1px solid var(--color-border)" }}>
+            <button onClick={() => onChange(options.map((o) => o.id))}
+              style={{ flex: 1, fontSize: 11.5, padding: "3px 6px", borderRadius: 4, border: "1px solid var(--color-border)", background: "var(--color-surface)", color: "var(--color-primary)", cursor: "pointer", fontWeight: 600 }}>All</button>
+            <button onClick={() => onChange([fallbackId])}
+              style={{ flex: 1, fontSize: 11.5, padding: "3px 6px", borderRadius: 4, border: "1px solid var(--color-border)", background: "var(--color-surface)", color: "var(--color-text-secondary)", cursor: "pointer" }}>Clear</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 type PendingConsent = "gmail" | "outlook" | null;
 
 type FileEntry = { name: string; status: "waiting" | "processing" | "done"; result?: ExtractionResult; invoiceId?: number; cloudSaved?: boolean; cloudSaving?: boolean };
@@ -161,6 +226,18 @@ export function AutoImportSettings() {
   const [syncSchedule, setSyncSchedule] = useState(() => prefs.syncSchedule);
   const [syncTime,     setSyncTime]     = useState(() => prefs.syncTime);
   const [showProBanner, setShowProBanner] = useState(false);
+
+  // Gmail label picker state
+  const [gmailLabels,        setGmailLabels]        = useState<{ id: string; name: string }[]>([]);
+  const [gmailLabelIds,      setGmailLabelIds]      = useState<string[]>(() => prefs.gmailLabelIds);
+  const [gmailLabelsLoading, setGmailLabelsLoading] = useState(false);
+  const [gmailLabelsError,   setGmailLabelsError]   = useState<string | null>(null);
+
+  // Outlook folder picker state
+  const [outlookFolders,        setOutlookFolders]        = useState<{ id: string; displayName: string }[]>([]);
+  const [outlookFolderIds,      setOutlookFolderIds]      = useState<string[]>(() => prefs.outlookFolderIds);
+  const [outlookFoldersLoading, setOutlookFoldersLoading] = useState(false);
+  const [outlookFoldersError,   setOutlookFoldersError]   = useState<string | null>(null);
 
   // IMAP connector state
   const [imapConfigured,  setImapConfigured]  = useState(false);
@@ -261,6 +338,48 @@ export function AutoImportSettings() {
       if (configured && email) { prefs.imapEnabled = true; prefs.imapEmail = email; }
     });
   }, []);
+
+  const refreshGmailLabels = () => {
+    const GMAIL_EXCLUDE = new Set(["TRASH", "SPAM", "DRAFT", "SENT", "UNREAD", "STARRED", "IMPORTANT"]);
+    setGmailLabelsLoading(true);
+    setGmailLabelsError(null);
+    new GmailConnector().fetchLabels()
+      .then((labels) => {
+        const filtered = labels.filter((l) => !GMAIL_EXCLUDE.has(l.id.toUpperCase()));
+        setGmailLabels(filtered);
+        const allIds = filtered.map((l) => l.id);
+        prefs.gmailLabelIds = allIds;
+        setGmailLabelIds(allIds);
+      })
+      .catch((err: unknown) => setGmailLabelsError(err instanceof Error ? err.message : "Failed to load labels"))
+      .finally(() => setGmailLabelsLoading(false));
+  };
+
+  const refreshOutlookFolders = () => {
+    const OUTLOOK_EXCLUDE = new Set(["Deleted Items", "Junk Email", "Drafts", "Sent Items", "Outbox", "Trash"]);
+    setOutlookFoldersLoading(true);
+    setOutlookFoldersError(null);
+    new OutlookConnector().fetchFolders()
+      .then((folders) => {
+        const filtered = folders.filter((f) => !OUTLOOK_EXCLUDE.has(f.displayName));
+        setOutlookFolders(filtered);
+        const allIds = filtered.map((f) => f.id);
+        prefs.outlookFolderIds = allIds;
+        setOutlookFolderIds(allIds);
+      })
+      .catch((err: unknown) => setOutlookFoldersError(err instanceof Error ? err.message : "Failed to load folders"))
+      .finally(() => setOutlookFoldersLoading(false));
+  };
+
+  useEffect(() => {
+    if (vm.state.gmail.isAuthenticated) refreshGmailLabels();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vm.state.gmail.isAuthenticated]);
+
+  useEffect(() => {
+    if (vm.state.outlook.isAuthenticated) refreshOutlookFolders();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vm.state.outlook.isAuthenticated]);
 
   // Track sync state via module-level events so progress survives tab switches
   useEffect(() => {
@@ -594,22 +713,42 @@ export function AutoImportSettings() {
               {effectiveGmailAccounts.map((acct) => {
                 const isPrimary = acct.email === primaryGmailEmail;
                 return (
-                  <div key={acct.email} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: "var(--color-surface-2)", border: "1px solid var(--color-border)", borderRadius: 8 }}>
-                    <img src="/icons/gmail.svg" alt="" style={{ width: 16, height: 16, flexShrink: 0 }} />
-                    <span style={{ flex: 1, fontSize: 13, color: "var(--color-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{acct.email}</span>
-                    <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, cursor: "pointer", color: "var(--color-text-secondary)", flexShrink: 0 }}>
-                      <input type="checkbox" checked={acct.enabled} style={{ accentColor: "var(--color-primary)" }}
-                        onChange={(e) => {
-                          if (isPrimary) { vm.toggleGmail(e.target.checked); }
-                          else { const updated = gmailAccounts.map((a) => a.email === acct.email ? { ...a, enabled: e.target.checked } : a); prefs.gmailAccounts = updated; setGmailAccounts(updated); }
-                        }}
-                      />
-                      Active
-                    </label>
-                    <button className="btn-ghost-sm" style={{ fontSize: 11, color: "#ef4444", flexShrink: 0 }}
-                      onClick={() => { if (isPrimary) { vm.revokeGmail(); } else { const updated = gmailAccounts.filter((a) => a.email !== acct.email); prefs.gmailAccounts = updated; setGmailAccounts(updated); } }}>
-                      Remove
-                    </button>
+                  <div key={acct.email} style={{ display: "flex", flexDirection: "column", background: "var(--color-surface-2)", border: "1px solid var(--color-border)", borderRadius: 8, overflow: "hidden" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px" }}>
+                      <img src="/icons/gmail.svg" alt="" style={{ width: 16, height: 16, flexShrink: 0 }} />
+                      <span style={{ flex: 1, fontSize: 13, color: "var(--color-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{acct.email}</span>
+                      <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, cursor: "pointer", color: "var(--color-text-secondary)", flexShrink: 0 }}>
+                        <input type="checkbox" checked={acct.enabled} style={{ accentColor: "var(--color-primary)" }}
+                          onChange={(e) => {
+                            if (isPrimary) { vm.toggleGmail(e.target.checked); }
+                            else { const updated = gmailAccounts.map((a) => a.email === acct.email ? { ...a, enabled: e.target.checked } : a); prefs.gmailAccounts = updated; setGmailAccounts(updated); }
+                          }}
+                        />
+                        Active
+                      </label>
+                      <button className="btn-ghost-sm" style={{ fontSize: 11, color: "#ef4444", flexShrink: 0 }}
+                        onClick={() => { if (isPrimary) { vm.revokeGmail(); } else { const updated = gmailAccounts.filter((a) => a.email !== acct.email); prefs.gmailAccounts = updated; setGmailAccounts(updated); } }}>
+                        Remove
+                      </button>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 10px 6px", borderTop: "1px solid var(--color-border)" }}>
+                      <span style={{ fontSize: 11, color: "var(--color-text-tertiary)", flexShrink: 0 }}>Folders</span>
+                      {gmailLabels.length === 0 ? (
+                        <span style={{ fontSize: 11, color: gmailLabelsError ? "#ef4444" : "var(--color-text-tertiary)" }}>
+                          {gmailLabelsLoading ? "Loading…" : gmailLabelsError ?? "—"}
+                        </span>
+                      ) : (
+                        <FolderPicker
+                          options={gmailLabels.map((l) => ({ id: l.id, label: l.name }))}
+                          selected={gmailLabelIds}
+                          fallbackId="INBOX"
+                          onChange={(ids) => { prefs.gmailLabelIds = ids; setGmailLabelIds(ids); }}
+                        />
+                      )}
+                      <button className="btn-ghost-sm" style={{ fontSize: 11, marginLeft: "auto" }} disabled={gmailLabelsLoading} onClick={refreshGmailLabels}>
+                        {gmailLabelsLoading ? "…" : "Refresh"}
+                      </button>
+                    </div>
                   </div>
                 );
               })}
@@ -617,22 +756,42 @@ export function AutoImportSettings() {
               {effectiveOutlookAccounts.map((acct) => {
                 const isPrimary = acct.email === primaryOutlookEmail;
                 return (
-                  <div key={acct.email} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: "var(--color-surface-2)", border: "1px solid var(--color-border)", borderRadius: 8 }}>
-                    <img src="/icons/outlook.svg" alt="" style={{ width: 16, height: 16, flexShrink: 0 }} />
-                    <span style={{ flex: 1, fontSize: 13, color: "var(--color-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{acct.email}</span>
-                    <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, cursor: "pointer", color: "var(--color-text-secondary)", flexShrink: 0 }}>
-                      <input type="checkbox" checked={acct.enabled} style={{ accentColor: "var(--color-primary)" }}
-                        onChange={(e) => {
-                          if (isPrimary) { vm.toggleOutlook(e.target.checked); }
-                          else { const updated = outlookAccounts.map((a) => a.email === acct.email ? { ...a, enabled: e.target.checked } : a); prefs.outlookAccounts = updated; setOutlookAccounts(updated); }
-                        }}
-                      />
-                      Active
-                    </label>
-                    <button className="btn-ghost-sm" style={{ fontSize: 11, color: "#ef4444", flexShrink: 0 }}
-                      onClick={() => { if (isPrimary) { vm.revokeOutlook(); } else { const updated = outlookAccounts.filter((a) => a.email !== acct.email); prefs.outlookAccounts = updated; setOutlookAccounts(updated); } }}>
-                      Remove
-                    </button>
+                  <div key={acct.email} style={{ display: "flex", flexDirection: "column", background: "var(--color-surface-2)", border: "1px solid var(--color-border)", borderRadius: 8, overflow: "hidden" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px" }}>
+                      <img src="/icons/outlook.svg" alt="" style={{ width: 16, height: 16, flexShrink: 0 }} />
+                      <span style={{ flex: 1, fontSize: 13, color: "var(--color-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{acct.email}</span>
+                      <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, cursor: "pointer", color: "var(--color-text-secondary)", flexShrink: 0 }}>
+                        <input type="checkbox" checked={acct.enabled} style={{ accentColor: "var(--color-primary)" }}
+                          onChange={(e) => {
+                            if (isPrimary) { vm.toggleOutlook(e.target.checked); }
+                            else { const updated = outlookAccounts.map((a) => a.email === acct.email ? { ...a, enabled: e.target.checked } : a); prefs.outlookAccounts = updated; setOutlookAccounts(updated); }
+                          }}
+                        />
+                        Active
+                      </label>
+                      <button className="btn-ghost-sm" style={{ fontSize: 11, color: "#ef4444", flexShrink: 0 }}
+                        onClick={() => { if (isPrimary) { vm.revokeOutlook(); } else { const updated = outlookAccounts.filter((a) => a.email !== acct.email); prefs.outlookAccounts = updated; setOutlookAccounts(updated); } }}>
+                        Remove
+                      </button>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 10px 6px", borderTop: "1px solid var(--color-border)" }}>
+                      <span style={{ fontSize: 11, color: "var(--color-text-tertiary)", flexShrink: 0 }}>Folders</span>
+                      {outlookFolders.length === 0 ? (
+                        <span style={{ fontSize: 11, color: outlookFoldersError ? "#ef4444" : "var(--color-text-tertiary)" }}>
+                          {outlookFoldersLoading ? "Loading…" : outlookFoldersError ?? "—"}
+                        </span>
+                      ) : (
+                        <FolderPicker
+                          options={outlookFolders.map((f) => ({ id: f.id, label: f.displayName }))}
+                          selected={outlookFolderIds}
+                          fallbackId="inbox"
+                          onChange={(ids) => { prefs.outlookFolderIds = ids; setOutlookFolderIds(ids); }}
+                        />
+                      )}
+                      <button className="btn-ghost-sm" style={{ fontSize: 11, marginLeft: "auto" }} disabled={outlookFoldersLoading} onClick={refreshOutlookFolders}>
+                        {outlookFoldersLoading ? "…" : "Refresh"}
+                      </button>
+                    </div>
                   </div>
                 );
               })}
