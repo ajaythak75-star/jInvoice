@@ -171,6 +171,37 @@ function DrillDownPanel({ records, onClose }: { records: InvoiceMeta[]; onClose:
 
 // ── shared UI ─────────────────────────────────────────────────────────────────
 
+function ClientFilterRow({ records, filterClient, setFilterClient }: {
+  records: InvoiceMeta[];
+  filterClient: string | null;
+  setFilterClient: (c: string | null) => void;
+}) {
+  const allClients = useMemo(
+    () => [...new Set(records.flatMap((r) => r.clientTags ?? []))].sort(),
+    [records]
+  );
+  if (allClients.length === 0) return null;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
+      <span style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase" as const, letterSpacing: "0.05em" }}>Client</span>
+      <button onClick={() => setFilterClient(null)}
+        style={{ fontSize: 12, padding: "3px 10px", borderRadius: 20, border: "1.5px solid",
+          borderColor: filterClient == null ? "var(--color-primary)" : "var(--color-border)",
+          background:  filterClient == null ? "var(--accent-subtle)" : "transparent",
+          color:       filterClient == null ? "var(--color-primary)" : "var(--color-text-secondary)", cursor: "pointer" }}>All</button>
+      {allClients.map((c) => (
+        <button key={c} onClick={() => setFilterClient(c === filterClient ? null : c)}
+          style={{ fontSize: 12, padding: "3px 10px", borderRadius: 20, border: "1.5px solid",
+            borderColor: filterClient === c ? "#0891b2" : "var(--color-border)",
+            background:  filterClient === c ? "#ecfeff" : "transparent",
+            color:       filterClient === c ? "#0891b2" : "var(--color-text-secondary)", cursor: "pointer" }}>
+          {c}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function chipStyle(active: boolean): React.CSSProperties {
   return {
     fontSize: 12.5, padding: "5px 14px", borderRadius: 20, border: "1.5px solid",
@@ -255,6 +286,7 @@ function PeriodReportTab({ records }: { records: InvoiceMeta[] }) {
   const [view, setView] = useState<PeriodView>("monthly");
   const [year, setYear] = useState<number | null>(null);
   const [drillKey, setDrillKey] = useState<string | null>(null);
+  const [filterClient, setFilterClient] = useState<string | null>(null);
   const [customFrom, setCustomFrom] = useState(() => {
     const d = new Date(); d.setMonth(d.getMonth() - 3); return d.toISOString().slice(0, 10);
   });
@@ -262,10 +294,11 @@ function PeriodReportTab({ records }: { records: InvoiceMeta[] }) {
 
   const years = useMemo(() => availableYears(records), [records]);
 
-  const base = useMemo(() =>
-    view === "custom" ? records : filterByYear(records, year),
-    [records, view, year]
-  );
+  const base = useMemo(() => {
+    const byYear = view === "custom" ? records : filterByYear(records, year);
+    if (!filterClient) return byYear;
+    return byYear.filter((r) => (r.clientTags ?? []).includes(filterClient));
+  }, [records, view, year, filterClient]);
 
   const filtered = useMemo(() => {
     if (view !== "custom") return base;
@@ -348,6 +381,8 @@ function PeriodReportTab({ records }: { records: InvoiceMeta[] }) {
       <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 14 }}>
         {VIEW_TABS.map(v => <button key={v.id} style={chipStyle(view === v.id)} onClick={() => setView(v.id)}>{v.label}</button>)}
       </div>
+
+      <ClientFilterRow records={records} filterClient={filterClient} setFilterClient={setFilterClient} />
 
       {view !== "custom" && <YearRow years={years} year={year} setYear={setYear} />}
 
@@ -783,8 +818,13 @@ function GroupSection({ title, rows, grandTotal, csvName, getDrillRecords }: {
 
 function CategoryReportTab({ records }: { records: InvoiceMeta[] }) {
   const [year, setYear] = useState<number | null>(null);
+  const [filterClient, setFilterClient] = useState<string | null>(null);
   const years = useMemo(() => availableYears(records), [records]);
-  const filtered = useMemo(() => filterByYear(records, year), [records, year]);
+  const filtered = useMemo(() => {
+    const byYear = filterByYear(records, year);
+    if (!filterClient) return byYear;
+    return byYear.filter((r) => (r.clientTags ?? []).includes(filterClient));
+  }, [records, year, filterClient]);
   const grandTotal = useMemo(() => filtered.reduce((s, r) => s + (r.grandTotalPaise ?? 0), 0), [filtered]);
 
   const docTypes = useMemo(() => {
@@ -823,6 +863,8 @@ function CategoryReportTab({ records }: { records: InvoiceMeta[] }) {
       </div>
 
       <YearRow years={years} year={year} setYear={setYear} />
+
+      <ClientFilterRow records={records} filterClient={filterClient} setFilterClient={setFilterClient} />
 
       <SummaryCards cards={[
         { label: "Invoices",    value: String(filtered.length) },

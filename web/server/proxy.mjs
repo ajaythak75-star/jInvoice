@@ -859,7 +859,7 @@ app.post("/api/imap/poll", async (req, res) => {
           totalScanned++;
           const pdfParts = _findPdfParts(msg.bodyStructure);
           if (!pdfParts.length) continue;
-          const msgId = `imap:${msg.envelope.messageId ?? msg.seq}`;
+          const msgId = `imap:${email}:${msg.envelope.messageId ?? msg.seq}`;
           if (seenMsgIds.has(msgId)) continue;
           seenMsgIds.add(msgId);
           toProcess.push({
