@@ -1,47 +1,42 @@
 import { isAlreadyImported } from "../data/InvoiceDatabase";
-import { getSupabase } from "../data/supabase";
+
+const STORAGE_KEY = "jinvoice_imap_creds";
+
+interface ImapCreds { email: string; appPassword: string; }
+
+function loadCreds(): ImapCreds | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as ImapCreds) : null;
+  } catch { return null; }
+}
+
+function saveCreds(creds: ImapCreds): void {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(creds)); } catch {}
+}
+
+function clearCreds(): void {
+  try { localStorage.removeItem(STORAGE_KEY); } catch {}
+}
 
 export function isImapAvailable(): boolean {
   return true;
 }
 
-async function imapHeaders(): Promise<Record<string, string>> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  const sb = await getSupabase();
-  if (sb) {
-    const { data } = await sb.auth.getSession();
-    const token = data.session?.access_token;
-    if (token) headers["Authorization"] = `Bearer ${token}`;
-  }
-  return headers;
-}
-
 export class ImapConnector {
   static async status(): Promise<{ configured: boolean; email: string | null }> {
-    const headers = await imapHeaders();
-    const res = await fetch("/api/imap/status", { headers });
-    if (!res.ok) return { configured: false, email: null };
-    return res.json();
+    const creds = loadCreds();
+    return { configured: !!creds, email: creds?.email ?? null };
   }
 
   static async saveCredentials(email: string, appPassword: string): Promise<void> {
-    const headers = await imapHeaders();
-    const res = await fetch("/api/imap/save", {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ email, appPassword }),
-    });
-    if (!res.ok) {
-      const { error } = await res.json().catch(() => ({ error: "Save failed" }));
-      throw new Error(error);
-    }
+    saveCreds({ email, appPassword });
   }
 
   static async testConnection(email: string, appPassword: string): Promise<void> {
-    const headers = await imapHeaders();
     const res = await fetch("/api/imap/test", {
       method: "POST",
-      headers,
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, appPassword }),
     });
     if (!res.ok) {
@@ -51,19 +46,20 @@ export class ImapConnector {
   }
 
   static async disconnect(): Promise<void> {
-    const headers = await imapHeaders();
-    await fetch("/api/imap/disconnect", { method: "POST", headers });
+    clearCreds();
   }
 
   static async pollAndDownload(
     months: number,
     onEmail?: (meta: { id: string; subject: string; senderEmail: string; receivedAt: string }) => Promise<"allow" | "block">
   ): Promise<{ file: File; messageId: string; subject: string; senderEmail: string; receivedAt: string }[]> {
-    const headers = await imapHeaders();
+    const creds = loadCreds();
+    if (!creds) return [];
+
     const res = await fetch("/api/imap/poll", {
       method: "POST",
-      headers,
-      body: JSON.stringify({ months }),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: creds.email, appPassword: creds.appPassword, months }),
     });
     if (!res.ok) {
       const { error } = await res.json().catch(() => ({ error: "Poll failed" }));

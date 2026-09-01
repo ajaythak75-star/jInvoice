@@ -615,9 +615,9 @@ app.post("/api/auth/verify-otp", async (req, res) => {
   res.json({ ok: true });
 });
 
-// ── [WEB] IMAP — per-user credentials stored in Supabase ─────────────────────
-//  All routes require  Authorization: Bearer <supabase_jwt>
-//  Credentials table:  imap_credentials (user_id PK, email, app_password)
+// ── IMAP — credentials passed in request body, stored in client localStorage ──
+//  No Supabase JWT required. Client stores { email, appPassword } in localStorage
+//  and sends them with every test/poll request.
 
 function _findPdfParts(struct, partId = "") {
   if (!struct) return [];
@@ -634,72 +634,8 @@ function _findPdfParts(struct, partId = "") {
   return parts;
 }
 
-async function _imapGetUserId(req) {
-  const token = (req.headers.authorization ?? "").replace(/^Bearer\s+/i, "");
-  if (!token) return null;
-  return validateSupabaseJWT_proxy(token);
-}
-
-async function _imapLoadCreds(userId) {
-  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return null;
-  const r = await fetch(
-    `${SUPABASE_URL}/rest/v1/imap_credentials?user_id=eq.${userId}&select=email,app_password&limit=1`,
-    { headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } },
-  );
-  if (!r.ok) return null;
-  const rows = await r.json();
-  return rows[0] ?? null;
-}
-
-async function _imapSaveCreds(userId, email, appPassword) {
-  const body = JSON.stringify({ user_id: userId, email, app_password: appPassword });
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/imap_credentials`, {
-    method: "POST",
-    headers: {
-      apikey: SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-      "Content-Type": "application/json",
-      Prefer: "resolution=merge-duplicates,return=minimal",
-    },
-    body,
-  });
-  return r.ok;
-}
-
-async function _imapDeleteCreds(userId) {
-  await fetch(`${SUPABASE_URL}/rest/v1/imap_credentials?user_id=eq.${userId}`, {
-    method: "DELETE",
-    headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
-  });
-}
-
-app.get("/api/imap/status", async (req, res) => {
-  const userId = await _imapGetUserId(req);
-  if (!userId) return res.status(401).json({ error: "unauthorized" });
-  const creds = await _imapLoadCreds(userId);
-  res.json({ configured: !!creds, email: creds?.email ?? null });
-});
-
-app.post("/api/imap/save", async (req, res) => {
-  const userId = await _imapGetUserId(req);
-  if (!userId) return res.status(401).json({ error: "unauthorized" });
-  const { email, appPassword } = req.body ?? {};
-  if (!email || !appPassword) return res.status(400).json({ error: "email and appPassword required" });
-  const ok = await _imapSaveCreds(userId, email, appPassword);
-  if (!ok) return res.status(500).json({ error: "Failed to save credentials" });
-  res.json({ ok: true });
-});
-
-app.post("/api/imap/disconnect", async (req, res) => {
-  const userId = await _imapGetUserId(req);
-  if (!userId) return res.status(401).json({ error: "unauthorized" });
-  await _imapDeleteCreds(userId);
-  res.json({ ok: true });
-});
-
+// Verify credentials reach the server and the IMAP handshake succeeds.
 app.post("/api/imap/test", async (req, res) => {
-  const userId = await _imapGetUserId(req);
-  if (!userId) return res.status(401).json({ error: "unauthorized" });
   const { email, appPassword } = req.body ?? {};
   if (!email || !appPassword) return res.status(400).json({ error: "email and appPassword required" });
   try {
@@ -713,22 +649,20 @@ app.post("/api/imap/test", async (req, res) => {
     await client.logout();
     res.json({ ok: true });
   } catch (e) {
-    res.status(401).json({ error: String(e) });
+    res.status(400).json({ error: String(e) });
   }
 });
 
+// Poll INBOX for PDF attachments. Credentials come from the client on each call.
 app.post("/api/imap/poll", async (req, res) => {
-  const userId = await _imapGetUserId(req);
-  if (!userId) return res.status(401).json({ error: "unauthorized" });
-  const creds = await _imapLoadCreds(userId);
-  if (!creds) return res.status(503).json({ error: "IMAP not configured" });
-  const { months = 3 } = req.body ?? {};
+  const { email, appPassword, months = 3 } = req.body ?? {};
+  if (!email || !appPassword) return res.status(400).json({ error: "email and appPassword required" });
   const since = new Date();
   since.setMonth(since.getMonth() - months);
   const { ImapFlow } = await import("imapflow");
   const client = new ImapFlow({
     host: "imap.gmail.com", port: 993, secure: true,
-    auth: { user: creds.email, pass: creds.app_password },
+    auth: { user: email, pass: appPassword },
     logger: false,
   });
   try {

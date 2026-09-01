@@ -61,10 +61,36 @@ function ChevronIcon({ open }: { open: boolean }) {
   );
 }
 
-function SupportSection() {
+function FAQColumn({ open, setOpen }: { open: number | null; setOpen: (i: number | null) => void }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      {FAQS.map((item, i) => {
+        const isOpen = open === i;
+        return (
+          <div key={i} style={{ border: "1px solid var(--color-border)", borderRadius: 10, background: "var(--color-surface)", overflow: "hidden" }}>
+            <button
+              onClick={() => setOpen(isOpen ? null : i)}
+              style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "13px 15px", background: "none", border: "none", cursor: "pointer", color: "var(--color-text)", fontSize: 13, fontWeight: 600, textAlign: "left" }}
+            >
+              <span>{item.q}</span>
+              <ChevronIcon open={isOpen} />
+            </button>
+            {isOpen && (
+              <div style={{ padding: "11px 15px 13px", fontSize: 12.5, color: "var(--color-text-secondary)", lineHeight: 1.65, borderTop: "1px solid var(--color-border)" }}>
+                {item.a}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function SupportColumn() {
   const [subject, setSubject] = useState("");
   const [message, setMessage] = useState("");
-  const [sent, setSent]       = useState(false);
+  const [sent, setSent] = useState(false);
 
   const handleSend = () => {
     if (!subject.trim() || !message.trim()) return;
@@ -78,76 +104,78 @@ function SupportSection() {
   };
 
   return (
-    <>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 20 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {/* Contact cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         <a
           href={`mailto:${SUPPORT_EMAIL}`}
           style={{
-            display: "flex", alignItems: "center", gap: 12,
-            padding: "14px 16px", borderRadius: 10,
+            display: "flex", alignItems: "center", gap: 10,
+            padding: "13px 14px", borderRadius: 10,
             border: "1px solid var(--color-border)", background: "var(--color-surface)",
             textDecoration: "none", color: "var(--color-text)",
           }}
         >
-          <span style={{ fontSize: 18 }}>✉️</span>
+          <span style={{ fontSize: 17 }}>✉️</span>
           <div>
-            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-text-secondary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Email</div>
-            <div style={{ fontSize: 13, fontWeight: 600, marginTop: 2 }}>{SUPPORT_EMAIL}</div>
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-text-secondary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Email</div>
+            <div style={{ fontSize: 12, fontWeight: 600, marginTop: 2 }}>{SUPPORT_EMAIL}</div>
           </div>
         </a>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", borderRadius: 10, border: "1px solid var(--color-border)", background: "var(--color-surface)" }}>
-          <span style={{ fontSize: 18 }}>🕐</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 14px", borderRadius: 10, border: "1px solid var(--color-border)", background: "var(--color-surface)" }}>
+          <span style={{ fontSize: 17 }}>🕐</span>
           <div>
-            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-text-secondary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Response time</div>
-            <div style={{ fontSize: 13, fontWeight: 600, marginTop: 2 }}>2 business days</div>
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-text-secondary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Response</div>
+            <div style={{ fontSize: 12, fontWeight: 600, marginTop: 2 }}>2 business days</div>
           </div>
         </div>
       </div>
 
-      <div style={{ border: "1px solid var(--color-border)", borderRadius: 12, background: "var(--color-surface)", padding: "20px 20px" }}>
-        <h3 style={{ fontSize: 14, fontWeight: 700, color: "var(--color-text)", margin: "0 0 16px" }}>Send a message</h3>
+      {/* Message form */}
+      <div style={{ border: "1px solid var(--color-border)", borderRadius: 12, background: "var(--color-surface)", padding: "18px 18px" }}>
+        <h3 style={{ fontSize: 13.5, fontWeight: 700, color: "var(--color-text)", margin: "0 0 14px" }}>Send a message</h3>
 
         {sent && (
-          <div style={{ marginBottom: 14, padding: "10px 14px", borderRadius: 8, background: "#f0fdf4", border: "1px solid #86efac", color: "#166534", fontSize: 13, fontWeight: 600 }}>
+          <div style={{ marginBottom: 12, padding: "9px 13px", borderRadius: 8, background: "#f0fdf4", border: "1px solid #86efac", color: "#166534", fontSize: 12.5, fontWeight: 600 }}>
             ✓ Email client opened. We look forward to hearing from you!
           </div>
         )}
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
           <div>
-            <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: "var(--color-text-secondary)", marginBottom: 5, textTransform: "uppercase", letterSpacing: "0.04em" }}>Subject</label>
+            <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "var(--color-text-secondary)", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.04em" }}>Subject</label>
             <input
               type="text"
               value={subject}
               onChange={(e) => setSubject(e.target.value)}
               placeholder="e.g. Invoice extraction not working"
-              style={{ width: "100%", padding: "9px 12px", borderRadius: 7, border: "1px solid var(--color-border)", background: "var(--color-bg)", color: "var(--color-text)", fontSize: 13, boxSizing: "border-box", outline: "none" }}
+              style={{ width: "100%", padding: "8px 11px", borderRadius: 7, border: "1px solid var(--color-border)", background: "var(--color-bg)", color: "var(--color-text)", fontSize: 12.5, boxSizing: "border-box", outline: "none" }}
             />
           </div>
           <div>
-            <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: "var(--color-text-secondary)", marginBottom: 5, textTransform: "uppercase", letterSpacing: "0.04em" }}>Message</label>
+            <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "var(--color-text-secondary)", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.04em" }}>Message</label>
             <textarea
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               placeholder="Describe your issue or question in as much detail as possible…"
-              rows={4}
-              style={{ width: "100%", padding: "9px 12px", borderRadius: 7, border: "1px solid var(--color-border)", background: "var(--color-bg)", color: "var(--color-text)", fontSize: 13, resize: "vertical", boxSizing: "border-box", fontFamily: "inherit", outline: "none" }}
+              rows={5}
+              style={{ width: "100%", padding: "8px 11px", borderRadius: 7, border: "1px solid var(--color-border)", background: "var(--color-bg)", color: "var(--color-text)", fontSize: 12.5, resize: "vertical", boxSizing: "border-box", fontFamily: "inherit", outline: "none" }}
             />
           </div>
           <button
             onClick={handleSend}
             disabled={!subject.trim() || !message.trim()}
-            style={{ alignSelf: "flex-start", padding: "9px 22px", borderRadius: 7, border: "none", background: "#7c3aed", color: "#fff", fontSize: 13, fontWeight: 700, cursor: subject.trim() && message.trim() ? "pointer" : "not-allowed", opacity: subject.trim() && message.trim() ? 1 : 0.5 }}
+            style={{ alignSelf: "flex-start", padding: "8px 20px", borderRadius: 7, border: "none", background: "#7c3aed", color: "#fff", fontSize: 12.5, fontWeight: 700, cursor: subject.trim() && message.trim() ? "pointer" : "not-allowed", opacity: subject.trim() && message.trim() ? 1 : 0.5 }}
           >
             Open email client
           </button>
         </div>
       </div>
 
-      <p style={{ marginTop: 12, fontSize: 11.5, color: "var(--color-text-tertiary)", lineHeight: 1.6 }}>
+      <p style={{ margin: 0, fontSize: 11, color: "var(--color-text-tertiary)", lineHeight: 1.6 }}>
         Clicking "Open email client" opens your default mail app with the message pre-filled. No data is sent from within jInvoice.
       </p>
-    </>
+    </div>
   );
 }
 
@@ -155,48 +183,47 @@ export function FAQScreen() {
   const [open, setOpen] = useState<number | null>(null);
 
   return (
-    <div style={{ padding: "32px 28px", maxWidth: 680, margin: "0 auto" }}>
-
-      <div style={{ marginBottom: 28 }}>
-        <h1 style={{ fontSize: 26, fontWeight: 700, color: "var(--color-text)", margin: 0 }}>
+    <div style={{ padding: "28px 24px", maxWidth: 1100, margin: "0 auto" }}>
+      <div style={{ marginBottom: 24 }}>
+        <h1 style={{ fontSize: 24, fontWeight: 700, color: "var(--color-text)", margin: 0 }}>
           FAQ &amp; Support
         </h1>
-        <p style={{ fontSize: 14, color: "var(--color-text-secondary)", marginTop: 6 }}>
+        <p style={{ fontSize: 13.5, color: "var(--color-text-secondary)", marginTop: 5 }}>
           Quick answers to common questions, and a direct line to our team.
         </p>
       </div>
 
-      {/* FAQ accordion */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 36 }}>
-        {FAQS.map((item, i) => {
-          const isOpen = open === i;
-          return (
-            <div key={i} style={{ border: "1px solid var(--color-border)", borderRadius: 10, background: "var(--color-surface)", overflow: "hidden" }}>
-              <button
-                onClick={() => setOpen(isOpen ? null : i)}
-                style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "14px 16px", background: "none", border: "none", cursor: "pointer", color: "var(--color-text)", fontSize: 13.5, fontWeight: 600, textAlign: "left" }}
-              >
-                <span>{item.q}</span>
-                <ChevronIcon open={isOpen} />
-              </button>
-              {isOpen && (
-                <div style={{ padding: "12px 16px 14px", fontSize: 13, color: "var(--color-text-secondary)", lineHeight: 1.65, borderTop: "1px solid var(--color-border)" }}>
-                  {item.a}
-                </div>
-              )}
-            </div>
-          );
-        })}
+      {/* Two-column layout: FAQ left, Support right */}
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "minmax(0, 1.1fr) minmax(0, 0.9fr)",
+        gap: 24,
+        alignItems: "start",
+      }}
+        className="faq-support-grid"
+      >
+        <section>
+          <h2 style={{ fontSize: 12, fontWeight: 700, color: "var(--color-text-secondary)", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 12px" }}>
+            Frequently asked questions
+          </h2>
+          <FAQColumn open={open} setOpen={setOpen} />
+        </section>
+
+        <section>
+          <h2 style={{ fontSize: 12, fontWeight: 700, color: "var(--color-text-secondary)", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 12px" }}>
+            Contact support
+          </h2>
+          <SupportColumn />
+        </section>
       </div>
 
-      {/* Support divider */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
-        <div style={{ flex: 1, height: 1, background: "var(--color-border)" }} />
-        <span style={{ fontSize: 11, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.07em" }}>Support</span>
-        <div style={{ flex: 1, height: 1, background: "var(--color-border)" }} />
-      </div>
-
-      <SupportSection />
+      <style>{`
+        @media (max-width: 700px) {
+          .faq-support-grid {
+            grid-template-columns: 1fr !important;
+          }
+        }
+      `}</style>
     </div>
   );
 }
