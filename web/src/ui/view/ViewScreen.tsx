@@ -1442,7 +1442,7 @@ export function ViewScreen() {
                 {/* Line 4: Received from */}
                 <div style={{ display: "flex", alignItems: "center", gap: 12, ...metaStyle }}>
                   <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    <span style={labelStyle}>Received from</span>{rec.senderEmail ?? "—"}
+                    <span style={labelStyle}>Received</span>{rec.senderEmail ?? "—"}
                   </span>
                 </div>
               </div>
