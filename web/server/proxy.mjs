@@ -856,9 +856,13 @@ app.post("/api/imap/poll", async (req, res) => {
               const chunks = [];
               for await (const chunk of content) chunks.push(chunk);
               const html = Buffer.concat(chunks).toString("utf8");
-              const b64 = Buffer.from(html).toString("base64");
-              attachments.push({ filename: `${msgId}.html`, data: b64 });
-              console.log(`[IMAP] html fallback: seq=${seq} subject="${subject}"`);
+              if (_looksLikeInvoice(html)) {
+                const b64 = Buffer.from(html).toString("base64");
+                attachments.push({ filename: `${msgId}.html`, data: b64 });
+                console.log(`[IMAP] html invoice: seq=${seq} subject="${subject}"`);
+              } else {
+                console.log(`[IMAP] html skipped (not invoice): seq=${seq} subject="${subject}"`);
+              }
             } catch (e) {
               console.error(`[IMAP] html download failed seq=${seq}:`, e.message);
             }
