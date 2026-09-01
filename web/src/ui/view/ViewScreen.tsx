@@ -38,7 +38,8 @@ function formatSource(src: string): string {
   }
 }
 
-function formatSourceWithEmail(importSource: string): string {
+function formatSourceWithEmail(importSource: string, accountEmail?: string | null): string {
+  if (accountEmail) return accountEmail;
   if (importSource === "gmail") return prefs.gmailEmail ?? formatSource(importSource);
   if (importSource === "outlook") return prefs.outlookEmail ?? formatSource(importSource);
   if (importSource === "imap") {
@@ -1391,8 +1392,8 @@ export function ViewScreen() {
                 {/* Line 2: source (with account email) + status chips + amount */}
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 5 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
-                    <span className="view-chip view-chip--source" style={{ maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={formatSourceWithEmail(rec.importSource)}>
-                      {formatSourceWithEmail(rec.importSource)}
+                    <span className="view-chip view-chip--source" style={{ maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={formatSourceWithEmail(rec.importSource, rec.accountEmail)}>
+                      {formatSourceWithEmail(rec.importSource, rec.accountEmail)}
                     </span>
                     {(rec.clientTags ?? []).map((tag) => (
                       <span key={tag} className="view-chip" style={{ color: "#0891b2", borderColor: "#0891b2", background: "#ecfeff", display: "inline-flex", alignItems: "center", gap: 2 }}>

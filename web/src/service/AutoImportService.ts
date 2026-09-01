@@ -221,7 +221,7 @@ export async function poll(): Promise<{ found: number; processed: number; cancel
     found = allEmailResults.length;
 
     await runConcurrent(allEmailResults, CONCURRENT_EXTRACTIONS, async ({ file, messageId, subject, senderEmail, receivedAt, accountEmail, source }) => {
-      await processFile(file, source, { subject, senderEmail, receivedAt }, { skipGemini: true });
+      await processFile(file, source, { subject, senderEmail, receivedAt, accountEmail }, { skipGemini: true });
       await markAsImported(messageId, source);
       await savePdfToFolder(file, accountEmail);
       processed++;

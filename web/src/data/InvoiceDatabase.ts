@@ -29,6 +29,7 @@ export interface InvoiceMeta {
   subject?: string;
   senderEmail?: string;
   receivedAt?: string;
+  accountEmail?: string | null;
   createdAt: string;
   updatedAt: string;
 }

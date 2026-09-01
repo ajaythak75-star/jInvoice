@@ -33,7 +33,7 @@ async function textExtractPdf(file: File, classification: PdfClassification): Pr
 async function processHtmlFile(
   file: File,
   importSource: string,
-  meta?: { subject?: string; senderEmail?: string; receivedAt?: string },
+  meta?: { subject?: string; senderEmail?: string; receivedAt?: string; accountEmail?: string | null },
 ): Promise<ExtractionResult> {
   const html = await file.text();
   const plainText = htmlToText(html);
@@ -75,7 +75,7 @@ async function processHtmlFile(
 export async function processFile(
   file: File,
   importSource: string,
-  meta?: { subject?: string; senderEmail?: string; receivedAt?: string },
+  meta?: { subject?: string; senderEmail?: string; receivedAt?: string; accountEmail?: string | null },
   options?: { skipGemini?: boolean },
 ): Promise<ExtractionResult> {
   if (prefs.isDailyLimitReached) {
@@ -108,7 +108,7 @@ export async function processFile(
           importSource, pdfSourceType, importRecordId: null,
           status: "duplicate", docType: "other", docTypes: ["other"],
           sourceFilename: file.name,
-          subject: meta?.subject, senderEmail: meta?.senderEmail, receivedAt: meta?.receivedAt,
+          subject: meta?.subject, senderEmail: meta?.senderEmail, receivedAt: meta?.receivedAt, accountEmail: meta?.accountEmail,
           createdAt: now, updatedAt: now,
         },
         [],
@@ -138,7 +138,7 @@ export async function processFile(
         importSource, pdfSourceType, importRecordId: null,
         status: "pending_extraction", docType: "other", docTypes: ["other"],
         sourceFilename: file.name,
-        subject: meta?.subject, senderEmail: meta?.senderEmail, receivedAt: meta?.receivedAt,
+        subject: meta?.subject, senderEmail: meta?.senderEmail, receivedAt: meta?.receivedAt, accountEmail: meta?.accountEmail,
         createdAt: now, updatedAt: now,
       },
       [],
@@ -233,7 +233,7 @@ async function persistResult(
   result: ExtractionResult,
   importSource: string,
   sourceFilename?: string,
-  meta?: { subject?: string; senderEmail?: string; receivedAt?: string },
+  meta?: { subject?: string; senderEmail?: string; receivedAt?: string; accountEmail?: string | null },
 ): Promise<boolean> {
   const now = new Date().toISOString();
   console.log("[Pipeline]", sourceFilename, "→ kind:", result.kind);
@@ -254,7 +254,7 @@ async function persistResult(
           importSource, pdfSourceType: inv.sourceType, importRecordId: null,
           status: "duplicate", category: detectCategory(inv.merchantName, inv.lineItems.map(li => li.name)),
           docType: docTypes[0], docTypes, sourceFilename,
-          subject: meta?.subject, senderEmail: meta?.senderEmail, receivedAt: meta?.receivedAt,
+          subject: meta?.subject, senderEmail: meta?.senderEmail, receivedAt: meta?.receivedAt, accountEmail: meta?.accountEmail,
           createdAt: now, updatedAt: now,
         },
         [],
@@ -306,6 +306,7 @@ async function persistResult(
         subject: meta?.subject,
         senderEmail: meta?.senderEmail,
         receivedAt: meta?.receivedAt,
+        accountEmail: meta?.accountEmail,
         createdAt: now,
         updatedAt: now,
       },
@@ -331,7 +332,7 @@ async function persistResult(
         invoiceDate: null, grandTotalPaise: null, discountPaise: 0, taxPaise: null,
         paymentMode: null, importSource, pdfSourceType: "NATIVE_PDF",
         importRecordId: null, status, docType: "other", docTypes: ["other"], sourceFilename,
-        subject: meta?.subject, senderEmail: meta?.senderEmail, receivedAt: meta?.receivedAt,
+        subject: meta?.subject, senderEmail: meta?.senderEmail, receivedAt: meta?.receivedAt, accountEmail: meta?.accountEmail,
         createdAt: now, updatedAt: now,
       },
       [],
