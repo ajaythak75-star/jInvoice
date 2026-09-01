@@ -672,8 +672,11 @@ app.post("/api/imap/poll", async (req, res) => {
   });
   try {
     await client.connect();
-    const lock = await client.getMailboxLock("INBOX");
+    // [Gmail]/All Mail covers INBOX + Promotions + Social + Updates + any label
+    const mailbox = "[Gmail]/All Mail";
+    const lock = await client.getMailboxLock(mailbox);
     const results = [];
+    const seenMsgIds = new Set();
     try {
       const seqNos = await client.search({ since });
       console.log(`[IMAP] search found ${seqNos.length} messages, processing last 200`);
@@ -685,9 +688,12 @@ app.post("/api/imap/poll", async (req, res) => {
           const pdfParts = _findPdfParts(msg.bodyStructure);
           console.log(`[IMAP] msg seq=${msg.seq} subject="${msg.envelope.subject}" → pdfParts=${pdfParts.length} (type=${msg.bodyStructure?.type}/${msg.bodyStructure?.subtype})`);
           if (!pdfParts.length) continue;
+          const msgId = `imap:${msg.envelope.messageId ?? msg.seq}`;
+          if (seenMsgIds.has(msgId)) continue;
+          seenMsgIds.add(msgId);
           toDownload.push({
             seq: msg.seq,
-            msgId: `imap:${msg.envelope.messageId ?? msg.seq}`,
+            msgId,
             subject: msg.envelope.subject ?? "",
             senderEmail: (msg.envelope.from ?? [])[0]?.address ?? "",
             receivedAt: msg.envelope.date?.toISOString() ?? new Date().toISOString(),
