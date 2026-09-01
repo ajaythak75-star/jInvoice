@@ -699,11 +699,11 @@ app.post("/api/imap/diagnose", async (req, res) => {
       } catch (e) { counts[path] = `err: ${e.message.slice(0, 40)}`; }
     }
 
-    // Sample emails from All Mail + INBOX combined, deduplicated by message-id
+    // Sample emails from ALL folders that have emails, deduplicated by message-id
     const sampleFolder = targetFolder;
     const samples = [];
     const seenSampleIds = new Set();
-    const sampleFolders = [targetFolder, "INBOX"].filter((v, i, a) => a.indexOf(v) === i);
+    const sampleFolders = [...new Set([targetFolder, "INBOX", ...Object.keys(counts).filter(k => counts[k] > 0)])];
     for (const sf of sampleFolders) {
       try {
         const lock = await client.getMailboxLock(sf);
@@ -783,18 +783,18 @@ app.post("/api/imap/poll", async (req, res) => {
   try {
     await client.connect();
 
-    // Pick the right All Mail folder — covers INBOX + Promotions + Social + Updates + all labels.
-    // Fallback to INBOX if the All Mail special folder isn't visible via IMAP.
-    let mailbox = "INBOX";
+    // List all IMAP folders so we can search custom labels too (All Mail has indexing lag).
+    let allMailPath = null;
+    let allFolders = [];
     try {
-      const list = await client.list();
-      const allMail = list.find(m =>
-        /all\s*mail/i.test(m.name) || m.specialUse === "\\All"
-      );
-      if (allMail) { mailbox = allMail.path; console.log(`[IMAP] using mailbox: ${allMail.path}`); }
-      else console.log("[IMAP] All Mail not found via list, falling back to INBOX");
+      const list = await client.list("", "*");
+      const allMail = list.find(m => /all\s*mail/i.test(m.name) || m.specialUse === "\\All");
+      if (allMail) { allMailPath = allMail.path; console.log(`[IMAP] All Mail: ${allMail.path}`); }
+      // Skip system folders unlikely to have invoices
+      const skipFolders = new Set(["[Gmail]/Trash", "[Gmail]/Spam", "[Gmail]/Drafts", "[Gmail]/Sent Mail", "[Gmail]/Important", "[Gmail]/Starred"]);
+      allFolders = list.map(m => m.path).filter(p => !skipFolders.has(p));
     } catch (e) {
-      console.log("[IMAP] list() failed, falling back to INBOX:", e.message);
+      console.log("[IMAP] list() failed:", e.message);
     }
 
     const results = [];
@@ -865,16 +865,14 @@ app.post("/api/imap/poll", async (req, res) => {
       }
     }
 
-    // Search All Mail first (covers archived/labeled mail)
-    await processMailbox(mailbox);
-
-    // Always also search INBOX — covers messages that haven't been archived/labeled yet.
-    // INBOX can be opened directly even when "Show in IMAP" is disabled in Gmail settings.
-    if (mailbox !== "INBOX") {
+    // Search all accessible folders. All Mail covers archived mail; custom labels cover
+    // recent unarchived mail before All Mail indexes it; INBOX catches everything else.
+    const foldersToSearch = [...new Set(["INBOX", ...(allMailPath ? [allMailPath] : []), ...allFolders])];
+    for (const mb of foldersToSearch) {
       try {
-        await processMailbox("INBOX");
+        await processMailbox(mb);
       } catch (e) {
-        console.log("[IMAP] INBOX search skipped:", e.message);
+        console.log(`[IMAP] ${mb} skipped: ${e.message}`);
       }
     }
     await client.logout();
