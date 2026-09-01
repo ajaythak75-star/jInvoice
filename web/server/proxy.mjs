@@ -786,14 +786,19 @@ app.post("/api/imap/folders", async (req, res) => {
     await client.connect();
     const list = await client.list();
     await client.logout();
+    const ALLOWED_SPECIAL_USE = new Set(["\\Sent", "\\Drafts"]);
+    const SPECIAL_USE_NAME = { "\\Sent": "Sent", "\\Drafts": "Drafts" };
     const folders = list
       .filter((m) => {
-        if (m.path.startsWith("[Gmail]") || m.path.startsWith("[IMAP]")) return false;
+        // Allow [Gmail]/Sent Mail and [Gmail]/Drafts (identified by specialUse); exclude all other [Gmail]/* folders
+        if (m.path.startsWith("[Gmail]") || m.path.startsWith("[IMAP]")) {
+          return m.specialUse ? ALLOWED_SPECIAL_USE.has(m.specialUse) : false;
+        }
         if (m.specialUse && SYSTEM_SPECIAL_USE.has(m.specialUse)) return false;
         if (SYSTEM_EXCLUDE.has(m.name)) return false;
         return true;
       })
-      .map((m) => ({ path: m.path, name: m.name }));
+      .map((m) => ({ path: m.path, name: (m.specialUse && SPECIAL_USE_NAME[m.specialUse]) || m.name }));
     // Always include INBOX first
     const hasInbox = folders.some((f) => f.path === "INBOX");
     const result = hasInbox ? folders : [{ path: "INBOX", name: "INBOX" }, ...folders];

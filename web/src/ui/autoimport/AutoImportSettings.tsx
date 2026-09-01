@@ -520,10 +520,20 @@ export function AutoImportSettings() {
       setImapMsg({ ok: false, text: "Enter your email address and App Password." });
       return;
     }
-    setImapBusy(true);
-    setImapMsg(null);
     const email = imapInputEmail.trim();
     const pass  = imapInputPass.trim();
+    // Duplicate check across all providers
+    const allEmails = new Set([
+      ...effectiveGmailAccounts.map((a) => a.email.toLowerCase()),
+      ...effectiveOutlookAccounts.map((a) => a.email.toLowerCase()),
+      ...imapAccounts.map((a) => a.email.toLowerCase()),
+    ]);
+    if (allEmails.has(email.toLowerCase())) {
+      setImapMsg({ ok: false, text: `${email} is already connected.` });
+      return;
+    }
+    setImapBusy(true);
+    setImapMsg(null);
     try {
       await ImapConnector.testConnection(email, pass);
       await ImapConnector.addAccount(email, pass);
@@ -779,6 +789,7 @@ export function AutoImportSettings() {
                 return (
                   <div key={acct.email} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: "var(--color-surface-2)", border: "1px solid var(--color-border)", borderRadius: 8 }}>
                     <img src="/icons/mail.svg" alt="" style={{ width: 16, height: 16, flexShrink: 0 }} />
+                    <span style={{ fontSize: 10, fontWeight: 700, color: "#6366f1", background: "color-mix(in srgb, #6366f1 12%, transparent)", borderRadius: 4, padding: "1px 5px", flexShrink: 0, letterSpacing: "0.04em" }}>IMAP</span>
                     <span style={{ flex: 1, fontSize: 13, color: "var(--color-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{acct.email}</span>
                     <span style={{ fontSize: 11, color: "var(--color-text-tertiary)", flexShrink: 0 }}>Folders</span>
                     {st.folders.length === 0 ? (
