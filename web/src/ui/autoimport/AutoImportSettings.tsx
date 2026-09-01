@@ -428,9 +428,9 @@ export function AutoImportSettings() {
         "Email counts:",
         ...Object.entries(data.counts).map(([k, v]) => `  ${k}: ${v} emails`),
         "",
-        `Last 50 emails — PDF: ${pdfEmails.length}, HTML-only: ${htmlEmails.length}`,
+        `Last 200 emails — PDF: ${pdfEmails.length}, HTML-only: ${htmlEmails.length}`,
         "",
-        ...samples.slice(-30).map((s) =>
+        ...samples.slice(-50).map((s) =>
           `  [${s.hasPdf ? `PDF×${s.pdfCount}` : s.hasHtml ? "HTML" : "none"}] ${s.date} ${s.subject.slice(0, 40)}\n    mime: ${s.mimeTree}`
         ),
       ];
