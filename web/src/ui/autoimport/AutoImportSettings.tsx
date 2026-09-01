@@ -402,6 +402,34 @@ export function AutoImportSettings() {
     setImapShowForm(false);
   };
 
+  const handleImapDiagnose = async () => {
+    const creds = await ImapConnector.status();
+    if (!creds.configured) { alert("IMAP not configured."); return; }
+    const raw = localStorage.getItem("jinvoice_imap_creds");
+    const { email, appPassword } = raw ? JSON.parse(raw) : {};
+    try {
+      const res = await fetch("/api/imap/diagnose", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, appPassword }),
+      });
+      const data = await res.json();
+      if (!res.ok) { alert(`Diagnose error: ${data.error}`); return; }
+      const lines = [
+        `Since: ${new Date(data.since).toDateString()}`,
+        "",
+        "Email counts per folder:",
+        ...Object.entries(data.counts).map(([k, v]) => `  ${k}: ${v} emails`),
+        "",
+        "All mailboxes:",
+        ...data.mailboxes.map((m: { path: string; specialUse: string | null }) => `  ${m.path}${m.specialUse ? ` [${m.specialUse}]` : ""}`),
+      ];
+      alert(lines.join("\n"));
+    } catch (e) {
+      alert(`Diagnose failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+
   const handleConsentAccept = () => {
     if (pendingConsent === "gmail") {
       vm.acceptGmailConsent();
@@ -610,6 +638,7 @@ export function AutoImportSettings() {
                     />
                     Active
                   </label>
+                  <button className="btn-ghost-sm" style={{ fontSize: 11, color: "var(--color-text-tertiary)", flexShrink: 0 }} onClick={handleImapDiagnose}>Diagnose</button>
                   <button className="btn-ghost-sm" style={{ fontSize: 11, color: "#ef4444", flexShrink: 0 }} onClick={handleImapDisconnect}>Remove</button>
                 </div>
               )}

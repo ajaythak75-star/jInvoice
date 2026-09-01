@@ -659,6 +659,54 @@ function _looksLikeInvoice(html) {
   return hits >= 2;
 }
 
+// Diagnostic: list mailboxes + count emails per folder (helps debug missing PDFs)
+app.post("/api/imap/diagnose", async (req, res) => {
+  const { email, appPassword } = req.body ?? {};
+  if (!email || !appPassword) return res.status(400).json({ error: "email and appPassword required" });
+  const { ImapFlow } = await import("imapflow");
+  const client = new ImapFlow({
+    host: "imap.gmail.com", port: 993, secure: true,
+    auth: { user: email, pass: appPassword },
+    logger: false,
+  });
+  try {
+    await client.connect();
+    const list = await client.list("", "*");
+    const mailboxes = list.map(m => ({
+      path: m.path,
+      name: m.name,
+      specialUse: m.specialUse ?? null,
+      flags: m.flags ? [...m.flags] : [],
+    }));
+
+    const since = new Date();
+    since.setMonth(since.getMonth() - 3);
+    const counts = {};
+    const checkPaths = list
+      .filter(m => !m.flags?.has?.("\\Noselect") && !([...m.flags ?? []].includes("\\Noselect")))
+      .filter(m => /inbox|all mail|gesamter|todos|всё|tout/i.test(m.path))
+      .map(m => m.path);
+    // Always include INBOX
+    if (!checkPaths.includes("INBOX")) checkPaths.unshift("INBOX");
+
+    for (const path of checkPaths.slice(0, 5)) {
+      try {
+        const lock = await client.getMailboxLock(path);
+        try {
+          const seqs = await client.search({ since });
+          counts[path] = seqs.length;
+        } finally { lock.release(); }
+      } catch (e) { counts[path] = `error: ${e.message}`; }
+    }
+
+    await client.logout();
+    res.json({ mailboxes, counts, since: since.toISOString() });
+  } catch (e) {
+    try { await client.logout(); } catch {}
+    res.status(500).json({ error: String(e) });
+  }
+});
+
 // Verify credentials reach the server and the IMAP handshake succeeds.
 app.post("/api/imap/test", async (req, res) => {
   const { email, appPassword } = req.body ?? {};
