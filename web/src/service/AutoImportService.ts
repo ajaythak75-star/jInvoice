@@ -131,6 +131,8 @@ type EmailResult = {
   accountEmail: string;
 };
 
+type SourcedResult = EmailResult & { source: "gmail" | "outlook" | "imap" };
+
 export async function poll(): Promise<{ found: number; processed: number; cancelled: boolean }> {
   if (_syncRunning) return { found: 0, processed: 0, cancelled: false };
   _syncRunning = true;
@@ -141,79 +143,69 @@ export async function poll(): Promise<{ found: number; processed: number; cancel
   let processed = 0;
 
   try {
-    // Collect all enabled Gmail accounts (primary + secondary)
+    // ── build active account lists ────────────────────────────────────────
     const gmailAccounts = [
       ...(prefs.gmailEnabled && prefs.gmailAccessToken
         ? [{ email: prefs.gmailEmail ?? "", accessToken: prefs.gmailAccessToken, refreshToken: prefs.gmailRefreshToken }]
         : []),
       ...prefs.gmailAccounts.filter((a) => a.enabled && a.email !== prefs.gmailEmail),
     ];
-    if (gmailAccounts.length > 0 && !_syncCancelled) {
-      const checker = await makeEmailChecker("gmail");
-      const nested = await Promise.all(
-        gmailAccounts.map((acct) =>
-          new GmailConnector(acct).pollAndDownload(checker).then((raw) =>
-            raw.map((r) => ({ ...r, accountEmail: acct.email }))
-          )
-        )
-      );
-      const allResults: EmailResult[] = nested.flat();
-      found += allResults.length;
-      await runConcurrent(allResults, CONCURRENT_EXTRACTIONS, async ({ file, messageId, subject, senderEmail, receivedAt, accountEmail }) => {
-        await processFile(file, "gmail", { subject, senderEmail, receivedAt });
-        await markAsImported(messageId, "gmail");
-        await savePdfToFolder(file, accountEmail);
-        processed++;
-        window.dispatchEvent(new CustomEvent("jinvoice:sync-progress", { detail: { processed, found } }));
-      });
-    }
-
-    // Collect all enabled Outlook accounts (primary + secondary)
     const outlookAccounts = [
       ...(prefs.outlookEnabled && prefs.outlookAccessToken
         ? [{ email: prefs.outlookEmail ?? "", accessToken: prefs.outlookAccessToken }]
         : []),
       ...prefs.outlookAccounts.filter((a) => a.enabled && a.email !== prefs.outlookEmail),
     ];
-    if (outlookAccounts.length > 0 && !_syncCancelled) {
-      const checker = await makeEmailChecker("outlook");
-      const nested = await Promise.all(
-        outlookAccounts.map((acct) =>
-          new OutlookConnector(acct).pollAndDownload(checker).then((raw) =>
-            raw.map((r) => ({ ...r, accountEmail: acct.email }))
-          )
-        )
-      );
-      const allResults: EmailResult[] = nested.flat();
-      found += allResults.length;
-      await runConcurrent(allResults, CONCURRENT_EXTRACTIONS, async ({ file, messageId, subject, senderEmail, receivedAt, accountEmail }) => {
-        await processFile(file, "outlook", { subject, senderEmail, receivedAt });
-        await markAsImported(messageId, "outlook");
-        await savePdfToFolder(file, accountEmail);
-        processed++;
-        window.dispatchEvent(new CustomEvent("jinvoice:sync-progress", { detail: { processed, found } }));
-      });
-    }
+    const enabledImapAccounts = isImapAvailable()
+      ? ImapConnector.getAccounts().filter((a) => a.enabled)
+      : [];
 
-    const enabledImapAccounts = isImapAvailable() ? ImapConnector.getAccounts().filter((a) => a.enabled) : [];
-    if (enabledImapAccounts.length > 0 && !_syncCancelled) {
-      const checker = await makeEmailChecker("imap");
-      for (const acct of enabledImapAccounts) {
-        if (_syncCancelled) break;
-        const imapResults = await ImapConnector.pollAndDownload(
-          acct.email, acct.appPassword, prefs.syncMonths, checker,
-          acct.folderPaths.length ? acct.folderPaths : undefined
-        );
-        found += imapResults.length;
-        await runConcurrent(imapResults, CONCURRENT_EXTRACTIONS, async ({ file, messageId, subject, senderEmail, receivedAt }) => {
-          await processFile(file, "imap", { subject, senderEmail, receivedAt });
-          await markAsImported(messageId, "imap");
-          await savePdfToFolder(file, acct.email);
-          processed++;
-          window.dispatchEvent(new CustomEvent("jinvoice:sync-progress", { detail: { processed, found } }));
-        });
-      }
-    }
+    // ── create checkers (one per provider) ──────────────────────────────
+    const gmailChecker   = gmailAccounts.length        > 0 ? await makeEmailChecker("gmail")   : null;
+    const outlookChecker = outlookAccounts.length      > 0 ? await makeEmailChecker("outlook") : null;
+    const imapChecker    = enabledImapAccounts.length  > 0 ? await makeEmailChecker("imap")    : null;
+
+    // ── fetch ALL accounts across ALL providers in parallel ──────────────
+    const [gmailResults, outlookResults, imapResults] = await Promise.all([
+      gmailChecker
+        ? Promise.all(gmailAccounts.map((acct) =>
+            new GmailConnector(acct).pollAndDownload(gmailChecker).then((raw) =>
+              raw.map((r): SourcedResult => ({ ...r, accountEmail: acct.email, source: "gmail" }))
+            )
+          )).then((nested) => nested.flat())
+        : Promise.resolve([] as SourcedResult[]),
+
+      outlookChecker
+        ? Promise.all(outlookAccounts.map((acct) =>
+            new OutlookConnector(acct).pollAndDownload(outlookChecker).then((raw) =>
+              raw.map((r): SourcedResult => ({ ...r, accountEmail: acct.email, source: "outlook" }))
+            )
+          )).then((nested) => nested.flat())
+        : Promise.resolve([] as SourcedResult[]),
+
+      imapChecker
+        ? Promise.all(enabledImapAccounts.map((acct) =>
+            ImapConnector.pollAndDownload(
+              acct.email, acct.appPassword, prefs.syncMonths, imapChecker,
+              acct.folderPaths.length ? acct.folderPaths : undefined
+            ).then((raw) =>
+              raw.map((r): SourcedResult => ({ ...r, accountEmail: acct.email, source: "imap" }))
+            )
+          )).then((nested) => nested.flat())
+        : Promise.resolve([] as SourcedResult[]),
+    ]);
+
+    // ── extract all email results through a shared concurrent pool ────────
+    const allEmailResults = [...gmailResults, ...outlookResults, ...imapResults];
+    found = allEmailResults.length;
+
+    await runConcurrent(allEmailResults, CONCURRENT_EXTRACTIONS, async ({ file, messageId, subject, senderEmail, receivedAt, accountEmail, source }) => {
+      await processFile(file, source, { subject, senderEmail, receivedAt });
+      await markAsImported(messageId, source);
+      await savePdfToFolder(file, accountEmail);
+      processed++;
+      window.dispatchEvent(new CustomEvent("jinvoice:sync-progress", { detail: { processed, found } }));
+    });
 
     if (prefs.desktopFolderName && !_syncCancelled) {
       const dResults = await desktopConnector.scanForNewPdfs();
