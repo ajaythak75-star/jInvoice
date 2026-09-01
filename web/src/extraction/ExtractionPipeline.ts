@@ -14,6 +14,11 @@ import { detectDocType } from "./DocTypeDetector";
 import { computeSentinelForInvoice } from "../service/ExpirySentinel";
 import { prefs } from "../data/AutoImportPreferences";
 
+// Tracks filenames currently being processed by concurrent workers.
+// Checked synchronously (before any await) so concurrent processFile calls
+// detect duplicates even when the DB insert hasn't happened yet.
+const inFlightFilenames = new Set<string>();
+
 // Gemini is always attempted via the server-side proxy (/api/gemini).
 // If the server has no key it returns 503, caught by the try/catch fallback.
 function hasGeminiKey(): boolean { return true; }
@@ -34,6 +39,7 @@ async function processHtmlFile(
   file: File,
   importSource: string,
   meta?: { subject?: string; senderEmail?: string; receivedAt?: string; accountEmail?: string | null },
+  filenameKnown?: boolean,
 ): Promise<ExtractionResult> {
   const html = await file.text();
   const plainText = htmlToText(html);
@@ -65,7 +71,7 @@ async function processHtmlFile(
     result = { kind: "lowConfidence", invoice: blank, reason: "html-no-key" };
   }
 
-  const wasDup = await persistResult(result, importSource, file.name, meta);
+  const wasDup = await persistResult(result, importSource, file.name, meta, filenameKnown);
   if (wasDup && (result.kind === "success" || result.kind === "lowConfidence")) {
     return { kind: "duplicate", invoice: result.invoice };
   }
@@ -82,8 +88,14 @@ export async function processFile(
     return { kind: "dailyLimitReached", limit: prefs.FREE_DAILY_LIMIT };
   }
 
+  // Register in-flight synchronously (before any await) so concurrent workers
+  // processing the same filename detect each other immediately.
+  const filenameKnown = !!file.name && inFlightFilenames.has(file.name);
+  if (file.name && !filenameKnown) inFlightFilenames.add(file.name);
+
+  try {
   if (file.type === "text/html" || file.name.toLowerCase().endsWith(".html")) {
-    return processHtmlFile(file, importSource, meta);
+    return processHtmlFile(file, importSource, meta, filenameKnown);
   }
 
   const classification = await classifyPdf(file);
@@ -93,7 +105,7 @@ export async function processFile(
     if (classification === "encrypted") return { kind: "encryptedPdf" };
 
     // Filename duplicate — same file was already saved; mark visible as duplicate
-    if (file.name && await isDuplicateByFilename(file.name)) {
+    if (file.name && (filenameKnown || await isDuplicateByFilename(file.name))) {
       console.log("[Pipeline] skipGemini filename duplicate:", file.name);
       const pdfSourceType =
         classification === "native" ? "NATIVE_PDF" :
@@ -209,11 +221,14 @@ export async function processFile(
     result = await textExtractPdf(file, classification);
   }
 
-  const wasDup = await persistResult(result, importSource, file.name, meta);
+  const wasDup = await persistResult(result, importSource, file.name, meta, filenameKnown);
   if (wasDup && (result.kind === "success" || result.kind === "lowConfidence")) {
     return { kind: "duplicate", invoice: result.invoice };
   }
   return result;
+  } finally {
+    if (file.name && !filenameKnown) inFlightFilenames.delete(file.name);
+  }
 }
 
 export async function processImageCapture(
@@ -234,6 +249,7 @@ async function persistResult(
   importSource: string,
   sourceFilename?: string,
   meta?: { subject?: string; senderEmail?: string; receivedAt?: string; accountEmail?: string | null },
+  filenameKnown?: boolean,
 ): Promise<boolean> {
   const now = new Date().toISOString();
   console.log("[Pipeline]", sourceFilename, "→ kind:", result.kind);
@@ -241,7 +257,7 @@ async function persistResult(
     const inv = result.invoice;
 
     // Filename duplicate — same file already imported; save as duplicate so it's visible in View
-    if (sourceFilename && await isDuplicateByFilename(sourceFilename)) {
+    if (sourceFilename && (filenameKnown || await isDuplicateByFilename(sourceFilename))) {
       console.log("[Pipeline] filename duplicate:", sourceFilename);
       const docTypes = detectDocType(inv.merchantName, inv.lineItems.map(li => li.name), sourceFilename, meta?.subject);
       await insertInvoiceWithItems(
