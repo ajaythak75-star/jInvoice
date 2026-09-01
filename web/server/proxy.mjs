@@ -686,6 +686,7 @@ app.post("/api/imap/diagnose", async (req, res) => {
     const allMailFolder = list.find(m => /all\s*mail/i.test(m.name) || m.specialUse === "\\All");
     const targetFolder = allMailFolder?.path ?? "INBOX";
 
+    // Count emails in each folder (always check INBOX separately)
     const counts = {};
     const checkPaths = [targetFolder, "INBOX"].filter((v, i, a) => a.indexOf(v) === i);
     for (const path of checkPaths) {
@@ -698,10 +699,11 @@ app.post("/api/imap/diagnose", async (req, res) => {
       } catch (e) { counts[path] = `error: ${e.message}`; }
     }
 
-    // Sample the last 30 emails from All Mail and check attachment types
+    // Sample emails: use All Mail if it has any, otherwise fall back to INBOX
+    const sampleFolder = (counts[targetFolder] > 0) ? targetFolder : "INBOX";
     const samples = [];
     try {
-      const lock = await client.getMailboxLock(targetFolder);
+      const lock = await client.getMailboxLock(sampleFolder);
       try {
         const seqs = await client.search({ since });
         const slice = seqs.slice(-30);
@@ -709,6 +711,10 @@ app.post("/api/imap/diagnose", async (req, res) => {
           for await (const msg of client.fetch(slice, { envelope: true, bodyStructure: true })) {
             const pdfParts = _findPdfParts(msg.bodyStructure);
             const htmlPart = _findHtmlPart(msg.bodyStructure);
+            // Capture top-level MIME parts for debugging
+            const mimeTree = (msg.bodyStructure?.childNodes ?? [])
+              .map((c, i) => `${i + 1}:${c.type}/${c.subtype}${c.disposition?.value ? `(${c.disposition.value})` : ""}`)
+              .join(", ") || `${msg.bodyStructure?.type}/${msg.bodyStructure?.subtype}`;
             samples.push({
               subject: msg.envelope.subject ?? "(no subject)",
               from: (msg.envelope.from ?? [])[0]?.address ?? "",
@@ -716,6 +722,7 @@ app.post("/api/imap/diagnose", async (req, res) => {
               hasPdf: pdfParts.length > 0,
               pdfCount: pdfParts.length,
               hasHtml: !!htmlPart,
+              mimeTree,
             });
           }
         }
@@ -725,7 +732,7 @@ app.post("/api/imap/diagnose", async (req, res) => {
     }
 
     await client.logout();
-    res.json({ mailboxes, counts, since: since.toISOString(), targetFolder, samples });
+    res.json({ mailboxes, counts, since: since.toISOString(), targetFolder, sampleFolder, samples });
   } catch (e) {
     try { await client.logout(); } catch {}
     res.status(500).json({ error: String(e) });

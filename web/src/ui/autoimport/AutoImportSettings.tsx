@@ -419,16 +419,16 @@ export function AutoImportSettings() {
       const htmlEmails = (data.samples ?? []).filter((s: { hasPdf: boolean; hasHtml: boolean }) => !s.hasPdf && s.hasHtml);
       const lines = [
         `Connected as: ${email}`,
-        `Folder searched: ${data.targetFolder ?? "?"}`,
+        `Folder searched: ${data.sampleFolder ?? data.targetFolder ?? "?"}`,
         `Since: ${new Date(data.since).toDateString()}`,
         "",
         "Email counts:",
         ...Object.entries(data.counts).map(([k, v]) => `  ${k}: ${v} emails`),
         "",
-        `Last 30 emails — PDF attachments: ${pdfEmails.length}, HTML-only: ${htmlEmails.length}`,
+        `Last 30 emails — PDF: ${pdfEmails.length}, HTML-only: ${htmlEmails.length}`,
         "",
-        ...(data.samples ?? []).slice(-20).map((s: { subject: string; from: string; date: string; hasPdf: boolean; pdfCount: number; hasHtml: boolean }) =>
-          `  [${s.hasPdf ? `PDF×${s.pdfCount}` : s.hasHtml ? "HTML" : "none"}] ${s.date} ${s.subject.slice(0, 50)}`
+        ...(data.samples ?? []).slice(-20).map((s: { subject: string; from: string; date: string; hasPdf: boolean; pdfCount: number; hasHtml: boolean; mimeTree: string }) =>
+          `  [${s.hasPdf ? `PDF×${s.pdfCount}` : s.hasHtml ? "HTML" : "none"}] ${s.date} ${s.subject.slice(0, 40)}\n    mime: ${s.mimeTree}`
         ),
       ];
       alert(lines.join("\n"));
