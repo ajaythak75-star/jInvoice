@@ -170,6 +170,7 @@ export function AutoImportSettings() {
   const [imapInputPass,   setImapInputPass]   = useState("");
   const [imapBusy,        setImapBusy]        = useState(false);
   const [imapMsg,         setImapMsg]         = useState<{ ok: boolean; text: string } | null>(null);
+  const [imapActive,      setImapActive]      = useState(() => prefs.imapEnabled);
 
   const handleSyncSelect = (months: number, pro: boolean) => {
     if (pro && !prefs.isSubscribed) { setShowProBanner(true); return; }
@@ -363,28 +364,6 @@ export function AutoImportSettings() {
     setSyncResult("Sync history cleared. Click Sync Now to re-import.");
   };
 
-  const handleGmailToggle = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const enabled = e.target.checked;
-    if (enabled && !vm.state.gmail.hasConsent) {
-      setPendingConsent("gmail");
-    } else if (enabled && !vm.state.gmail.isAuthenticated) {
-      new GmailConnector().startSignIn();
-    } else {
-      vm.toggleGmail(enabled);
-    }
-  };
-
-  const handleOutlookToggle = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const enabled = e.target.checked;
-    if (enabled && !vm.state.outlook.hasConsent) {
-      setPendingConsent("outlook");
-    } else if (enabled && !vm.state.outlook.isAuthenticated) {
-      new OutlookConnector().startSignIn();
-    } else {
-      vm.toggleOutlook(enabled);
-    }
-  };
-
   const handleImapConnect = async () => {
     if (!imapInputEmail.trim() || !imapInputPass.trim()) {
       setImapMsg({ ok: false, text: "Enter your Gmail address and App Password." });
@@ -399,6 +378,7 @@ export function AutoImportSettings() {
       prefs.imapEmail = imapInputEmail.trim();
       setImapConfigured(true);
       setImapEmail(imapInputEmail.trim());
+      setImapActive(true);
       setImapInputPass("");
       setImapShowForm(false);
       setImapMsg({ ok: true, text: "Connected." });
@@ -415,6 +395,7 @@ export function AutoImportSettings() {
     prefs.imapEmail = null;
     setImapConfigured(false);
     setImapEmail(null);
+    setImapActive(false);
     setImapInputEmail("");
     setImapInputPass("");
     setImapMsg(null);
@@ -435,7 +416,7 @@ export function AutoImportSettings() {
 
   return (
     <>
-    <div className="settings-page wide">
+    <div className="settings-page">
 
       {/* Plan — full width */}
       <section className="card">
@@ -563,98 +544,122 @@ export function AutoImportSettings() {
           </section>
 
           <section className="card">
-            <h3>Email Connectors</h3>
+            <h3>
+              Email Accounts
+              {!prefs.isSubscribed && (
+                <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 600, color: "var(--color-primary)", background: "color-mix(in srgb, var(--color-primary) 12%, transparent)", padding: "2px 7px", borderRadius: 10 }}>Pro</span>
+              )}
+            </h3>
 
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-              {/* Gmail */}
-              <div style={{ display: "flex", alignItems: "center", gap: 8, flex: "1 1 160px", padding: "8px 10px", background: "var(--color-surface-2)", borderRadius: 8, border: "1px solid var(--color-border)" }}>
-                <img src="/icons/gmail.svg" alt="" className="connector-logo" style={{ flexShrink: 0 }} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="connector-name">Gmail</div>
-                  {vm.state.gmail.email && <div className="connector-email" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{vm.state.gmail.email}</div>}
-                  {vm.state.gmail.isAuthenticated && (
-                    <button className="btn-link-danger" onClick={vm.revokeGmail} style={{ fontSize: 11 }}>Revoke</button>
-                  )}
+            {/* All accounts — one row each */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 10 }}>
+              {effectiveGmailAccounts.map((acct) => {
+                const isPrimary = acct.email === primaryGmailEmail;
+                return (
+                  <div key={acct.email} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: "var(--color-surface-2)", border: "1px solid var(--color-border)", borderRadius: 8 }}>
+                    <img src="/icons/gmail.svg" alt="" style={{ width: 16, height: 16, flexShrink: 0 }} />
+                    <span style={{ flex: 1, fontSize: 13, color: "var(--color-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{acct.email}</span>
+                    <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, cursor: "pointer", color: "var(--color-text-secondary)", flexShrink: 0 }}>
+                      <input type="checkbox" checked={acct.enabled} style={{ accentColor: "var(--color-primary)" }}
+                        onChange={(e) => {
+                          if (isPrimary) { vm.toggleGmail(e.target.checked); }
+                          else { const updated = gmailAccounts.map((a) => a.email === acct.email ? { ...a, enabled: e.target.checked } : a); prefs.gmailAccounts = updated; setGmailAccounts(updated); }
+                        }}
+                      />
+                      Active
+                    </label>
+                    <button className="btn-ghost-sm" style={{ fontSize: 11, color: "#ef4444", flexShrink: 0 }}
+                      onClick={() => { if (isPrimary) { vm.revokeGmail(); } else { const updated = gmailAccounts.filter((a) => a.email !== acct.email); prefs.gmailAccounts = updated; setGmailAccounts(updated); } }}>
+                      Remove
+                    </button>
+                  </div>
+                );
+              })}
+
+              {effectiveOutlookAccounts.map((acct) => {
+                const isPrimary = acct.email === primaryOutlookEmail;
+                return (
+                  <div key={acct.email} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: "var(--color-surface-2)", border: "1px solid var(--color-border)", borderRadius: 8 }}>
+                    <img src="/icons/outlook.svg" alt="" style={{ width: 16, height: 16, flexShrink: 0 }} />
+                    <span style={{ flex: 1, fontSize: 13, color: "var(--color-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{acct.email}</span>
+                    <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, cursor: "pointer", color: "var(--color-text-secondary)", flexShrink: 0 }}>
+                      <input type="checkbox" checked={acct.enabled} style={{ accentColor: "var(--color-primary)" }}
+                        onChange={(e) => {
+                          if (isPrimary) { vm.toggleOutlook(e.target.checked); }
+                          else { const updated = outlookAccounts.map((a) => a.email === acct.email ? { ...a, enabled: e.target.checked } : a); prefs.outlookAccounts = updated; setOutlookAccounts(updated); }
+                        }}
+                      />
+                      Active
+                    </label>
+                    <button className="btn-ghost-sm" style={{ fontSize: 11, color: "#ef4444", flexShrink: 0 }}
+                      onClick={() => { if (isPrimary) { vm.revokeOutlook(); } else { const updated = outlookAccounts.filter((a) => a.email !== acct.email); prefs.outlookAccounts = updated; setOutlookAccounts(updated); } }}>
+                      Remove
+                    </button>
+                  </div>
+                );
+              })}
+
+              {imapConfigured && imapEmail && (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: "var(--color-surface-2)", border: "1px solid var(--color-primary)", borderRadius: 8 }}>
+                  <span style={{ fontSize: 15, lineHeight: 1, flexShrink: 0 }}>✉️</span>
+                  <span style={{ flex: 1, fontSize: 13, color: "var(--color-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{imapEmail}</span>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: "var(--color-primary)", background: "color-mix(in srgb, var(--color-primary) 12%, transparent)", borderRadius: 4, padding: "1px 6px", flexShrink: 0 }}>IMAP</span>
+                  <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, cursor: "pointer", color: "var(--color-text-secondary)", flexShrink: 0 }}>
+                    <input type="checkbox" checked={imapActive} style={{ accentColor: "var(--color-primary)" }}
+                      onChange={(e) => { prefs.imapEnabled = e.target.checked; setImapActive(e.target.checked); }}
+                    />
+                    Active
+                  </label>
+                  <button className="btn-ghost-sm" style={{ fontSize: 11, color: "#ef4444", flexShrink: 0 }} onClick={handleImapDisconnect}>Remove</button>
                 </div>
-                <label className="toggle" style={{ flexShrink: 0 }}>
-                  <input type="checkbox" checked={vm.state.gmail.enabled} onChange={handleGmailToggle} />
-                  <span className="toggle-slider" />
-                </label>
-              </div>
-              {/* Outlook */}
-              <div style={{ display: "flex", alignItems: "center", gap: 8, flex: "1 1 160px", padding: "8px 10px", background: "var(--color-surface-2)", borderRadius: 8, border: "1px solid var(--color-border)" }}>
-                <img src="/icons/outlook.svg" alt="" className="connector-logo" style={{ flexShrink: 0 }} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="connector-name">Outlook</div>
-                  {vm.state.outlook.email && <div className="connector-email" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{vm.state.outlook.email}</div>}
-                  {vm.state.outlook.isAuthenticated && (
-                    <button className="btn-link-danger" onClick={vm.revokeOutlook} style={{ fontSize: 11 }}>Revoke</button>
-                  )}
-                </div>
-                <label className="toggle" style={{ flexShrink: 0 }}>
-                  <input type="checkbox" checked={vm.state.outlook.enabled} onChange={handleOutlookToggle} />
-                  <span className="toggle-slider" />
-                </label>
-              </div>
+              )}
+
+              {totalAccounts === 0 && !imapConfigured && (
+                <p style={{ fontSize: 12.5, color: "var(--color-text-tertiary)", padding: "4px 0 4px" }}>No accounts connected. Add one below.</p>
+              )}
             </div>
 
-            {/* IMAP / App Password connector */}
-            {isImapAvailable() && (
-              <div style={{ marginTop: 10, padding: "10px 12px", background: "var(--color-surface-2)", borderRadius: 8, border: `1px solid ${imapConfigured ? "var(--color-primary)" : "var(--color-border)"}` }}>
+            {/* Add account buttons */}
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+              <button className="btn-sm"
+                disabled={!prefs.isSubscribed && totalAccounts >= MAX_ACCOUNTS}
+                onClick={() => { if (!vm.state.gmail.hasConsent) { setPendingConsent("gmail"); } else { new GmailConnector().startSignIn(); } }}>
+                + Add Gmail
+              </button>
+              <button className="btn-sm"
+                disabled={!prefs.isSubscribed && totalAccounts >= MAX_ACCOUNTS}
+                onClick={() => { if (!vm.state.outlook.hasConsent) { setPendingConsent("outlook"); } else { new OutlookConnector().startSignIn(); } }}>
+                + Add Outlook
+              </button>
+              {isImapAvailable() && !imapConfigured && (
+                <button className="btn-sm" onClick={() => { setImapShowForm((v) => !v); setImapMsg(null); }}>
+                  {imapShowForm ? "Cancel" : "+ Add via IMAP"}
+                </button>
+              )}
+              {!prefs.isSubscribed && totalAccounts >= MAX_ACCOUNTS && (
+                <span style={{ fontSize: 12, color: "var(--color-text-tertiary)", alignSelf: "center" }}>Upgrade to Pro for more accounts</span>
+              )}
+            </div>
+
+            {/* IMAP inline form */}
+            {isImapAvailable() && !imapConfigured && imapShowForm && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 10, padding: "10px 12px", background: "var(--color-surface-2)", borderRadius: 8, border: "1px solid var(--color-border)" }}>
+                <input className="settings-input" type="email" placeholder="your@gmail.com" value={imapInputEmail} onChange={(e) => setImapInputEmail(e.target.value)} style={{ fontSize: 13 }} />
+                <input className="settings-input" type="password" placeholder="App Password (16 chars)" value={imapInputPass} onChange={(e) => setImapInputPass(e.target.value)} style={{ fontSize: 13 }} />
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 18, lineHeight: 1 }}>✉️</span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div className="connector-name">IMAP (Gmail App Password)</div>
-                    {imapConfigured && imapEmail && (
-                      <div className="connector-email" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{imapEmail}</div>
-                    )}
-                  </div>
-                  {imapConfigured ? (
-                    <button className="btn-link-danger" style={{ fontSize: 11, flexShrink: 0 }} onClick={handleImapDisconnect}>Disconnect</button>
-                  ) : (
-                    <button className="btn-sm" style={{ flexShrink: 0, fontSize: 12 }} onClick={() => { setImapShowForm((v) => !v); setImapMsg(null); }}>
-                      {imapShowForm ? "Cancel" : "Connect"}
-                    </button>
-                  )}
+                  <button className="btn-sync-primary" onClick={handleImapConnect} disabled={imapBusy} style={{ fontSize: 13 }}>
+                    {imapBusy ? "Connecting…" : "Connect"}
+                  </button>
+                  <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}>
+                    How to get an App Password ↗
+                  </a>
                 </div>
-
-                {imapMsg && (
-                  <div style={{ marginTop: 6, fontSize: 12, color: imapMsg.ok ? "#22c55e" : "#ef4444" }}>{imapMsg.text}</div>
-                )}
-
-                {!imapConfigured && imapShowForm && (
-                  <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
-                    <input
-                      className="settings-input"
-                      type="email"
-                      placeholder="your@gmail.com"
-                      value={imapInputEmail}
-                      onChange={(e) => setImapInputEmail(e.target.value)}
-                      style={{ fontSize: 13 }}
-                    />
-                    <input
-                      className="settings-input"
-                      type="password"
-                      placeholder="App Password (16 chars)"
-                      value={imapInputPass}
-                      onChange={(e) => setImapInputPass(e.target.value)}
-                      style={{ fontSize: 13 }}
-                    />
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <button className="btn-sync-primary" onClick={handleImapConnect} disabled={imapBusy} style={{ fontSize: 13 }}>
-                        {imapBusy ? "Connecting…" : "Connect"}
-                      </button>
-                      <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}>
-                        How to get an App Password ↗
-                      </a>
-                    </div>
-                  </div>
-                )}
+                {imapMsg && <div style={{ fontSize: 12, color: imapMsg.ok ? "#22c55e" : "#ef4444" }}>{imapMsg.text}</div>}
               </div>
             )}
 
             <div className="sync-actions">
-              {(vm.state.gmail.enabled || vm.state.outlook.enabled) ? (
+              {(vm.state.gmail.enabled || vm.state.outlook.enabled || imapActive) ? (
                 <>
                   <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                     <button className="btn-sync-primary" onClick={handleSyncNow} disabled={syncing}>
@@ -664,23 +669,19 @@ export function AutoImportSettings() {
                       })()}
                     </button>
                     {syncing && (
-                      <button className="btn-sync" style={{ color: "var(--color-danger)" }} onClick={handleCancelSync}>
-                        Cancel
-                      </button>
+                      <button className="btn-sync" style={{ color: "var(--color-danger)" }} onClick={handleCancelSync}>Cancel</button>
                     )}
                   </div>
                   {syncResult && (
                     <p style={{ fontSize: 12.5, color: "var(--color-text-secondary)" }}>{syncResult}</p>
                   )}
                   {!syncing && (
-                    <button className="btn-sync" style={{ color: "var(--color-danger)" }} onClick={handleResetSync}>
-                      Reset sync history
-                    </button>
+                    <button className="btn-sync" style={{ color: "var(--color-danger)" }} onClick={handleResetSync}>Reset sync history</button>
                   )}
                 </>
               ) : (
                 <p style={{ fontSize: 12.5, color: "var(--color-text-tertiary)", textAlign: "center", padding: "4px 0" }}>
-                  Enable Gmail or Outlook above to sync emails automatically.
+                  Enable an account above to sync emails automatically.
                 </p>
               )}
             </div>
@@ -751,187 +752,6 @@ export function AutoImportSettings() {
             )}
           </section>
 
-          {/* Connected Email Accounts (Pro: up to 5) */}
-          <section className="card">
-            <h3>
-              Email Accounts
-              {!prefs.isSubscribed && (
-                <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 600, color: "var(--color-primary)", background: "color-mix(in srgb, var(--color-primary) 12%, transparent)", padding: "2px 7px", borderRadius: 10 }}>
-                  Pro
-                </span>
-              )}
-            </h3>
-
-            {prefs.isSubscribed ? (
-              <>
-                {effectiveGmailAccounts.length > 0 && (
-                  <div style={{ marginBottom: 10 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>Gmail</div>
-                    {effectiveGmailAccounts.map((acct) => {
-                      const isPrimary = acct.email === primaryGmailEmail;
-                      return (
-                      <div key={acct.email} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", background: "var(--color-surface-2)", border: "1px solid var(--color-border)", borderRadius: 8, marginBottom: 4 }}>
-                        <span style={{ flex: 1, fontSize: 13, color: "var(--color-text)" }}>{acct.email}</span>
-                        <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, cursor: "pointer", color: "var(--color-text-secondary)" }}>
-                          <input
-                            type="checkbox"
-                            checked={acct.enabled}
-                            style={{ accentColor: "var(--color-primary)" }}
-                            onChange={(e) => {
-                              if (isPrimary) {
-                                vm.toggleGmail(e.target.checked);
-                              } else {
-                                const updated = gmailAccounts.map((a) => a.email === acct.email ? { ...a, enabled: e.target.checked } : a);
-                                prefs.gmailAccounts = updated;
-                                setGmailAccounts(updated);
-                              }
-                            }}
-                          />
-                          Active
-                        </label>
-                        <button
-                          className="btn-ghost-sm"
-                          style={{ fontSize: 11, color: "#ef4444" }}
-                          onClick={() => {
-                            if (isPrimary) {
-                              vm.revokeGmail();
-                            } else {
-                              const updated = gmailAccounts.filter((a) => a.email !== acct.email);
-                              prefs.gmailAccounts = updated;
-                              setGmailAccounts(updated);
-                            }
-                          }}
-                        >
-                          Remove
-                        </button>
-                      </div>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {effectiveOutlookAccounts.length > 0 && (
-                  <div style={{ marginBottom: 10 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>Outlook</div>
-                    {effectiveOutlookAccounts.map((acct) => {
-                      const isPrimary = acct.email === primaryOutlookEmail;
-                      return (
-                      <div key={acct.email} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", background: "var(--color-surface-2)", border: "1px solid var(--color-border)", borderRadius: 8, marginBottom: 4 }}>
-                        <span style={{ flex: 1, fontSize: 13, color: "var(--color-text)" }}>{acct.email}</span>
-                        <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, cursor: "pointer", color: "var(--color-text-secondary)" }}>
-                          <input
-                            type="checkbox"
-                            checked={acct.enabled}
-                            style={{ accentColor: "var(--color-primary)" }}
-                            onChange={(e) => {
-                              if (isPrimary) {
-                                vm.toggleOutlook(e.target.checked);
-                              } else {
-                                const updated = outlookAccounts.map((a) => a.email === acct.email ? { ...a, enabled: e.target.checked } : a);
-                                prefs.outlookAccounts = updated;
-                                setOutlookAccounts(updated);
-                              }
-                            }}
-                          />
-                          Active
-                        </label>
-                        <button
-                          className="btn-ghost-sm"
-                          style={{ fontSize: 11, color: "#ef4444" }}
-                          onClick={() => {
-                            if (isPrimary) {
-                              vm.revokeOutlook();
-                            } else {
-                              const updated = outlookAccounts.filter((a) => a.email !== acct.email);
-                              prefs.outlookAccounts = updated;
-                              setOutlookAccounts(updated);
-                            }
-                          }}
-                        >
-                          Remove
-                        </button>
-                      </div>
-                      );
-                    })}
-                  </div>
-                )}
-
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <button
-                    className="btn-sm"
-                    disabled={totalAccounts >= MAX_ACCOUNTS}
-                    onClick={() => new GmailConnector().startSignIn()}
-                    title="Connect a Gmail account"
-                  >
-                    + Add Gmail
-                  </button>
-                  <button
-                    className="btn-sm"
-                    disabled={totalAccounts >= MAX_ACCOUNTS}
-                    onClick={() => new OutlookConnector().startSignIn()}
-                    title="Connect an Outlook account"
-                  >
-                    + Add Outlook
-                  </button>
-                  {totalAccounts >= MAX_ACCOUNTS && (
-                    <span style={{ fontSize: 12, color: "var(--color-text-tertiary)", alignSelf: "center" }}>
-                      Up to 5 accounts on Pro
-                    </span>
-                  )}
-                </div>
-              </>
-            ) : (
-              <>
-                {totalAccounts > 0 && (
-                  <div style={{ marginBottom: 10 }}>
-                    {effectiveGmailAccounts[0] && (
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", background: "var(--color-surface-2)", border: "1px solid var(--color-border)", borderRadius: 8, marginBottom: 4 }}>
-                        <span style={{ flex: 1, fontSize: 13, color: "var(--color-text)" }}>{effectiveGmailAccounts[0].email}</span>
-                        <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, cursor: "pointer", color: "var(--color-text-secondary)" }}>
-                          <input
-                            type="checkbox"
-                            checked={effectiveGmailAccounts[0].enabled}
-                            style={{ accentColor: "var(--color-primary)" }}
-                            onChange={(e) => vm.toggleGmail(e.target.checked)}
-                          />
-                          Active
-                        </label>
-                        <button className="btn-ghost-sm" style={{ fontSize: 11, color: "#ef4444" }} onClick={() => vm.revokeGmail()}>Remove</button>
-                      </div>
-                    )}
-                    {!effectiveGmailAccounts[0] && effectiveOutlookAccounts[0] && (
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", background: "var(--color-surface-2)", border: "1px solid var(--color-border)", borderRadius: 8, marginBottom: 4 }}>
-                        <span style={{ flex: 1, fontSize: 13, color: "var(--color-text)" }}>{effectiveOutlookAccounts[0].email}</span>
-                        <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, cursor: "pointer", color: "var(--color-text-secondary)" }}>
-                          <input
-                            type="checkbox"
-                            checked={effectiveOutlookAccounts[0].enabled}
-                            style={{ accentColor: "var(--color-primary)" }}
-                            onChange={(e) => vm.toggleOutlook(e.target.checked)}
-                          />
-                          Active
-                        </label>
-                        <button className="btn-ghost-sm" style={{ fontSize: 11, color: "#ef4444" }} onClick={() => vm.revokeOutlook()}>Remove</button>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                <div className="settings-pro-banner">
-                  <strong>Multiple accounts — Pro only</strong>
-                  <p>Connect up to 5 Gmail and Outlook accounts for automatic invoice import. Upgrade to Pro to unlock all accounts.</p>
-                  <button className="settings-pro-cta" onClick={openProModal}>Upgrade to Pro</button>
-                </div>
-
-                {totalAccounts === 0 && (
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
-                    <button className="btn-sm" onClick={() => new GmailConnector().startSignIn()}>+ Add Gmail</button>
-                    <button className="btn-sm" onClick={() => new OutlookConnector().startSignIn()}>+ Add Outlook</button>
-                  </div>
-                )}
-              </>
-            )}
-          </section>
 
       </div>{/* end single column */}
 
