@@ -505,7 +505,7 @@
 .btn-danger { color: var(--color-danger); border-color: color-mix(in srgb, var(--color-danger) 30%, transparent); background: color-mix(in srgb, var(--color-danger) 8%, transparent); }
 
 /* ── Modal ─────────────────────────────────────────────────── */
-.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.48); display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 100; }
+.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.48); display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 400; }
 .modal { background: var(--color-surface); border-radius: var(--radius); padding: 24px 20px; width: 100%; max-width: 560px; max-height: 88dvh; overflow-y: auto; box-shadow: 0 8px 32px rgba(13,13,28,.18), 0 2px 8px rgba(0,0,0,.08); }
 .modal h2 { font-size: 17px; font-weight: 700; margin-bottom: 6px; }
 .modal-subtitle { font-size: 13px; color: var(--color-text-secondary); margin-bottom: 18px; }

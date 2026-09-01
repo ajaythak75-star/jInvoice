@@ -10,7 +10,6 @@ import { syncNewInvoice } from "../../service/SupabaseSync";
 import { isSupabaseEnabled } from "../../data/supabase";
 import type { ExtractionResult, ExtractedInvoice } from "../../core/extraction/models";
 import { prefs } from "../../data/AutoImportPreferences";
-import { DOC_TYPE_LABELS, type DocType } from "../../extraction/DocTypeDetector";
 import { isFsAccessSupported } from "../../autoimport/DesktopFolderConnector";
 
 function fmt(paise: number | null | undefined): string {
@@ -126,8 +125,6 @@ function InvoiceResultModal({ inv, filename, onClose }: { inv: ExtractedInvoice;
   );
 }
 
-const ALL_DOC_TYPES = Object.keys(DOC_TYPE_LABELS) as DocType[];
-
 const SYNC_OPTIONS: { months: number; label: string; pro: boolean }[] = [
   { months: 1,  label: "1 month",  pro: false },
   { months: 3,  label: "3 months", pro: false },
@@ -158,7 +155,6 @@ export function AutoImportSettings() {
   const [syncResult, setSyncResult] = useState<string | null>(null);
   const [fileQueue, setFileQueue]   = useState<FileEntry[]>([]);
   const [dragging, setDragging]     = useState(false);
-  const [docTypes, setDocTypes]     = useState<string[]>(() => prefs.importDocTypes);
   const [fsSupported, setFsSupported] = useState(false);
   const [syncMonths,   setSyncMonths]   = useState(() => prefs.syncMonths);
   const [syncSchedule, setSyncSchedule] = useState(() => prefs.syncSchedule);
@@ -334,12 +330,6 @@ export function AutoImportSettings() {
     setDragging(false);
     const files = Array.from(e.dataTransfer.files).filter(f => f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf"));
     processFiles(files);
-  };
-
-  const handleDocTypeToggle = (type: DocType) => {
-    const next = docTypes.includes(type) ? docTypes.filter((t) => t !== type) : [...docTypes, type];
-    setDocTypes(next);
-    prefs.importDocTypes = next;
   };
 
   const handleSyncNow = async () => {
@@ -520,20 +510,6 @@ export function AutoImportSettings() {
             )}
           </section>
 
-          <section className="card">
-            <h3>Document Types</h3>
-            <p style={{ fontSize: 13, color: "var(--color-text-secondary)", marginBottom: 12 }}>
-              Select which types to import. PDFs that don't match are skipped.
-            </p>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-              {ALL_DOC_TYPES.map((type) => (
-                <label key={type} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 14, cursor: "pointer" }}>
-                  <input type="checkbox" checked={docTypes.includes(type)} onChange={() => handleDocTypeToggle(type)} />
-                  {DOC_TYPE_LABELS[type]}
-                </label>
-              ))}
-            </div>
-          </section>
         </div>
 
         {/* ── Right column ── */}
@@ -541,34 +517,37 @@ export function AutoImportSettings() {
           <section className="card">
             <h3>Email Connectors</h3>
 
-            <div className="connector-row">
-              <img src="/icons/gmail.svg" alt="" className="connector-logo" />
-              <div className="connector-info">
-                <div className="connector-name">Gmail</div>
-                {vm.state.gmail.email && <div className="connector-email">{vm.state.gmail.email}</div>}
-                {vm.state.gmail.isAuthenticated && (
-                  <button className="btn-link-danger" onClick={vm.revokeGmail}>Revoke access</button>
-                )}
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+              {/* Gmail */}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flex: "1 1 160px", padding: "8px 10px", background: "var(--color-surface-2)", borderRadius: 8, border: "1px solid var(--color-border)" }}>
+                <img src="/icons/gmail.svg" alt="" className="connector-logo" style={{ flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="connector-name">Gmail</div>
+                  {vm.state.gmail.email && <div className="connector-email" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{vm.state.gmail.email}</div>}
+                  {vm.state.gmail.isAuthenticated && (
+                    <button className="btn-link-danger" onClick={vm.revokeGmail} style={{ fontSize: 11 }}>Revoke</button>
+                  )}
+                </div>
+                <label className="toggle" style={{ flexShrink: 0 }}>
+                  <input type="checkbox" checked={vm.state.gmail.enabled} onChange={handleGmailToggle} />
+                  <span className="toggle-slider" />
+                </label>
               </div>
-              <label className="toggle">
-                <input type="checkbox" checked={vm.state.gmail.enabled} onChange={handleGmailToggle} />
-                <span className="toggle-slider" />
-              </label>
-            </div>
-
-            <div className="connector-row">
-              <img src="/icons/outlook.svg" alt="" className="connector-logo" />
-              <div className="connector-info">
-                <div className="connector-name">Outlook</div>
-                {vm.state.outlook.email && <div className="connector-email">{vm.state.outlook.email}</div>}
-                {vm.state.outlook.isAuthenticated && (
-                  <button className="btn-link-danger" onClick={vm.revokeOutlook}>Revoke access</button>
-                )}
+              {/* Outlook */}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flex: "1 1 160px", padding: "8px 10px", background: "var(--color-surface-2)", borderRadius: 8, border: "1px solid var(--color-border)" }}>
+                <img src="/icons/outlook.svg" alt="" className="connector-logo" style={{ flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="connector-name">Outlook</div>
+                  {vm.state.outlook.email && <div className="connector-email" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{vm.state.outlook.email}</div>}
+                  {vm.state.outlook.isAuthenticated && (
+                    <button className="btn-link-danger" onClick={vm.revokeOutlook} style={{ fontSize: 11 }}>Revoke</button>
+                  )}
+                </div>
+                <label className="toggle" style={{ flexShrink: 0 }}>
+                  <input type="checkbox" checked={vm.state.outlook.enabled} onChange={handleOutlookToggle} />
+                  <span className="toggle-slider" />
+                </label>
               </div>
-              <label className="toggle">
-                <input type="checkbox" checked={vm.state.outlook.enabled} onChange={handleOutlookToggle} />
-                <span className="toggle-slider" />
-              </label>
             </div>
 
             <div className="sync-actions">
@@ -607,57 +586,59 @@ export function AutoImportSettings() {
           {/* Sync schedule */}
           <section className="card">
             <h3>Sync Schedule</h3>
-            <div className="settings-row">
-              <span className="settings-row-label">Look back</span>
-              <select
-                className="settings-input"
-                style={{ maxWidth: 140 }}
-                value={syncMonths}
-                onChange={(e) => {
-                  const opt = SYNC_OPTIONS.find((o) => o.months === Number(e.target.value));
-                  if (opt) handleSyncSelect(opt.months, opt.pro);
-                }}
-              >
-                {SYNC_OPTIONS.map((opt) => (
-                  <option key={opt.months} value={opt.months}>{opt.label}{opt.pro ? " — Pro" : ""}</option>
-                ))}
-              </select>
-            </div>
-            <div className="settings-row" style={{ marginTop: 10 }}>
-              <span className="settings-row-label">Frequency</span>
-              <select
-                className="settings-input"
-                style={{ maxWidth: 140 }}
-                value={syncSchedule}
-                onChange={(e) => {
-                  const v = e.target.value as typeof syncSchedule;
-                  prefs.syncSchedule = v;
-                  setSyncSchedule(v);
-                  schedulePolling();
-                }}
-              >
-                <option value="manual">Manual only</option>
-                <option value="daily">Daily</option>
-                <option value="weekly">Weekly</option>
-                <option value="monthly">Monthly</option>
-              </select>
-            </div>
-            {syncSchedule !== "manual" && (
-              <div className="settings-row" style={{ marginTop: 10 }}>
-                <span className="settings-row-label">Sync at</span>
-                <input
-                  type="time"
+            <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ fontSize: 13, color: "var(--color-text-secondary)", whiteSpace: "nowrap" }}>Look back</span>
+                <select
                   className="settings-input"
                   style={{ maxWidth: 120 }}
-                  value={syncTime}
+                  value={syncMonths}
                   onChange={(e) => {
-                    prefs.syncTime = e.target.value;
-                    setSyncTime(e.target.value);
+                    const opt = SYNC_OPTIONS.find((o) => o.months === Number(e.target.value));
+                    if (opt) handleSyncSelect(opt.months, opt.pro);
+                  }}
+                >
+                  {SYNC_OPTIONS.map((opt) => (
+                    <option key={opt.months} value={opt.months}>{opt.label}{opt.pro ? " — Pro" : ""}</option>
+                  ))}
+                </select>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ fontSize: 13, color: "var(--color-text-secondary)", whiteSpace: "nowrap" }}>Frequency</span>
+                <select
+                  className="settings-input"
+                  style={{ maxWidth: 120 }}
+                  value={syncSchedule}
+                  onChange={(e) => {
+                    const v = e.target.value as typeof syncSchedule;
+                    prefs.syncSchedule = v;
+                    setSyncSchedule(v);
                     schedulePolling();
                   }}
-                />
+                >
+                  <option value="manual">Manual only</option>
+                  <option value="daily">Daily</option>
+                  <option value="weekly">Weekly</option>
+                  <option value="monthly">Monthly</option>
+                </select>
               </div>
-            )}
+              {syncSchedule !== "manual" && (
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ fontSize: 13, color: "var(--color-text-secondary)", whiteSpace: "nowrap" }}>Sync at</span>
+                  <input
+                    type="time"
+                    className="settings-input"
+                    style={{ maxWidth: 110 }}
+                    value={syncTime}
+                    onChange={(e) => {
+                      prefs.syncTime = e.target.value;
+                      setSyncTime(e.target.value);
+                      schedulePolling();
+                    }}
+                  />
+                </div>
+              )}
+            </div>
             {showProBanner && (
               <div className="settings-pro-banner" style={{ marginTop: 12 }}>
                 <strong>Subscription required</strong>
