@@ -79,11 +79,11 @@ export const prefs = {
   },
   set outlookFolderIds(v: string[]) { set("outlook_folder_ids", JSON.stringify(v)); },
 
-  get syncSchedule(): "manual" | "daily" | "weekly" | "monthly" {
+  get syncSchedule(): "manual" | "daily" {
     const v = get("sync_schedule");
-    return (v === "daily" || v === "weekly" || v === "monthly") ? v : "manual";
+    return v === "daily" ? "daily" : "manual";
   },
-  set syncSchedule(v: "manual" | "daily" | "weekly" | "monthly") { set("sync_schedule", v); },
+  set syncSchedule(v: "manual" | "daily") { set("sync_schedule", v); },
 
   get syncTime(): string { return get("sync_time") ?? "09:00"; },
   set syncTime(v: string) { set("sync_time", v); },

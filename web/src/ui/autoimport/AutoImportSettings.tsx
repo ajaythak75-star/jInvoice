@@ -450,8 +450,7 @@ export function AutoImportSettings() {
     const now = new Date();
     const last = prefs.lastAutoSync ? new Date(prefs.lastAutoSync) : null;
     const msInDay = 86400000;
-    const thresholds: Record<string, number> = { daily: msInDay, weekly: 7 * msInDay, monthly: 30 * msInDay };
-    const threshold = thresholds[schedule] ?? msInDay;
+    const threshold = msInDay;
     const scheduledToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh, mm);
     const isDue = now >= scheduledToday && (!last || now.getTime() - last.getTime() >= threshold);
     if (!isDue) return;
@@ -926,8 +925,6 @@ export function AutoImportSettings() {
                 >
                   <option value="manual">Manual only</option>
                   <option value="daily">Daily</option>
-                  <option value="weekly">Weekly</option>
-                  <option value="monthly">Monthly</option>
                 </select>
               </div>
               {syncSchedule !== "manual" && (

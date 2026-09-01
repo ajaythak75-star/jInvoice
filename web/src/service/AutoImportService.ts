@@ -33,14 +33,7 @@ function isSyncDue(): boolean {
   if (!lastSync) return true;
 
   const last = new Date(lastSync);
-  const diffMs = now.getTime() - last.getTime();
-
-  switch (schedule) {
-    case "daily":   return last < scheduledToday;
-    case "weekly":  return diffMs >= 6 * 24 * 60 * 60 * 1000;
-    case "monthly": return diffMs >= 28 * 24 * 60 * 60 * 1000;
-    default:        return false;
-  }
+  return last < scheduledToday;
 }
 
 export function schedulePolling(): void {
