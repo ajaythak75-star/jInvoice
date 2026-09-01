@@ -781,11 +781,24 @@ app.post("/api/imap/poll", async (req, res) => {
       console.log("[IMAP] list() failed, falling back to INBOX:", e.message);
     }
 
+    // If All Mail returned 0 results, fall back to INBOX (label may not be IMAP-synced)
+    let seqNosForMailbox = [];
+    {
+      const lock0 = await client.getMailboxLock(mailbox);
+      try { seqNosForMailbox = await client.search({ since }); } finally { lock0.release(); }
+      if (seqNosForMailbox.length === 0 && mailbox !== "INBOX") {
+        console.log(`[IMAP] ${mailbox} returned 0 — falling back to INBOX`);
+        mailbox = "INBOX";
+        const lock1 = await client.getMailboxLock("INBOX");
+        try { seqNosForMailbox = await client.search({ since }); } finally { lock1.release(); }
+      }
+    }
+
     const lock = await client.getMailboxLock(mailbox);
     const results = [];
     const seenMsgIds = new Set();
     try {
-      const seqNos = await client.search({ since });
+      const seqNos = seqNosForMailbox;
       console.log(`[IMAP] ${mailbox}: found ${seqNos.length} messages since ${since.toDateString()}, processing last 200`);
       const slice = seqNos.slice(-200);
       if (slice.length) {
