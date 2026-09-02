@@ -253,6 +253,18 @@ export async function processFile(
   const strategy = detectExtractionStrategy(file.name, meta?.subject, meta?.senderEmail);
   console.log("[Pipeline] extraction strategy:", strategy, "for", file.name);
 
+  // "skip" — document has no financial data (society admin form, consent form,
+  // ID scan, etc.). Save it with a clear note; don't waste any extraction time.
+  if (strategy === "skip") {
+    console.log("[Pipeline] skip — not an invoice document:", file.name);
+    const skipResult: ExtractionResult = { kind: "failure", reason: "not-an-invoice" };
+    await persistResultWithNote(
+      skipResult, importSource, file.name, meta, filenameKnown,
+      "Not an invoice — this document has no financial data to extract",
+    );
+    return skipResult;
+  }
+
   let result: ExtractionResult;
 
   if (classification === "encrypted") {
