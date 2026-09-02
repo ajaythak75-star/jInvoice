@@ -230,6 +230,14 @@ export const prefs = {
   },
   set planApiOption(v: "shared" | "own") { set("plan_api_option", v); },
 
+  get userType(): "personal" | "society" {
+    return get("user_type") === "society" ? "society" : "personal";
+  },
+  set userType(v: "personal" | "society") { set("user_type", v); },
+
+  get societyName(): string { return get("society_name") ?? ""; },
+  set societyName(v: string) { v ? set("society_name", v) : remove("society_name"); },
+
   revokeGmail(): void {
     this.gmailEnabled = false;
     this.gmailConsentGiven = false;

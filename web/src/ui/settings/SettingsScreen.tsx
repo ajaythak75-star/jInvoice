@@ -28,6 +28,9 @@ interface Props {
 export function SettingsScreen({ onSignOut }: Props) {
   const vm = useAutoImportViewModel();
 
+  const [userType, setUserType] = useState<"personal" | "society">(() => prefs.userType);
+  const [societyName, setSocietyName] = useState(() => prefs.societyName);
+
   const [showProModal, setShowProModal]   = useState(false);
   const [proName,     setProName]     = useState(() => prefs.customerName);
   const [proEmail,    setProEmail]    = useState(() => prefs.customerEmail);
@@ -143,6 +146,50 @@ export function SettingsScreen({ onSignOut }: Props) {
           <span className="settings-row-value" style={{ fontSize: 12, color: "var(--color-text-secondary)" }} />
           <button className="btn-ghost settings-signout" onClick={handleSignOut}>Sign out</button>
         </div>
+      </section>
+
+      {/* Profile Type */}
+      <section className="settings-section">
+        <div className="settings-section-title">Profile</div>
+        <div className="settings-row">
+          <div>
+            <span className="settings-row-label">Account type</span>
+            <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 2 }}>
+              Switch to Housing Society to get society-specific expense categories on every invoice.
+            </p>
+          </div>
+          <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+            {(["personal", "society"] as const).map((type) => (
+              <button
+                key={type}
+                onClick={() => { prefs.userType = type; setUserType(type); }}
+                style={{
+                  padding: "5px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                  border: "1px solid var(--color-border)",
+                  background: userType === type ? "var(--color-primary)" : "var(--color-surface)",
+                  color: userType === type ? "#fff" : "var(--color-text-secondary)",
+                }}
+              >
+                {type === "personal" ? "Personal" : "Housing Society"}
+              </button>
+            ))}
+          </div>
+        </div>
+        {userType === "society" && (
+          <div className="settings-field" style={{ marginTop: 10 }}>
+            <label className="settings-field-label">Society Name</label>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                className="settings-input"
+                style={{ flex: 1 }}
+                placeholder="e.g. Sunshine CHS"
+                value={societyName}
+                onChange={(e) => setSocietyName(e.target.value)}
+                onBlur={() => { prefs.societyName = societyName.trim(); }}
+              />
+            </div>
+          </div>
+        )}
       </section>
 
       <section className="settings-section">

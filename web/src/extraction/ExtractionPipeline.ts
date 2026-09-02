@@ -12,6 +12,7 @@ import { extractLocalDoc } from "./LocalDocExtractor";
 import { db, insertInvoiceWithItems, isDuplicateInvoice, isDuplicateByFilename, markAsDuplicate } from "../data/InvoiceDatabase";
 import type { InvoicePdfFile } from "../data/InvoiceDatabase";
 import { detectCategory } from "../core/extraction/CategoryDetector";
+import { detectSocietyCategory } from "../core/extraction/SocietyExpenseDetector";
 import { detectDocType } from "./DocTypeDetector";
 import { computeSentinelForInvoice } from "../service/ExpirySentinel";
 import { detectSentinelCandidates } from "./WarrantyDetector";
@@ -397,7 +398,9 @@ async function persistResultWithNote(
 
     const status = result.kind === "success" ? "imported" : "pending_review";
     const lineItemNames = inv.lineItems.map((li) => li.name);
-    const category = detectCategory(inv.merchantName, lineItemNames);
+    const category = prefs.userType === "society"
+      ? detectSocietyCategory(inv.merchantName, lineItemNames)
+      : detectCategory(inv.merchantName, lineItemNames);
     const docTypes = detectDocType(inv.merchantName, lineItemNames, sourceFilename, meta?.subject);
     const docType  = docTypes[0];
     console.log("[Pipeline]", sourceFilename, "docTypes:", docTypes, "allowed:", prefs.importDocTypes);
@@ -579,7 +582,9 @@ async function finalizeExtractedInvoice(
 
   const now = new Date().toISOString();
   const lineItemNames = enhanced.lineItems.map((li) => li.name);
-  const category = detectCategory(enhanced.merchantName, lineItemNames);
+  const category = prefs.userType === "society"
+    ? detectSocietyCategory(enhanced.merchantName, lineItemNames)
+    : detectCategory(enhanced.merchantName, lineItemNames);
   const docTypes = detectDocType(enhanced.merchantName, lineItemNames, undefined, undefined);
   const status = enhanced.confidenceScore >= 0.7 ? "imported" : "pending_review";
   await db.invoices.update(invoiceId, {
