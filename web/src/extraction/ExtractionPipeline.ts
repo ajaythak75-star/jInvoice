@@ -192,20 +192,23 @@ export async function processFile(
       return { kind: "pendingExtraction" };
     }
 
-    // Try local extraction — may skip pending_extraction entirely for well-formatted PDFs
+    // Try local extraction — may skip pending_extraction entirely for well-formatted PDFs.
+    // Attempt native text extraction for ALL non-encrypted PDFs: even PDFs classified as
+    // "scanned" can have an embedded text layer (digitally-generated forms, bank documents,
+    // bond applications with image overlays). Capturing rawText here ensures that
+    // extractInvoiceWithAI can use the Gemini text fallback even when PDF bytes cannot be
+    // stored due to storage quota limits.
     let rawText: string | null = null;
     let localInv: ExtractedInvoice | null = null;
 
-    if (classification !== "scanned") {
-      try {
-        const tr = await extractNativePdf(file);
-        if ((tr.kind === "success" || tr.kind === "lowConfidence") && tr.invoice.rawText) {
-          rawText = tr.invoice.rawText;
-          const loc = extractLocalDoc(rawText, tr.invoice.sourceType);
-          if (loc.confidenceScore >= 0.65) localInv = loc;
-        }
-      } catch {}
-    }
+    try {
+      const tr = await extractNativePdf(file);
+      if ((tr.kind === "success" || tr.kind === "lowConfidence") && tr.invoice.rawText) {
+        rawText = tr.invoice.rawText;
+        const loc = extractLocalDoc(rawText, tr.invoice.sourceType);
+        if (loc.confidenceScore >= 0.65) localInv = loc;
+      }
+    } catch {}
 
     // Local extraction was confident enough — save now without pending_extraction
     if (localInv) {
@@ -240,11 +243,15 @@ export async function processFile(
       [],
     );
     if (rawText) await db.rawTexts.add({ invoiceId, rawText });
-    // Store PDF bytes so vision extraction can be re-run from ViewScreen
+    // Store PDF bytes so vision extraction can be re-run from ViewScreen.
+    // May fail silently for very large files (IndexedDB quota); rawText above
+    // acts as the fallback so Gemini text extraction still works.
     try {
       const bytes = new Uint8Array(await file.arrayBuffer());
       await db.pdfFiles.add({ invoiceId, bytes, filename: file.name } as InvoicePdfFile);
-    } catch {}
+    } catch (e) {
+      console.warn("[Pipeline] skipGemini: could not store PDF bytes (quota?):", e);
+    }
     return { kind: "pendingExtraction" };
   }
 
