@@ -226,6 +226,7 @@ export function AutoImportSettings() {
   const [syncSchedule, setSyncSchedule] = useState(() => prefs.syncSchedule);
   const [syncTime,     setSyncTime]     = useState(() => prefs.syncTime);
   const [showProBanner, setShowProBanner] = useState(false);
+  const [folderWarning, setFolderWarning] = useState<"sync" | "upload" | null>(null);
 
   // Gmail label picker state
   const [gmailLabels,        setGmailLabels]        = useState<{ id: string; name: string }[]>([]);
@@ -508,8 +509,15 @@ export function AutoImportSettings() {
   };
 
   const handleSyncNow = async () => {
+    if (fsSupported && !prefs.desktopFolderName) { setFolderWarning("sync"); return; }
     if (fsSupported) await desktopConnector.restoreFolder();
-    poll().catch(() => {}); // state tracked via jinvoice:sync-* events
+    poll().catch(() => {});
+  };
+
+  const doSyncNow = async () => {
+    setFolderWarning(null);
+    if (fsSupported) await desktopConnector.restoreFolder();
+    poll().catch(() => {});
   };
 
   const handleCancelSync = () => {
@@ -645,7 +653,10 @@ export function AutoImportSettings() {
             <input ref={fileInputRef} type="file" accept=".pdf" multiple style={{ display: "none" }} onChange={handleFileUpload} />
             <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
               <button className="btn-sync"
-                onClick={() => fileInputRef.current?.click()}
+                onClick={() => {
+                  if (fsSupported && !prefs.desktopFolderName) { setFolderWarning("upload"); return; }
+                  fileInputRef.current?.click();
+                }}
                 disabled={fileQueue.some(e => e.status !== "done")}
               >
                 {fileQueue.some(e => e.status === "waiting" || e.status === "processing") ? "Processing…" : "Choose PDF(s)"}
@@ -966,6 +977,43 @@ export function AutoImportSettings() {
       </div>{/* end single column */}
 
     </div>
+
+    {folderWarning && (
+      <div
+        className="modal-overlay"
+        onClick={() => setFolderWarning(null)}
+        style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}
+      >
+        <div
+          className="modal"
+          onClick={(e) => e.stopPropagation()}
+          style={{ maxWidth: 380, width: "90%", padding: 24, borderRadius: 12, background: "var(--color-surface)", boxShadow: "0 8px 32px rgba(0,0,0,0.2)" }}
+        >
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 14 }}>
+            <span style={{ fontSize: 22, lineHeight: 1 }}>📁</span>
+            <div>
+              <h3 style={{ fontSize: 15, marginBottom: 4 }}>No local folder selected</h3>
+              <p style={{ fontSize: 13, color: "var(--color-text-secondary)", lineHeight: 1.5, margin: 0 }}>
+                PDFs will be saved inside the app only. To also copy them to a folder on your device, set a local folder in{" "}
+                <strong>Settings → Desktop Folder</strong> first.
+              </p>
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+            <button className="btn-sm" onClick={() => setFolderWarning(null)}>Cancel</button>
+            <button
+              className="btn-sync-primary"
+              onClick={() => {
+                if (folderWarning === "sync") { doSyncNow(); }
+                else { setFolderWarning(null); setTimeout(() => fileInputRef.current?.click(), 50); }
+              }}
+            >
+              Continue anyway
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
 
     {pendingConsent && (
       <ConsentModal
