@@ -12,7 +12,7 @@ import { extractFilePreview, extractInvoiceWithAI } from "../../extraction/Extra
 import { getBulkExtractionState, runBulkExtraction, type BulkState } from "../../service/BulkExtractionService";
 import type { ExtractedInvoice } from "../../core/extraction/models";
 import { detectCategory } from "../../core/extraction/CategoryDetector";
-import { detectDocType } from "../../extraction/DocTypeDetector";
+import { detectDocType, DOC_TYPE_LABELS } from "../../extraction/DocTypeDetector";
 
 function formatDate(iso: string | null | undefined): string {
   if (!iso) return "—";
@@ -1389,12 +1389,17 @@ export function ViewScreen() {
                     style={{ flexShrink: 0, background: "none", border: "none", cursor: "pointer", color: "var(--color-text-tertiary)", padding: "2px 4px", fontSize: 13, lineHeight: 1 }}
                   >👁</button>
                 </div>
-                {/* Line 2: source (with account email) + status chips + amount */}
+                {/* Line 2: source (with account email) + doctype + status chips + amount */}
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 5 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
                     <span className="view-chip view-chip--source" style={{ maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={formatSourceWithEmail(rec.importSource, rec.accountEmail)}>
                       {formatSourceWithEmail(rec.importSource, rec.accountEmail)}
                     </span>
+                    {rec.docType && rec.status !== "pending_extraction" && (
+                      <span className="view-chip" style={{ color: "#6d28d9", borderColor: "#c4b5fd", background: "#f3eeff", fontWeight: 700, flexShrink: 0 }}>
+                        {DOC_TYPE_LABELS[rec.docType as keyof typeof DOC_TYPE_LABELS] ?? rec.docType}
+                      </span>
+                    )}
                     {(rec.clientTags ?? []).map((tag) => (
                       <span key={tag} className="view-chip" style={{ color: "#0891b2", borderColor: "#0891b2", background: "#ecfeff", display: "inline-flex", alignItems: "center", gap: 2 }}>
                         {tag}
@@ -1673,7 +1678,7 @@ export function ViewScreen() {
                     {isPreviewMode ? "Extraction Preview" : r.status === "pending_extraction" ? "Pending AI Extraction" : "Extraction Result"}
                   </span>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    {!isPreviewMode && r.status === "pending_extraction" && (
+                    {!isPreviewMode && (
                       <button
                         disabled={aiExtracting}
                         style={{
@@ -1683,6 +1688,10 @@ export function ViewScreen() {
                         }}
                         onClick={async () => {
                           if (!r.id) return;
+                          if (prefs.isDailyLimitReached) {
+                            alert(`Daily limit reached — Free plan allows ${prefs.FREE_DAILY_LIMIT} invoices per day. Try again tomorrow or upgrade to Pro for unlimited extractions.`);
+                            return;
+                          }
                           setAiExtracting(true);
                           try {
                             const inv = await extractInvoiceWithAI(r.id);
@@ -1705,7 +1714,7 @@ export function ViewScreen() {
                           }
                         }}
                       >
-                        {aiExtracting ? "Extracting…" : "Extract with AI"}
+                        {aiExtracting ? "Extracting…" : r.status === "pending_extraction" ? "Extract with AI" : "Re-extract with AI"}
                       </button>
                     )}
                     {isPreviewMode && (() => {

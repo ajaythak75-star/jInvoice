@@ -1,19 +1,23 @@
-export type DocType = "invoice" | "tax" | "coupon" | "travel" | "other";
+export type DocType = "invoice" | "tax" | "coupon" | "travel" | "warranty" | "finance" | "other";
 
 export const DOC_TYPE_LABELS: Record<DocType, string> = {
-  invoice: "Invoice",
-  tax:     "Tax",
-  coupon:  "Coupon",
-  travel:  "Travel",
-  other:   "Other",
+  invoice:  "Invoice",
+  tax:      "Tax",
+  coupon:   "Coupon",
+  travel:   "Travel",
+  warranty: "Warranty",
+  finance:  "Finance",
+  other:    "Other",
 };
 
 export const DOC_TYPE_SUBFOLDER: Record<DocType, string> = {
-  invoice: "Invoices",
-  tax:     "Tax",
-  coupon:  "Coupons",
-  travel:  "Travel",
-  other:   "Other",
+  invoice:  "Invoices",
+  tax:      "Tax",
+  coupon:   "Coupons",
+  travel:   "Travel",
+  warranty: "Warranty",
+  finance:  "Finance",
+  other:    "Other",
 };
 
 const TRAVEL_KW = [
@@ -31,6 +35,17 @@ const TAX_KW = [
 const COUPON_KW = [
   "coupon", "voucher", "gift card", "promo code", "discount code",
   "cashback voucher", "reward voucher", "e-voucher",
+];
+
+const WARRANTY_KW = [
+  "warranty", "guarantee", "warranty card", "warranty certificate", "extended warranty",
+  "service warranty", "product warranty", "warranty period", "warranty claim", "repair warranty",
+];
+
+const FINANCE_KW = [
+  "emi", "loan", "account statement", "credit card statement", "bank statement",
+  "payment schedule", "outstanding", "mutual fund", "insurance premium", "premium receipt",
+  "policy", "statement of account", "loan account",
 ];
 
 const INVOICE_KW = [
@@ -56,13 +71,15 @@ export function detectDocType(
   const subText  = (subject ?? "").toLowerCase();
 
   const scores: Record<string, number> = {
-    travel:  hits(pdfText, TRAVEL_KW)  + hits(subText, TRAVEL_KW)  * 0.5,
-    tax:     hits(pdfText, TAX_KW)     + hits(subText, TAX_KW)     * 0.5,
-    coupon:  hits(pdfText, COUPON_KW)  + hits(subText, COUPON_KW)  * 0.5,
+    travel:   hits(pdfText, TRAVEL_KW)   + hits(subText, TRAVEL_KW)   * 0.5,
+    tax:      hits(pdfText, TAX_KW)      + hits(subText, TAX_KW)      * 0.5,
+    coupon:   hits(pdfText, COUPON_KW)   + hits(subText, COUPON_KW)   * 0.5,
+    warranty: hits(pdfText, WARRANTY_KW) + hits(subText, WARRANTY_KW) * 0.5,
+    finance:  hits(pdfText, FINANCE_KW)  + hits(subText, FINANCE_KW)  * 0.5,
     // Invoice gets a base of 1 if merchant was extracted (PDF structured like an invoice)
-    invoice: (merchantName != null ? 1 : 0)
-             + hits(pdfText, INVOICE_KW)
-             + hits(subText, INVOICE_KW) * 0.5,
+    invoice:  (merchantName != null ? 1 : 0)
+              + hits(pdfText, INVOICE_KW)
+              + hits(subText, INVOICE_KW) * 0.5,
   };
 
   const ranked = (Object.entries(scores) as [string, number][])
