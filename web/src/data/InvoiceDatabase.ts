@@ -39,7 +39,18 @@ export interface InvoiceMeta {
 export interface SentinelRecord {
   id?: number;
   invoiceId: number;
-  type: "warranty" | "insurance" | "prescription" | "service_interval";
+  type:
+    | "warranty"
+    | "insurance"
+    | "prescription"
+    | "service_interval"
+    | "amc_renewal"
+    | "agreement_expiry"
+    | "gst_due"
+    | "itr_filing"
+    | "membership_renewal"
+    | "software_renewal"
+    | "retainer_renewal";
   label: string;
   expiresAt: string;
   status: "active" | "expired" | "dismissed";

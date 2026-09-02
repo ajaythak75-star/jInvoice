@@ -15,7 +15,7 @@ import { detectCategory } from "../core/extraction/CategoryDetector";
 import { detectSocietyCategory } from "../core/extraction/SocietyExpenseDetector";
 import { detectProfessionalCategory, type ProfessionalProfile } from "../core/extraction/ProfessionalCategoryDetector";
 import { detectDocType } from "./DocTypeDetector";
-import { computeSentinelForInvoice } from "../service/ExpirySentinel";
+import { computeSentinelForInvoice, computeSentinelForProfileCategory } from "../service/ExpirySentinel";
 import { detectSentinelCandidates } from "./WarrantyDetector";
 import { prefs } from "../data/AutoImportPreferences";
 
@@ -465,6 +465,7 @@ async function persistResultWithNote(
     }
 
     await computeSentinelForInvoice(invoiceId, inv.invoiceDate, inv.merchantName, lineItemNames, inv.rawText);
+    await computeSentinelForProfileCategory(invoiceId, inv.invoiceDate, category, prefs.activeMode, inv.merchantName);
   } else {
     const status = result.kind === "encryptedPdf" ? "import_blocked_encrypted" : "extraction_failed";
     await insertInvoiceWithItems(
@@ -657,6 +658,13 @@ async function finalizeExtractedInvoice(
     enhanced.merchantName,
     enhanced.lineItems.map((li) => li.name),
     enhanced.rawText,
+  );
+  await computeSentinelForProfileCategory(
+    invoiceId,
+    enhanced.invoiceDate,
+    category,
+    prefs.activeMode,
+    enhanced.merchantName,
   );
 
   return enhanced;

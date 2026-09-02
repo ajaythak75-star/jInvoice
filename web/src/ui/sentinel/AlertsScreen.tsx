@@ -5,10 +5,31 @@ import type { SentinelRecord, InvoiceMeta, LineItemRow } from "../../data/Invoic
 import { detectBillIssues } from "../../service/BillFraudDetector";
 
 const TYPE_ICON: Record<string, string> = {
-  warranty: "🛡️",
-  insurance: "📋",
-  prescription: "👓",
-  service_interval: "🔧",
+  warranty:          "🛡️",
+  insurance:         "📋",
+  prescription:      "👓",
+  service_interval:  "🔧",
+  amc_renewal:       "🔧",
+  agreement_expiry:  "📄",
+  gst_due:           "🧾",
+  itr_filing:        "📝",
+  membership_renewal:"🎓",
+  software_renewal:  "💻",
+  retainer_renewal:  "⚖️",
+};
+
+const TYPE_LABEL: Record<string, string> = {
+  warranty:          "Warranty",
+  insurance:         "Insurance",
+  prescription:      "Prescription",
+  service_interval:  "Service Interval",
+  amc_renewal:       "AMC Renewal",
+  agreement_expiry:  "Agreement / Rent",
+  gst_due:           "GST Return Due",
+  itr_filing:        "ITR Filing",
+  membership_renewal:"Membership Renewal",
+  software_renewal:  "Software Renewal",
+  retainer_renewal:  "Retainer Renewal",
 };
 
 function urgencyClass(days: number): string {
@@ -99,7 +120,7 @@ function AlertCard({ row, onDismiss, onExpiryChange }: {
         </span>
         <span style={{ flexShrink: 0 }}>
           <span style={labelStyle}>Type</span>
-          {record.type.replace("_", " ")}
+          {TYPE_LABEL[record.type] ?? record.type.replace(/_/g, " ")}
         </span>
       </div>
       {/* Line 3: Purchased + Expiry */}
@@ -208,7 +229,7 @@ export function AlertsScreen() {
       <div className="placeholder-screen">
         <span>🛡️</span>
         <p>No active alerts</p>
-        <p style={{ fontSize: 13 }}>Warranty and policy expiry reminders appear here.</p>
+        <p style={{ fontSize: 13 }}>Warranty, AMC, agreement, GST, membership, and policy renewal reminders appear here.</p>
         <button className="btn-sm" style={{ marginTop: 12 }} onClick={load}>Refresh</button>
       </div>
     );

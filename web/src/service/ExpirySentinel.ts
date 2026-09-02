@@ -2,6 +2,7 @@ import { db } from "../data/InvoiceDatabase";
 import type { SentinelRecord } from "../data/InvoiceDatabase";
 import { detectCategory, WARRANTY_MONTHS } from "../core/extraction/CategoryDetector";
 import type { ProductCategory } from "../core/extraction/CategoryDetector";
+import type { UserProfile } from "../data/AutoImportPreferences";
 
 const TYPE_MAP: Record<ProductCategory, SentinelRecord["type"]> = {
   mobile_smartphone: "warranty",
@@ -89,6 +90,81 @@ export async function addManualSentinel(
     type: "warranty",
     label: `Warranty — ${merchantName ?? "Unknown merchant"}`,
     expiresAt,
+    status: "active",
+    createdAt: new Date().toISOString(),
+  });
+}
+
+/**
+ * Create a category-specific expiry alert for society and professional profile imports.
+ * Each profile category with a natural renewal/due cycle gets a timed sentinel.
+ */
+export async function computeSentinelForProfileCategory(
+  invoiceId: number,
+  invoiceDate: string | null,
+  category: string,
+  mode: UserProfile,
+  merchantName: string | null,
+): Promise<void> {
+  if (!invoiceDate || mode === "personal") return;
+
+  type Rule = { type: SentinelRecord["type"]; label: string; months: number };
+
+  const SOCIETY_RULES: Partial<Record<string, Rule>> = {
+    lift_amc:  { type: "amc_renewal",      label: "AMC Renewal",              months: 12 },
+    insurance: { type: "insurance",         label: "Insurance Policy Renewal", months: 12 },
+    agreement: { type: "agreement_expiry",  label: "Agreement / Rent Expiry",  months: 11 },
+  };
+
+  const SHOPKEEPER_RULES: Partial<Record<string, Rule>> = {
+    gst_tax: { type: "gst_due", label: "GST Return Due", months: 3 },
+  };
+
+  const TAX_CONSULTANT_RULES: Partial<Record<string, Rule>> = {
+    itr_filing:            { type: "itr_filing",        label: "ITR Filing Reminder",   months: 12 },
+    software_subscription: { type: "software_renewal",  label: "Software Renewal",       months: 12 },
+  };
+
+  const CA_RULES: Partial<Record<string, Rule>> = {
+    icai_membership: { type: "membership_renewal", label: "ICAI Membership Renewal", months: 12 },
+    office_software:  { type: "software_renewal",   label: "Software Renewal",         months: 12 },
+  };
+
+  const ADVOCATE_RULES: Partial<Record<string, Rule>> = {
+    bar_council:     { type: "membership_renewal", label: "Bar Council Renewal",  months: 12 },
+    client_retainer: { type: "retainer_renewal",   label: "Retainer Renewal",     months: 12 },
+  };
+
+  const REAL_ESTATE_RULES: Partial<Record<string, Rule>> = {
+    legal_documentation: { type: "agreement_expiry", label: "Agreement Expiry", months: 11 },
+  };
+
+  const PROFILE_RULES: Partial<Record<UserProfile, Partial<Record<string, Rule>>>> = {
+    society:        SOCIETY_RULES,
+    shopkeeper:     SHOPKEEPER_RULES,
+    tax_consultant: TAX_CONSULTANT_RULES,
+    ca:             CA_RULES,
+    advocate:       ADVOCATE_RULES,
+    real_estate:    REAL_ESTATE_RULES,
+  };
+
+  const rule = PROFILE_RULES[mode]?.[category];
+  if (!rule) return;
+
+  const already = await db.sentinelRecords
+    .where("invoiceId").equals(invoiceId)
+    .and((r) => r.type === rule.type)
+    .count();
+  if (already > 0) return;
+
+  const expiresAt = new Date(invoiceDate);
+  expiresAt.setMonth(expiresAt.getMonth() + rule.months);
+
+  await db.sentinelRecords.add({
+    invoiceId,
+    type: rule.type,
+    label: `${rule.label} — ${merchantName ?? "Unknown"}`,
+    expiresAt: expiresAt.toISOString().slice(0, 10),
     status: "active",
     createdAt: new Date().toISOString(),
   });
