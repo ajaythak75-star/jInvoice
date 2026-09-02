@@ -6,17 +6,32 @@ const MONTH_MAP: Record<string, string> = {
 };
 
 const DATE_PATTERNS: Array<{ rx: RegExp; fmt: "dmy" | "ymd" | "dmy_mon" }> = [
-  { rx: /(\d{2})[\/\-](\d{2})[\/\-](\d{4})/,                     fmt: "dmy" },
+  { rx: /(\d{2})[\/\-.](\d{2})[\/\-.](\d{4})/,                    fmt: "dmy" },
   { rx: /(\d{4})[\/\-](\d{2})[\/\-](\d{2})/,                     fmt: "ymd" },
   { rx: /(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(\d{4})/i, fmt: "dmy_mon" },
 ];
 
 const GSTIN_RX = /\b(\d{2}[A-Z]{5}\d{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1})\b/;
+const INVOICE_NO_RX = /invoice\s*(?:no|number|#)\s*[:\-]?\s*([A-Z0-9][A-Z0-9\-\/]{3,29})/i;
+// Order matters: more specific patterns first
 const TOTAL_RX = [
-  /(?:grand\s*total|total\s*amount|net\s*payable|amount\s*due)\s*[:\-]?\s*(?:₹|Rs\.?|INR)?\s*([\d,]+\.?\d{0,2})/i,
+  // "Invoice Value" label (Amazon, Flipkart)
+  /invoice\s*value[:\s]*(?:₹|Rs\.?|INR)?\s*([\d,]+\.?\d{0,2})/i,
+  // Standard grand total keywords
+  /(?:grand\s*total|total\s*amount|net\s*payable|amount\s*due|amount\s*payable|payable\s*amount)\s*[:\-]?\s*(?:₹|Rs\.?|INR)?\s*([\d,]+\.?\d{0,2})/i,
+  // "TOTAL: ₹tax ₹grandtotal" — two ₹ on same TOTAL line; take the last one
+  /^total[:\s]+(?:₹|Rs\.?)?\s*[\d,]+\.?\d*\s+(?:₹|Rs\.?)\s*([\d,]+\.?\d{0,2})/im,
+  // Last ₹ amount on a line ending with it
   /(?:₹|Rs\.?)\s*([\d,]+\.?\d{0,2})\s*$/im,
 ];
 const LINE_ITEM_RX = /^(.+?)\s+(\d+(?:\.\d+)?)\s+(?:₹|Rs\.?)?\s*([\d,]+\.?\d{0,2})/gim;
+
+// Lines to skip when looking for merchant name
+const HEADER_SKIP = [
+  "tax invoice", "bill of supply", "cash memo", "original for recipient",
+  "duplicate", "invoice", "receipt", "page ", "gstin", "pan no", "cin no",
+  "authorized signatory", "e-invoice", "irn", "ack no",
+];
 
 export function extractDate(text: string): string | null {
   for (const { rx, fmt } of DATE_PATTERNS) {
@@ -36,13 +51,28 @@ export function extractGstin(text: string): string | null {
   return GSTIN_RX.exec(text)?.[1] ?? null;
 }
 
+export function extractInvoiceNumber(text: string): string | null {
+  return INVOICE_NO_RX.exec(text)?.[1]?.trim() ?? null;
+}
+
 export function extractMerchantName(text: string): string | null {
+  // 1. "Sold By :" / "Seller:" label (Amazon, Flipkart, etc.) — name is on the next line
+  const soldByM = /(?:sold\s+by|seller)\s*[:\-]\s*\n?\s*([A-Z][A-Za-z0-9\s,.()\-&']{4,80})/im.exec(text);
+  if (soldByM) return soldByM[1].trim().replace(/\s+/g, " ");
+
+  // 2. First line that contains a known company-type suffix
+  const companyM = /^([A-Z][A-Za-z0-9\s,.()\-&']{3,70}(?:private\s+limited|pvt\.?\s*ltd\.?|(?<!\b\w)\blimited\b|llp|llc))/im.exec(text);
+  if (companyM) return companyM[1].trim().replace(/\s+/g, " ");
+
+  // 3. Fallback: first non-empty, digit-sparse line that isn't a known invoice header
   const lines = text.split("\n");
   for (const line of lines) {
     const t = line.trim();
     if (!t) continue;
+    const tl = t.toLowerCase();
+    if (HEADER_SKIP.some((w) => tl.includes(w))) continue;
     const digits = (t.match(/\d/g) ?? []).length;
-    if (digits / t.length < 0.5) return t;
+    if (digits / t.length < 0.4) return t;
   }
   return null;
 }
@@ -104,6 +134,7 @@ export function parse(text: string, sourceType: PdfSourceType): ExtractedInvoice
   const grandTotalPaise = extractGrandTotal(text);
   const paymentMode = extractPaymentMode(text);
   const lineItems = extractLineItems(text);
+  const invoiceNumber = extractInvoiceNumber(text);
 
   const partial = { merchantName, invoiceDate, grandTotalPaise, paymentMode };
   const confidenceScore = computeConfidence(partial);
@@ -114,7 +145,7 @@ export function parse(text: string, sourceType: PdfSourceType): ExtractedInvoice
     merchantGstin,
     merchantPhone: null,
     merchantPincode: null,
-    invoiceNumber: null,
+    invoiceNumber,
     invoiceDate,
     lineItems,
     subtotalPaise: null,

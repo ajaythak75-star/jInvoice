@@ -10,6 +10,7 @@ import {
   extractMerchantName,
   extractGstin,
   extractLineItems,
+  extractInvoiceNumber,
 } from "../core/extraction/InvoiceFieldParser";
 
 // ── Known Indian banks ────────────────────────────────────────────────────────
@@ -205,6 +206,7 @@ export function extractGeneralInvoice(text: string, sourceType: PdfSourceType): 
   const grandTotalPaise = extractGrandTotal(text);
   const paymentMode     = extractPaymentMode(text);
   const lineItems       = extractLineItems(text);
+  const invoiceNumber   = extractInvoiceNumber(text);
   const confidenceScore = computeConfidence({ merchantName, invoiceDate, grandTotalPaise, paymentMode });
 
   return {
@@ -213,7 +215,7 @@ export function extractGeneralInvoice(text: string, sourceType: PdfSourceType): 
     merchantGstin,
     merchantPhone: null,
     merchantPincode: null,
-    invoiceNumber: null,
+    invoiceNumber,
     invoiceDate,
     lineItems,
     subtotalPaise: null,
