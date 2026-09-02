@@ -317,29 +317,13 @@ export function authPlugin(env: Record<string, string>): Plugin {
                 return;
               }
               _otpStore.delete(email.toLowerCase());
-              if (!SUPABASE_SERVICE_KEY || !SUPABASE_URL) {
-                res.writeHead(200, { "Content-Type": "application/json" });
-                res.end(JSON.stringify({ ok: true }));
-                return;
-              }
-              await fetch(`${SUPABASE_URL}/auth/v1/admin/users`, {
-                method: "POST",
-                headers: { apikey: SUPABASE_SERVICE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`, "Content-Type": "application/json" },
-                body: JSON.stringify({ email, email_confirm: true }),
-              });
-              const linkRes = await fetch(`${SUPABASE_URL}/auth/v1/admin/generate_link`, {
-                method: "POST",
-                headers: { apikey: SUPABASE_SERVICE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`, "Content-Type": "application/json" },
-                body: JSON.stringify({ type: "magiclink", email }),
-              });
-              if (!linkRes.ok) {
-                res.writeHead(500, { "Content-Type": "application/json" });
-                res.end(JSON.stringify({ error: "Session creation failed" }));
-                return;
-              }
-              const linkData = await linkRes.json() as Record<string, string>;
+              // TODO: magic link — re-enable when Resend domain is verified
+              // if (!SUPABASE_SERVICE_KEY || !SUPABASE_URL) { ... }
+              // await fetch(`${SUPABASE_URL}/auth/v1/admin/users`, { ... });
+              // const linkRes = await fetch(`${SUPABASE_URL}/auth/v1/admin/generate_link`, { ... });
+              // res.end(JSON.stringify({ token_hash: linkData.hashed_token }));
               res.writeHead(200, { "Content-Type": "application/json" });
-              res.end(JSON.stringify({ token_hash: linkData.hashed_token }));
+              res.end(JSON.stringify({ ok: true }));
             } catch (e) {
               res.writeHead(500, { "Content-Type": "application/json" });
               res.end(JSON.stringify({ error: String(e) }));
