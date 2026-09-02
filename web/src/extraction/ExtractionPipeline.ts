@@ -411,7 +411,7 @@ async function persistResultWithNote(
     // Filename duplicate — same file already imported; save as duplicate so it's visible in View
     if (sourceFilename && (filenameKnown || await isDuplicateByFilename(sourceFilename))) {
       console.log("[Pipeline] filename duplicate:", sourceFilename);
-      const docTypes = detectDocType(inv.merchantName, inv.lineItems.map(li => li.name), sourceFilename, meta?.subject);
+      const docTypes = detectDocType(inv.merchantName, inv.lineItems.map(li => li.name), sourceFilename, meta?.subject, inv.rawText);
       await insertInvoiceWithItems(
         {
           merchantName: inv.merchantName, merchantAddress: inv.merchantAddress,
@@ -440,7 +440,7 @@ async function persistResultWithNote(
     const status = result.kind === "success" ? "imported" : "pending_review";
     const lineItemNames = inv.lineItems.map((li) => li.name);
     const category = resolveCategory(inv.merchantName, lineItemNames);
-    const docTypes = detectDocType(inv.merchantName, lineItemNames, sourceFilename, meta?.subject);
+    const docTypes = detectDocType(inv.merchantName, lineItemNames, sourceFilename, meta?.subject, inv.rawText);
     const docType  = docTypes[0];
     console.log("[Pipeline]", sourceFilename, "docTypes:", docTypes, "allowed:", prefs.importDocTypes);
 
@@ -623,7 +623,7 @@ async function finalizeExtractedInvoice(
   const now = new Date().toISOString();
   const lineItemNames = enhanced.lineItems.map((li) => li.name);
   const category = resolveCategory(enhanced.merchantName, lineItemNames);
-  const docTypes = detectDocType(enhanced.merchantName, lineItemNames, undefined, undefined);
+  const docTypes = detectDocType(enhanced.merchantName, lineItemNames, undefined, undefined, enhanced.rawText);
   const status = enhanced.confidenceScore >= 0.7 ? "imported" : "pending_review";
   await db.invoices.update(invoiceId, {
     merchantName: enhanced.merchantName,

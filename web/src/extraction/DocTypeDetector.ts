@@ -46,6 +46,13 @@ const FINANCE_KW = [
   "emi", "loan", "account statement", "credit card statement", "bank statement",
   "payment schedule", "outstanding", "mutual fund", "insurance premium", "premium receipt",
   "policy", "statement of account", "loan account",
+  // Investment / capital market documents
+  "bond", "bonds", "debenture", "ncd", "non-convertible",
+  "capital gain", "capital gains", "54ec", "sec 85", "section 85", "section 54ec",
+  "redemption", "allotment", "maturity date",
+  "nav", "sip", "dividend", "portfolio", "securities",
+  "application form for", "investment", "rate of interest",
+  "lock-in period", "lock in period", "demat", "dpid", "client id",
 ];
 
 const INVOICE_KW = [
@@ -59,27 +66,32 @@ function hits(text: string, keywords: string[]): number {
 /**
  * Returns an array of 1 or 2 DocTypes.
  * Two are returned when the PDF content signals both types roughly equally (second score > 50% of top).
- * Subject adds half-weight signal and can shift close calls but cannot override strong PDF evidence.
+ * Subject adds half-weight signal; rawText adds quarter-weight (noisier, but catches content the
+ * merchant name and line items alone miss — e.g. bond applications, insurance policies).
  */
 export function detectDocType(
   merchantName: string | null,
   lineItemNames: string[],
   sourceFilename?: string,
   subject?: string,
+  rawText?: string | null,
 ): DocType[] {
   const pdfText = [merchantName, ...lineItemNames, sourceFilename].filter(Boolean).join(" ").toLowerCase();
-  const subText  = (subject ?? "").toLowerCase();
+  const subText  = (subject  ?? "").toLowerCase();
+  const rawLower = (rawText  ?? "").toLowerCase();
 
   const scores: Record<string, number> = {
-    travel:   hits(pdfText, TRAVEL_KW)   + hits(subText, TRAVEL_KW)   * 0.5,
-    tax:      hits(pdfText, TAX_KW)      + hits(subText, TAX_KW)      * 0.5,
-    coupon:   hits(pdfText, COUPON_KW)   + hits(subText, COUPON_KW)   * 0.5,
-    warranty: hits(pdfText, WARRANTY_KW) + hits(subText, WARRANTY_KW) * 0.5,
-    finance:  hits(pdfText, FINANCE_KW)  + hits(subText, FINANCE_KW)  * 0.5,
-    // Invoice gets a base of 1 if merchant was extracted (PDF structured like an invoice)
-    invoice:  (merchantName != null ? 1 : 0)
+    travel:   hits(pdfText, TRAVEL_KW)   + hits(subText, TRAVEL_KW)   * 0.5 + hits(rawLower, TRAVEL_KW)   * 0.25,
+    tax:      hits(pdfText, TAX_KW)      + hits(subText, TAX_KW)      * 0.5 + hits(rawLower, TAX_KW)      * 0.25,
+    coupon:   hits(pdfText, COUPON_KW)   + hits(subText, COUPON_KW)   * 0.5 + hits(rawLower, COUPON_KW)   * 0.25,
+    warranty: hits(pdfText, WARRANTY_KW) + hits(subText, WARRANTY_KW) * 0.5 + hits(rawLower, WARRANTY_KW) * 0.25,
+    finance:  hits(pdfText, FINANCE_KW)  + hits(subText, FINANCE_KW)  * 0.5 + hits(rawLower, FINANCE_KW)  * 0.25,
+    // Invoice gets a small base if merchant was extracted (PDF structured like an invoice),
+    // but reduced to 0.3 so a single keyword match in any other type overrides it.
+    invoice:  (merchantName != null ? 0.3 : 0)
               + hits(pdfText, INVOICE_KW)
-              + hits(subText, INVOICE_KW) * 0.5,
+              + hits(subText, INVOICE_KW) * 0.5
+              + hits(rawLower, INVOICE_KW) * 0.25,
   };
 
   const ranked = (Object.entries(scores) as [string, number][])
