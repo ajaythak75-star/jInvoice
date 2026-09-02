@@ -18,6 +18,7 @@ import { detectDocType } from "./DocTypeDetector";
 import { computeSentinelForInvoice, computeSentinelForProfileCategory } from "../service/ExpirySentinel";
 import { detectSentinelCandidates } from "./WarrantyDetector";
 import { prefs } from "../data/AutoImportPreferences";
+import { detectExtractionStrategy } from "./ExtractionStrategyDetector";
 
 const PROFESSIONAL_PROFILES: ProfessionalProfile[] = ["shopkeeper", "tax_consultant", "ca", "real_estate", "advocate"];
 
@@ -247,20 +248,30 @@ export async function processFile(
     return { kind: "pendingExtraction" };
   }
 
+  // Pre-extraction strategy hint — uses filename / subject / sender to decide
+  // whether to attempt local extraction or skip straight to Gemini.
+  const strategy = detectExtractionStrategy(file.name, meta?.subject, meta?.senderEmail);
+  console.log("[Pipeline] extraction strategy:", strategy, "for", file.name);
+
   let result: ExtractionResult;
 
   if (classification === "encrypted") {
     result = { kind: "encryptedPdf" };
   } else {
-    // Local extraction first — avoids Gemini for well-formatted native PDFs
-    const localFirst = await tryLocalTextExtraction(file, classification);
-    if (localFirst) {
-      console.log("[Pipeline] local extraction succeeded, skipping Gemini");
-      const wasDup = await persistResult(localFirst, importSource, file.name, meta, filenameKnown);
-      if (wasDup && (localFirst.kind === "success" || localFirst.kind === "lowConfidence")) {
-        return { kind: "duplicate", invoice: localFirst.invoice };
+    // Local extraction first — skipped for "gemini_direct" docs (cheques, legal docs, etc.)
+    // that are known to never yield a machine-readable invoice structure.
+    if (strategy !== "gemini_direct") {
+      const localFirst = await tryLocalTextExtraction(file, classification);
+      if (localFirst) {
+        console.log("[Pipeline] local extraction succeeded, skipping Gemini");
+        const wasDup = await persistResult(localFirst, importSource, file.name, meta, filenameKnown);
+        if (wasDup && (localFirst.kind === "success" || localFirst.kind === "lowConfidence")) {
+          return { kind: "duplicate", invoice: localFirst.invoice };
+        }
+        return localFirst;
       }
-      return localFirst;
+    } else {
+      console.log("[Pipeline] gemini_direct — skipping local extraction for", file.name);
     }
 
     if (hasGeminiKey()) {
