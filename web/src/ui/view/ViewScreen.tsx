@@ -127,7 +127,8 @@ function badgeChip(b: AccBadge, note?: string): React.ReactElement {
   );
 }
 function extractionMethod(pdfSourceType: string): string {
-  return pdfSourceType === "NATIVE_PDF" ? "Gemini Text" : "Gemini Vision";
+  if (pdfSourceType === "SCANNED_PDF" || pdfSourceType === "MIXED_PDF") return "Gemini Vision";
+  return "PDF Text";
 }
 
 function detectSensitiveData(r: InvoiceMeta): { sensitive: boolean; reasons: string[] } {

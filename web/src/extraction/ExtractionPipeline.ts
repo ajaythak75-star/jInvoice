@@ -53,6 +53,11 @@ async function tryLocalTextExtraction(
     }
     const inv = extractLocalDoc(textResult.invoice.rawText, textResult.invoice.sourceType);
     if (inv.confidenceScore < 0.65) return null;
+    // If no line items were found and confidence isn't very high, let Gemini try.
+    // High-confidence documents with no items (bank statements, cheques) score ≥ 0.9
+    // and are correctly skipped; shopping invoices with table-layout PDFs score ~0.75
+    // and fall through so Gemini can extract the line items.
+    if (inv.lineItems.length === 0 && inv.confidenceScore < 0.9) return null;
     return inv.confidenceScore >= 0.7
       ? { kind: "success", invoice: inv }
       : { kind: "lowConfidence", invoice: inv, reason: "local-only" };
