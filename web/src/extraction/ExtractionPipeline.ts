@@ -7,6 +7,8 @@ import { extractScannedPdf } from "./WebScannedPdfExtractor";
 import { extractFromCanvas } from "./WebCameraExtractor";
 import { enhanceWithClaude, enhanceWithClaudeVision } from "./ClaudeExtractor";
 import { renderPdfToImages } from "./WebPdfRenderer";
+import { blurScoreFromBase64 } from "./BlurDetector";
+import { extractLocalDoc } from "./LocalDocExtractor";
 import { db, insertInvoiceWithItems, isDuplicateInvoice, isDuplicateByFilename, markAsDuplicate } from "../data/InvoiceDatabase";
 import type { InvoicePdfFile } from "../data/InvoiceDatabase";
 import { detectCategory } from "../core/extraction/CategoryDetector";
@@ -33,6 +35,29 @@ async function textExtractPdf(file: File, classification: PdfClassification): Pr
   return nativeCount >= Object.keys(pageTypes).length / 2
     ? extractNativePdf(file)
     : extractScannedPdf(file);
+}
+
+// Returns a local ExtractionResult if the text is confident enough, or null to fall through to Gemini.
+async function tryLocalTextExtraction(
+  file: File,
+  classification: PdfClassification,
+): Promise<ExtractionResult | null> {
+  // Local extraction only works on PDF documents with embedded text.
+  if (classification === "scanned" || classification === "encrypted") return null;
+
+  try {
+    const textResult = await extractNativePdf(file);
+    if ((textResult.kind !== "success" && textResult.kind !== "lowConfidence") || !textResult.invoice.rawText) {
+      return null;
+    }
+    const inv = extractLocalDoc(textResult.invoice.rawText, textResult.invoice.sourceType);
+    if (inv.confidenceScore < 0.65) return null;
+    return inv.confidenceScore >= 0.7
+      ? { kind: "success", invoice: inv }
+      : { kind: "lowConfidence", invoice: inv, reason: "local-only" };
+  } catch {
+    return null;
+  }
 }
 
 async function processHtmlFile(
@@ -100,7 +125,8 @@ export async function processFile(
 
   const classification = await classifyPdf(file);
 
-  // Skip Gemini — save file metadata with pending_extraction status for later AI processing in View screen
+  // Skip Gemini — try local extraction first; if confident, save immediately.
+  // Otherwise save with pending_extraction status for later AI processing in View screen.
   if (options?.skipGemini) {
     if (classification === "encrypted") return { kind: "encryptedPdf" };
 
@@ -128,19 +154,39 @@ export async function processFile(
       return { kind: "pendingExtraction" };
     }
 
-    const now = new Date().toISOString();
-    const pdfSourceType =
-      classification === "native" ? "NATIVE_PDF" :
-      classification === "scanned" ? "SCANNED_PDF" : "MIXED_PDF";
+    // Try local extraction — may skip pending_extraction entirely for well-formatted PDFs
     let rawText: string | null = null;
+    let localInv: ExtractedInvoice | null = null;
+
     if (classification !== "scanned") {
       try {
         const tr = await extractNativePdf(file);
         if ((tr.kind === "success" || tr.kind === "lowConfidence") && tr.invoice.rawText) {
           rawText = tr.invoice.rawText;
+          const loc = extractLocalDoc(rawText, tr.invoice.sourceType);
+          if (loc.confidenceScore >= 0.65) localInv = loc;
         }
       } catch {}
     }
+
+    // Local extraction was confident enough — save now without pending_extraction
+    if (localInv) {
+      console.log("[Pipeline] skipGemini local extraction confidence:", localInv.confidenceScore);
+      const localResult: ExtractionResult = localInv.confidenceScore >= 0.7
+        ? { kind: "success", invoice: localInv }
+        : { kind: "lowConfidence", invoice: localInv, reason: "local-only" };
+      const wasDup = await persistResult(localResult, importSource, file.name, meta, filenameKnown);
+      if (wasDup && (localResult.kind === "success" || localResult.kind === "lowConfidence")) {
+        return { kind: "duplicate", invoice: localResult.invoice };
+      }
+      return localResult;
+    }
+
+    // Low local confidence — save as pending_extraction for AI later
+    const now = new Date().toISOString();
+    const pdfSourceType =
+      classification === "native" ? "NATIVE_PDF" :
+      classification === "scanned" ? "SCANNED_PDF" : "MIXED_PDF";
     const invoiceId = await insertInvoiceWithItems(
       {
         merchantName: null, merchantAddress: null, merchantGstin: null,
@@ -163,62 +209,89 @@ export async function processFile(
     } catch {}
     return { kind: "pendingExtraction" };
   }
+
   let result: ExtractionResult;
 
   if (classification === "encrypted") {
     result = { kind: "encryptedPdf" };
-  } else if (hasGeminiKey()) {
-    // Vision-first: render PDF to images so Gemini reads the visual layout —
-    // table structure, column alignment, GST breakdowns — rather than garbled extracted text.
-    try {
-      const pages = await renderPdfToImages(file);
-      console.log("[Pipeline] vision-first pages:", pages.length);
-      if (pages.length > 0) {
-        const blank: ExtractedInvoice = {
-          merchantName: null, merchantAddress: null, merchantGstin: null,
-          merchantPhone: null, merchantPincode: null, invoiceNumber: null,
-          invoiceDate: null, lineItems: [], subtotalPaise: null, discountPaise: 0,
-          taxPaise: null, grandTotalPaise: null, paymentMode: null,
-          sourceType: "NATIVE_PDF", rawText: null, confidenceScore: 0,
-        };
-        const enhanced = await enhanceWithClaudeVision(blank, pages);
-        console.log("[Pipeline] vision merchant:", enhanced.merchantName, "total:", enhanced.grandTotalPaise);
-        if (enhanced.grandTotalPaise != null || enhanced.merchantName != null) {
-          result = enhanced.confidenceScore >= 0.7
-            ? { kind: "success", invoice: enhanced }
-            : { kind: "lowConfidence", invoice: enhanced, reason: "vision-only" };
+  } else {
+    // Local extraction first — avoids Gemini for well-formatted native PDFs
+    const localFirst = await tryLocalTextExtraction(file, classification);
+    if (localFirst) {
+      console.log("[Pipeline] local extraction succeeded, skipping Gemini");
+      const wasDup = await persistResult(localFirst, importSource, file.name, meta, filenameKnown);
+      if (wasDup && (localFirst.kind === "success" || localFirst.kind === "lowConfidence")) {
+        return { kind: "duplicate", invoice: localFirst.invoice };
+      }
+      return localFirst;
+    }
+
+    if (hasGeminiKey()) {
+      // Vision-first: render PDF to images so Gemini reads the visual layout.
+      try {
+        const pages = await renderPdfToImages(file);
+        console.log("[Pipeline] vision-first pages:", pages.length);
+        if (pages.length > 0) {
+          // Blur check — avoid wasting Gemini tokens on unreadable images
+          try {
+            const { isBlurry, score } = await blurScoreFromBase64(pages[0].data);
+            if (isBlurry) {
+              console.log("[Pipeline] blurry image detected (score:", score, ") — skipping Gemini");
+              result = { kind: "failure", reason: "blurry-image" };
+              await persistResultWithNote(
+                result, importSource, file.name, meta, filenameKnown,
+                "Image too blurry to read — try uploading a higher-quality scan",
+              );
+              return result;
+            }
+          } catch {}
+
+          const blank: ExtractedInvoice = {
+            merchantName: null, merchantAddress: null, merchantGstin: null,
+            merchantPhone: null, merchantPincode: null, invoiceNumber: null,
+            invoiceDate: null, lineItems: [], subtotalPaise: null, discountPaise: 0,
+            taxPaise: null, grandTotalPaise: null, paymentMode: null,
+            sourceType: "NATIVE_PDF", rawText: null, confidenceScore: 0,
+          };
+          const enhanced = await enhanceWithClaudeVision(blank, pages);
+          console.log("[Pipeline] vision merchant:", enhanced.merchantName, "total:", enhanced.grandTotalPaise);
+          if (enhanced.grandTotalPaise != null || enhanced.merchantName != null) {
+            result = enhanced.confidenceScore >= 0.7
+              ? { kind: "success", invoice: enhanced }
+              : { kind: "lowConfidence", invoice: enhanced, reason: "vision-only" };
+          } else {
+            result = { kind: "failure", reason: "vision-no-data" };
+          }
         } else {
-          result = { kind: "failure", reason: "vision-no-data" };
+          // Rendering returned no pages — fall back to text + Gemini text
+          result = await textExtractPdf(file, classification);
+          if ((result.kind === "success" || result.kind === "lowConfidence") && result.invoice.rawText) {
+            const enhanced = await enhanceWithClaude(result.invoice);
+            result = enhanced.confidenceScore >= 0.7 && result.kind === "lowConfidence"
+              ? { kind: "success", invoice: enhanced }
+              : { ...result, invoice: enhanced };
+          }
         }
-      } else {
-        // Rendering returned no pages — fall back to text + Gemini text
+      } catch (e) {
+        // Vision failed (render error or Gemini error) — fall back to text + Gemini text
+        console.warn("[Pipeline] vision failed:", e);
         result = await textExtractPdf(file, classification);
         if ((result.kind === "success" || result.kind === "lowConfidence") && result.invoice.rawText) {
-          const enhanced = await enhanceWithClaude(result.invoice);
-          result = enhanced.confidenceScore >= 0.7 && result.kind === "lowConfidence"
-            ? { kind: "success", invoice: enhanced }
-            : { ...result, invoice: enhanced };
+          try {
+            const enhanced = await enhanceWithClaude(result.invoice);
+            result = enhanced.confidenceScore >= 0.7 && result.kind === "lowConfidence"
+              ? { kind: "success", invoice: enhanced }
+              : { ...result, invoice: enhanced };
+          } catch (e2) {
+            console.warn("[Pipeline] text enhancement also failed:", e2);
+          }
         }
       }
-    } catch (e) {
-      // Vision failed (render error or Gemini error) — fall back to text + Gemini text
-      console.warn("[Pipeline] vision failed:", e);
+    } else {
+      // No Gemini key: text extraction only
+      console.log("[Pipeline] no Gemini key — using text extraction only");
       result = await textExtractPdf(file, classification);
-      if ((result.kind === "success" || result.kind === "lowConfidence") && result.invoice.rawText) {
-        try {
-          const enhanced = await enhanceWithClaude(result.invoice);
-          result = enhanced.confidenceScore >= 0.7 && result.kind === "lowConfidence"
-            ? { kind: "success", invoice: enhanced }
-            : { ...result, invoice: enhanced };
-        } catch (e2) {
-          console.warn("[Pipeline] text enhancement also failed:", e2);
-        }
-      }
     }
-  } else {
-    // No Gemini key: text extraction only
-    console.log("[Pipeline] no Gemini key — using text extraction only");
-    result = await textExtractPdf(file, classification);
   }
 
   const wasDup = await persistResult(result, importSource, file.name, meta, filenameKnown);
@@ -250,6 +323,18 @@ async function persistResult(
   sourceFilename?: string,
   meta?: { subject?: string; senderEmail?: string; receivedAt?: string; accountEmail?: string | null },
   filenameKnown?: boolean,
+  extractionNote?: string,
+): Promise<boolean> {
+  return persistResultWithNote(result, importSource, sourceFilename, meta, filenameKnown, extractionNote);
+}
+
+async function persistResultWithNote(
+  result: ExtractionResult,
+  importSource: string,
+  sourceFilename?: string,
+  meta?: { subject?: string; senderEmail?: string; receivedAt?: string; accountEmail?: string | null },
+  filenameKnown?: boolean,
+  extractionNote?: string,
 ): Promise<boolean> {
   const now = new Date().toISOString();
   console.log("[Pipeline]", sourceFilename, "→ kind:", result.kind);
@@ -271,6 +356,7 @@ async function persistResult(
           status: "duplicate", category: detectCategory(inv.merchantName, inv.lineItems.map(li => li.name)),
           docType: docTypes[0], docTypes, sourceFilename,
           subject: meta?.subject, senderEmail: meta?.senderEmail, receivedAt: meta?.receivedAt, accountEmail: meta?.accountEmail,
+          extractionNote: extractionNote ?? null,
           createdAt: now, updatedAt: now,
         },
         [],
@@ -323,6 +409,7 @@ async function persistResult(
         senderEmail: meta?.senderEmail,
         receivedAt: meta?.receivedAt,
         accountEmail: meta?.accountEmail,
+        extractionNote: extractionNote ?? null,
         createdAt: now,
         updatedAt: now,
       },
@@ -349,6 +436,7 @@ async function persistResult(
         paymentMode: null, importSource, pdfSourceType: "NATIVE_PDF",
         importRecordId: null, status, docType: "other", docTypes: ["other"], sourceFilename,
         subject: meta?.subject, senderEmail: meta?.senderEmail, receivedAt: meta?.receivedAt, accountEmail: meta?.accountEmail,
+        extractionNote: extractionNote ?? null,
         createdAt: now, updatedAt: now,
       },
       [],
@@ -357,7 +445,7 @@ async function persistResult(
   return false;
 }
 
-/** Run Gemini on a pending_extraction invoice — uses vision if PDF bytes are stored, text otherwise. */
+/** Run AI (and local) extraction on a pending_extraction invoice. */
 export async function extractInvoiceWithAI(invoiceId: number): Promise<ExtractedInvoice | null> {
   const blank: ExtractedInvoice = {
     merchantName: null, merchantAddress: null, merchantGstin: null,
@@ -367,31 +455,64 @@ export async function extractInvoiceWithAI(invoiceId: number): Promise<Extracted
     sourceType: "NATIVE_PDF", rawText: null, confidenceScore: 0,
   };
 
-  let enhanced: ExtractedInvoice | null = null;
+  // ── Step 1: try local extraction from stored raw text ─────────────────────
+  const rawRec = await db.rawTexts.where("invoiceId").equals(invoiceId).first();
+  if (rawRec?.rawText) {
+    const inv = await db.invoices.get(invoiceId);
+    const sourceType = (inv?.pdfSourceType ?? "NATIVE_PDF") as ExtractedInvoice["sourceType"];
+    const localInv = extractLocalDoc(rawRec.rawText, sourceType);
+    if (localInv.confidenceScore >= 0.70) {
+      console.log("[extractInvoiceWithAI] local extraction succeeded (confidence:", localInv.confidenceScore, ") — skipping Gemini");
+      return finalizeExtractedInvoice(invoiceId, localInv, "Extracted locally without AI");
+    }
+  }
 
-  // Vision path — preferred if original PDF bytes were stored
+  // ── Step 2: check blur before Gemini — skip if image is unreadable ────────
   const pdfRec = await db.pdfFiles.where("invoiceId").equals(invoiceId).first();
   if (pdfRec?.bytes) {
+    let enhanced: ExtractedInvoice | null = null;
     try {
       const file = new File([pdfRec.bytes.buffer as ArrayBuffer], pdfRec.filename, { type: "application/pdf" });
       const pages = await renderPdfToImages(file);
       if (pages.length > 0) {
+        // Blur check before sending to Gemini
+        try {
+          const { isBlurry, score } = await blurScoreFromBase64(pages[0].data);
+          if (isBlurry) {
+            console.log("[extractInvoiceWithAI] blurry image (score:", score, ") — not sending to Gemini");
+            const note = "Image too blurry to read — try uploading a higher-quality scan";
+            await db.invoices.update(invoiceId, {
+              status: "extraction_failed",
+              extractionNote: note,
+              updatedAt: new Date().toISOString(),
+            });
+            return null;
+          }
+        } catch {}
+
         enhanced = await enhanceWithClaudeVision(blank, pages);
       }
     } catch (e) {
       console.warn("[extractInvoiceWithAI] vision failed, falling back to text:", e);
     }
+
+    if (enhanced && (enhanced.grandTotalPaise != null || enhanced.merchantName != null)) {
+      return finalizeExtractedInvoice(invoiceId, enhanced);
+    }
   }
 
-  // Text fallback
-  if (!enhanced || (enhanced.grandTotalPaise == null && enhanced.merchantName == null)) {
-    const rawRec = await db.rawTexts.where("invoiceId").equals(invoiceId).first();
-    if (!rawRec?.rawText) return null;
-    enhanced = await enhanceWithClaude({ ...blank, rawText: rawRec.rawText });
-  }
-
+  // ── Step 3: Gemini text fallback ──────────────────────────────────────────
+  if (!rawRec?.rawText) return null;
+  const enhanced = await enhanceWithClaude({ ...blank, rawText: rawRec.rawText });
   if (!enhanced || (enhanced.grandTotalPaise == null && enhanced.merchantName == null)) return null;
+  return finalizeExtractedInvoice(invoiceId, enhanced);
+}
 
+async function finalizeExtractedInvoice(
+  invoiceId: number,
+  enhanced: ExtractedInvoice,
+  extractionNote?: string,
+): Promise<ExtractedInvoice | null> {
   // Content duplicate check — same merchant + total + date already saved
   if (await isDuplicateInvoice(enhanced.merchantName, enhanced.grandTotalPaise, enhanced.invoiceDate)) {
     console.log("[extractInvoiceWithAI] content duplicate:", enhanced.merchantName, enhanced.invoiceDate);
@@ -421,6 +542,7 @@ export async function extractInvoiceWithAI(invoiceId: number): Promise<Extracted
     category,
     docType: docTypes[0] ?? "other",
     docTypes,
+    extractionNote: extractionNote ?? null,
     updatedAt: now,
   });
   await db.lineItems.where("invoiceId").equals(invoiceId).delete();
@@ -461,13 +583,22 @@ export async function extractFilePreview(file: File): Promise<ExtractionResult> 
   }
 
   const classification = await classifyPdf(file);
-
   if (classification === "encrypted") return { kind: "encryptedPdf" };
+
+  // Local extraction first (preview)
+  const localFirst = await tryLocalTextExtraction(file, classification);
+  if (localFirst) return localFirst;
 
   if (hasGeminiKey()) {
     try {
       const pages = await renderPdfToImages(file);
       if (pages.length > 0) {
+        // Blur check before Gemini
+        try {
+          const { isBlurry } = await blurScoreFromBase64(pages[0].data);
+          if (isBlurry) return { kind: "failure", reason: "blurry-image" };
+        } catch {}
+
         const blank: ExtractedInvoice = {
           merchantName: null, merchantAddress: null, merchantGstin: null,
           merchantPhone: null, merchantPincode: null, invoiceNumber: null,

@@ -26,6 +26,7 @@ export interface InvoiceMeta {
   subtotalPaise?: number | null;
   clientTags?: string[];
   projectTag?: string | null;
+  extractionNote?: string | null;
   subject?: string;
   senderEmail?: string;
   receivedAt?: string;

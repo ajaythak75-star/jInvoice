@@ -1436,6 +1436,18 @@ export function ViewScreen() {
                   </div>
                   <span className="view-card-amount">{formatAmount(rec.grandTotalPaise)}</span>
                 </div>
+                {/* Extraction note (blurry image, local-only, etc.) */}
+                {rec.extractionNote && (
+                  <div style={{
+                    fontSize: 11,
+                    color: rec.status === "extraction_failed" ? "#ef4444" : "#6b7280",
+                    fontStyle: "italic",
+                    marginBottom: 3,
+                    lineHeight: 1.4,
+                  }}>
+                    {rec.extractionNote}
+                  </div>
+                )}
                 {/* Line 3: Subject (word-wrap) + Received date */}
                 <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 2, ...metaStyle }}>
                   <span style={{ flex: 1, minWidth: 0, wordBreak: "break-word", whiteSpace: "normal" }}>
