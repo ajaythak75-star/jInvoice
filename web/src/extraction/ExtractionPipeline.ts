@@ -14,6 +14,7 @@ import type { InvoicePdfFile } from "../data/InvoiceDatabase";
 import { detectCategory } from "../core/extraction/CategoryDetector";
 import { detectDocType } from "./DocTypeDetector";
 import { computeSentinelForInvoice } from "../service/ExpirySentinel";
+import { detectSentinelCandidates } from "./WarrantyDetector";
 import { prefs } from "../data/AutoImportPreferences";
 
 // Tracks filenames currently being processed by concurrent workers.
@@ -558,6 +559,36 @@ async function finalizeExtractedInvoice(
   }
   // Free the stored PDF bytes — no longer needed after extraction
   await db.pdfFiles.where("invoiceId").equals(invoiceId).delete();
+
+  // ── Warranty / sentinel detection ─────────────────────────────────────────
+  // Text-based: parse actual warranty/insurance/prescription text from raw content
+  if (enhanced.rawText) {
+    const candidates = detectSentinelCandidates(
+      enhanced.rawText,
+      enhanced.merchantName,
+      enhanced.invoiceDate,
+      invoiceId,
+    );
+    const createdAt = new Date().toISOString();
+    for (const c of candidates) {
+      const already = await db.sentinelRecords
+        .where("invoiceId").equals(invoiceId)
+        .and((r) => r.type === c.type)
+        .count();
+      if (already === 0) {
+        await db.sentinelRecords.add({ ...c, status: "active", createdAt });
+        console.log("[Pipeline] sentinel added:", c.type, c.label, c.expiresAt);
+      }
+    }
+  }
+  // Category-based fallback: covers electronics/appliances/vehicles via fixed durations
+  await computeSentinelForInvoice(
+    invoiceId,
+    enhanced.invoiceDate,
+    enhanced.merchantName,
+    enhanced.lineItems.map((li) => li.name),
+  );
+
   return enhanced;
 }
 

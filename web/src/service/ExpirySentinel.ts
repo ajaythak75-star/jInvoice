@@ -35,7 +35,11 @@ export async function computeSentinelForInvoice(
   const months = WARRANTY_MONTHS[cat];
   if (!months) return;
 
-  const existing = await db.sentinelRecords.where("invoiceId").equals(invoiceId).count();
+  const sentinelType = TYPE_MAP[cat];
+  const existing = await db.sentinelRecords
+    .where("invoiceId").equals(invoiceId)
+    .and((r) => r.type === sentinelType)
+    .count();
   if (existing > 0) return;
 
   const expiresAt = new Date(invoiceDate);
@@ -43,7 +47,7 @@ export async function computeSentinelForInvoice(
 
   await db.sentinelRecords.add({
     invoiceId,
-    type: TYPE_MAP[cat],
+    type: sentinelType,
     label: `${LABEL_MAP[cat]} — ${merchantName ?? "Unknown merchant"}`,
     expiresAt: expiresAt.toISOString().slice(0, 10),
     status: "active",
