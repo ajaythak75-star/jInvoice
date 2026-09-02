@@ -29,6 +29,11 @@ const CATEGORY_KEYWORDS: Array<{ cat: ProductCategory; keywords: string[] }> = [
       "washing machine", "refrigerator", "fridge", "air conditioner", "microwave",
       "dishwasher", "geyser", "water heater", "vacuum cleaner", "mixer", "blender",
       "oven", "chimney", "cooler", "water purifier", "air purifier",
+      // AC variants commonly used in Indian invoices
+      "window ac", "split ac", "inverter ac", "tower ac", "cassette ac",
+      // Major Indian appliance / AC brands
+      "voltas", "bluestar", "carrier", "daikin", "hitachi ac", "lloyd ac",
+      "godrej appliances", "havells", "bajaj electricals",
     ],
   },
   {

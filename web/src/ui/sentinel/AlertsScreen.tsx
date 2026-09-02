@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { getActiveSentinels, dismissSentinel, dismissAllSentinels, daysUntilExpiry } from "../../service/ExpirySentinel";
 import { db } from "../../data/InvoiceDatabase";
-import type { SentinelRecord, InvoiceMeta } from "../../data/InvoiceDatabase";
+import type { SentinelRecord, InvoiceMeta, LineItemRow } from "../../data/InvoiceDatabase";
 import { detectBillIssues } from "../../service/BillFraudDetector";
 
 const TYPE_ICON: Record<string, string> = {
@@ -31,37 +31,40 @@ function formatDate(iso: string | null | undefined): string {
   return isNaN(d.getTime()) ? iso : d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
 }
 
-function AlertCard({ record, inv, onDismiss }: { record: SentinelRecord; inv?: InvoiceMeta; onDismiss: () => void }) {
+function AlertCard({ record, inv, lineItems, onDismiss }: { record: SentinelRecord; inv?: InvoiceMeta; lineItems?: LineItemRow[]; onDismiss: () => void }) {
   const days = daysUntilExpiry(record.expiresAt);
   const icon = TYPE_ICON[record.type] ?? "🔔";
-  const title = inv?.subject ?? record.label;
+  // Subject (email) takes priority; otherwise use first line item or merchant name
+  const productName = lineItems?.[0]?.name ?? inv?.merchantName ?? record.label;
+  const title = inv?.subject ?? productName;
   const metaStyle: React.CSSProperties = { fontSize: 11.5, color: "var(--color-text-secondary)" };
   const labelStyle: React.CSSProperties = { fontSize: 10.5, fontWeight: 600, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.04em", marginRight: 3 };
 
   return (
     <div className="sentinel-card" style={{ flexDirection: "column", gap: 4, alignItems: "stretch" }}>
-      {/* Line 1: icon + subject/title + urgency badge + dismiss */}
+      {/* Line 1: icon + product/subject + urgency badge + dismiss */}
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <span className="sentinel-icon" style={{ flexShrink: 0 }}>{icon}</span>
-        <span className="sentinel-label" style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</span>
+        <span className="sentinel-label" style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={title}>{title}</span>
         <span className={urgencyClass(days)} style={{ flexShrink: 0 }}>{urgencyLabel(days)}</span>
         <button className="sentinel-dismiss" onClick={onDismiss} aria-label="Dismiss">✕</button>
       </div>
-      {/* Line 2: File name + sender */}
+      {/* Line 2: Merchant + type label */}
       <div style={{ display: "flex", alignItems: "center", gap: 12, paddingLeft: 30, ...metaStyle }}>
         <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          <span style={labelStyle}>File</span>
-          {inv?.sourceFilename ?? record.label}
+          <span style={labelStyle}>Merchant</span>
+          {inv?.merchantName ?? "—"}
         </span>
-        <span style={{ flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "45%" }}>
-          <span style={labelStyle}>Sender</span>{inv?.senderEmail ?? "—"}
+        <span style={{ flexShrink: 0 }}>
+          <span style={labelStyle}>Type</span>
+          {record.type.replace("_", " ")}
         </span>
       </div>
-      {/* Line 3: Received + Expiry */}
+      {/* Line 3: Purchased + Expiry */}
       <div style={{ display: "flex", alignItems: "center", gap: 12, paddingLeft: 30, ...metaStyle }}>
         <span style={{ flex: 1 }}>
-          <span style={labelStyle}>Received</span>
-          {inv ? formatDate(inv.receivedAt ?? inv.createdAt) : "—"}
+          <span style={labelStyle}>Purchased</span>
+          {inv ? formatDate(inv.invoiceDate ?? inv.createdAt) : "—"}
         </span>
         <span style={{ flexShrink: 0 }}>
           <span style={labelStyle}>Expiry</span>
@@ -75,6 +78,7 @@ function AlertCard({ record, inv, onDismiss }: { record: SentinelRecord; inv?: I
 export function AlertsScreen() {
   const [records, setRecords] = useState<SentinelRecord[]>([]);
   const [invoiceMap, setInvoiceMap] = useState<Map<number, InvoiceMeta>>(new Map());
+  const [lineItemMap, setLineItemMap] = useState<Map<number, LineItemRow[]>>(new Map());
   const [loaded, setLoaded]   = useState(false);
   const [query, setQuery]     = useState("");
 
@@ -84,6 +88,13 @@ export function AlertsScreen() {
     const invs = await db.invoices.bulkGet(ids);
     const map = new Map<number, InvoiceMeta>();
     invs.forEach((inv) => { if (inv?.id != null) map.set(inv.id, inv); });
+
+    // Fetch line items for each invoice
+    const liMap = new Map<number, LineItemRow[]>();
+    await Promise.all(ids.map(async (id) => {
+      const items = await db.lineItems.where("invoiceId").equals(id).toArray();
+      if (items.length > 0) liMap.set(id, items);
+    }));
 
     // Exclude alerts for duplicate invoices
     const duplicateIds = new Set<number>();
@@ -95,6 +106,7 @@ export function AlertsScreen() {
     }
     setRecords(data.filter((r) => !duplicateIds.has(r.invoiceId)));
     setInvoiceMap(map);
+    setLineItemMap(liMap);
     setLoaded(true);
   };
 
@@ -175,7 +187,7 @@ export function AlertsScreen() {
       {active.length > 0 && (
         <>
           {active.map((r) => (
-            <AlertCard key={r.id} record={r} inv={invoiceMap.get(r.invoiceId)} onDismiss={() => handleDismiss(r.id!)} />
+            <AlertCard key={r.id} record={r} inv={invoiceMap.get(r.invoiceId)} lineItems={lineItemMap.get(r.invoiceId)} onDismiss={() => handleDismiss(r.id!)} />
           ))}
         </>
       )}
@@ -184,7 +196,7 @@ export function AlertsScreen() {
         <>
           <div className="sentinel-section-label">Expired</div>
           {expired.map((r) => (
-            <AlertCard key={r.id} record={r} inv={invoiceMap.get(r.invoiceId)} onDismiss={() => handleDismiss(r.id!)} />
+            <AlertCard key={r.id} record={r} inv={invoiceMap.get(r.invoiceId)} lineItems={lineItemMap.get(r.invoiceId)} onDismiss={() => handleDismiss(r.id!)} />
           ))}
         </>
       )}
