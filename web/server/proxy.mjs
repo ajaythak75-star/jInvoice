@@ -593,26 +593,32 @@ app.post("/api/auth/verify-otp", async (req, res) => {
     return res.status(401).json({ error: "Invalid or expired code" });
   }
   _otpStore.delete(email.toLowerCase());
-  // Supabase magic-link session commented out for now — code verification alone grants access
-  // if (!SUPABASE_SERVICE_KEY || !SUPABASE_URL) {
-  //   return res.status(500).json({ error: "Auth backend not configured" });
-  // }
-  // // Create user if new (email_confirm: true skips confirmation email)
-  // await fetch(`${SUPABASE_URL}/auth/v1/admin/users`, {
-  //   method: "POST",
-  //   headers: { apikey: SUPABASE_SERVICE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`, "Content-Type": "application/json" },
-  //   body: JSON.stringify({ email, email_confirm: true }),
-  // }); // 422 = already exists — fine
-  // // Generate a magic-link token the client exchanges for a real session
-  // const linkRes = await fetch(`${SUPABASE_URL}/auth/v1/admin/generate_link`, {
-  //   method: "POST",
-  //   headers: { apikey: SUPABASE_SERVICE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`, "Content-Type": "application/json" },
-  //   body: JSON.stringify({ type: "magiclink", email }),
-  // });
-  // if (!linkRes.ok) return res.status(500).json({ error: "Session creation failed" });
-  // const linkData = await linkRes.json();
-  // res.json({ token_hash: linkData.hashed_token });
-  res.json({ ok: true });
+  if (!SUPABASE_SERVICE_KEY || !SUPABASE_URL) {
+    // No Supabase configured — grant access without a JWT session (fallback)
+    return res.json({ ok: true });
+  }
+  try {
+    // Create user if new (422 = already exists — fine)
+    await fetch(`${SUPABASE_URL}/auth/v1/admin/users`, {
+      method: "POST",
+      headers: { apikey: SUPABASE_SERVICE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ email, email_confirm: true }),
+    });
+    // Generate a magic-link token the client exchanges for a real Supabase session
+    const linkRes = await fetch(`${SUPABASE_URL}/auth/v1/admin/generate_link`, {
+      method: "POST",
+      headers: { apikey: SUPABASE_SERVICE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ type: "magiclink", email }),
+    });
+    if (!linkRes.ok) {
+      console.error("[auth] generate_link failed:", await linkRes.text());
+      return res.status(500).json({ error: "Session creation failed" });
+    }
+    const linkData = await linkRes.json();
+    res.json({ token_hash: linkData.hashed_token });
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
 });
 
 // ── IMAP — credentials passed in request body, stored in client localStorage ──

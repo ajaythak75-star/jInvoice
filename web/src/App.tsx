@@ -11,8 +11,8 @@ import { SecurityScreen } from "./ui/security/SecurityScreen";
 import { PricingScreen } from "./ui/pricing/PricingScreen";
 import { FAQScreen } from "./ui/help/FAQScreen";
 import { AboutScreen } from "./ui/help/AboutScreen";
-// import { LoginScreen } from "./ui/auth/LoginScreen"; // auth disabled
-// import { auth } from "./data/AuthStore"; // auth disabled
+import { LoginScreen } from "./ui/auth/LoginScreen";
+import { auth } from "./data/AuthStore";
 import { prefs } from "./data/AutoImportPreferences";
 import { schedulePolling } from "./service/AutoImportService";
 import { checkAndNotify } from "./service/NotificationService";
@@ -69,7 +69,7 @@ applyOAuthHash();
 
 
 export function App() {
-  const [loggedIn, setLoggedIn] = useState(true); // auth disabled — always logged in
+  const [loggedIn, setLoggedIn] = useState(auth.isLoggedIn);
   const [tab, setTab] = useState("import");
   const [alertCount, setAlertCount] = useState(0);
 
@@ -117,9 +117,9 @@ export function App() {
     return () => window.removeEventListener("jinvoice:sync-complete", onSync);
   }, [loggedIn]);
 
-  // if (!loggedIn) {
-  //   return <LoginScreen onLogin={() => setLoggedIn(true)} />;
-  // }
+  if (!loggedIn) {
+    return <LoginScreen onLogin={() => setLoggedIn(true)} />;
+  }
 
   return (
     <MainLayout active={tab} onNav={setTab} alertCount={alertCount}>

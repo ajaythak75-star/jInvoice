@@ -13,10 +13,27 @@ export function authPlugin(env: Record<string, string>): Plugin {
   const GOOGLE_CLIENT_SECRET = env.GOOGLE_CLIENT_SECRET ?? "";
   const AZURE_CLIENT_ID      = env.AZURE_CLIENT_ID ?? "";
   const AZURE_CLIENT_SECRET  = env.AZURE_CLIENT_SECRET ?? "";
-  // AUTH_BASE_URL overrides dynamic origin detection — required when accessing
-  // from mobile/LAN since the host header differs from what's registered in
-  // Google Cloud Console / Azure as an allowed redirect URI.
   const AUTH_BASE_URL        = env.AUTH_BASE_URL ?? "";
+  const SUPABASE_URL         = env.VITE_SUPABASE_URL ?? env.SUPABASE_URL ?? "";
+  const SUPABASE_ANON_KEY    = env.VITE_SUPABASE_ANON_KEY ?? env.SUPABASE_ANON_KEY ?? "";
+  const SUPABASE_SERVICE_KEY = env.SUPABASE_SERVICE_KEY ?? "";
+  const BREVO_API_KEY        = env.BREVO_API_KEY ?? "";
+  const BREVO_FROM_EMAIL     = env.BREVO_FROM_EMAIL ?? env.GMAIL_USER ?? "";
+
+  const _otpStore = new Map<string, { code: string; expiresAt: number }>();
+
+  async function sendEmail(to: string, subject: string, html: string) {
+    if (!BREVO_API_KEY) throw new Error("Email service not configured (BREVO_API_KEY missing).");
+    const r = await fetch("https://api.brevo.com/v3/smtp/email", {
+      method: "POST",
+      headers: { "api-key": BREVO_API_KEY, "Content-Type": "application/json" },
+      body: JSON.stringify({ sender: { name: "jInvoice", email: BREVO_FROM_EMAIL }, to: [{ email: to }], subject, htmlContent: html }),
+    });
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({})) as Record<string, string>;
+      throw new Error(d.message ?? `Brevo error ${r.status}`);
+    }
+  }
 
   return {
     name: "jinvoice-auth",
@@ -237,6 +254,97 @@ export function authPlugin(env: Record<string, string>): Plugin {
             res.writeHead(302, { Location: "/#error=oauth_failed" });
           }
           res.end();
+          return;
+        }
+
+        // ── /api/app-config ──────────────────────────────────────────────
+        if (url === "/api/app-config") {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ supabaseUrl: SUPABASE_URL, supabaseAnonKey: SUPABASE_ANON_KEY }));
+          return;
+        }
+
+        // ── /api/auth/send-otp ───────────────────────────────────────────
+        if (url === "/api/auth/send-otp" && req.method === "POST") {
+          let body = "";
+          req.on("data", (c: Buffer) => { body += c; });
+          req.on("end", async () => {
+            try {
+              const { email } = JSON.parse(body) as { email?: string };
+              if (!email || !email.includes("@")) {
+                res.writeHead(400, { "Content-Type": "application/json" });
+                res.end(JSON.stringify({ error: "Valid email required" }));
+                return;
+              }
+              const code = String(Math.floor(100000 + Math.random() * 900000));
+              _otpStore.set(email.toLowerCase(), { code, expiresAt: Date.now() + 600_000 });
+              await sendEmail(
+                email,
+                "Your jInvoice login code",
+                `<div style="font-family:sans-serif;max-width:420px;margin:40px auto;padding:32px;border:1px solid #e5e7eb;border-radius:12px">
+                  <h2 style="margin:0 0 8px;color:#111">jInvoice</h2>
+                  <p style="margin:0 0 24px;color:#555">Your one-time login code:</p>
+                  <p style="font-size:36px;font-weight:700;letter-spacing:10px;color:#4f46e5;margin:0 0 24px">${code}</p>
+                  <p style="margin:0;color:#888;font-size:13px">Expires in 10 minutes. Do not share this code.</p>
+                </div>`
+              );
+              res.writeHead(200, { "Content-Type": "application/json" });
+              res.end(JSON.stringify({ ok: true }));
+            } catch (e) {
+              res.writeHead(500, { "Content-Type": "application/json" });
+              res.end(JSON.stringify({ error: String(e) }));
+            }
+          });
+          return;
+        }
+
+        // ── /api/auth/verify-otp ─────────────────────────────────────────
+        if (url === "/api/auth/verify-otp" && req.method === "POST") {
+          let body = "";
+          req.on("data", (c: Buffer) => { body += c; });
+          req.on("end", async () => {
+            try {
+              const { email, code } = JSON.parse(body) as { email?: string; code?: string };
+              if (!email || !code) {
+                res.writeHead(400, { "Content-Type": "application/json" });
+                res.end(JSON.stringify({ error: "email and code required" }));
+                return;
+              }
+              const stored = _otpStore.get(email.toLowerCase());
+              if (!stored || stored.code !== String(code) || Date.now() > stored.expiresAt) {
+                res.writeHead(401, { "Content-Type": "application/json" });
+                res.end(JSON.stringify({ error: "Invalid or expired code" }));
+                return;
+              }
+              _otpStore.delete(email.toLowerCase());
+              if (!SUPABASE_SERVICE_KEY || !SUPABASE_URL) {
+                res.writeHead(200, { "Content-Type": "application/json" });
+                res.end(JSON.stringify({ ok: true }));
+                return;
+              }
+              await fetch(`${SUPABASE_URL}/auth/v1/admin/users`, {
+                method: "POST",
+                headers: { apikey: SUPABASE_SERVICE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`, "Content-Type": "application/json" },
+                body: JSON.stringify({ email, email_confirm: true }),
+              });
+              const linkRes = await fetch(`${SUPABASE_URL}/auth/v1/admin/generate_link`, {
+                method: "POST",
+                headers: { apikey: SUPABASE_SERVICE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`, "Content-Type": "application/json" },
+                body: JSON.stringify({ type: "magiclink", email }),
+              });
+              if (!linkRes.ok) {
+                res.writeHead(500, { "Content-Type": "application/json" });
+                res.end(JSON.stringify({ error: "Session creation failed" }));
+                return;
+              }
+              const linkData = await linkRes.json() as Record<string, string>;
+              res.writeHead(200, { "Content-Type": "application/json" });
+              res.end(JSON.stringify({ token_hash: linkData.hashed_token }));
+            } catch (e) {
+              res.writeHead(500, { "Content-Type": "application/json" });
+              res.end(JSON.stringify({ error: String(e) }));
+            }
+          });
           return;
         }
 
