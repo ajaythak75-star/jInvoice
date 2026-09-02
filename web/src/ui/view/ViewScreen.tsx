@@ -16,6 +16,7 @@ import { detectDocType, DOC_TYPE_LABELS } from "../../extraction/DocTypeDetector
 import { getWarrantySentinel, computeSentinelForInvoice } from "../../service/ExpirySentinel";
 import { WarrantyPromptModal, type WarrantyPromptItem } from "../sentinel/WarrantyPromptModal";
 import { SOCIETY_CATEGORY_LABEL, type SocietyExpenseCategory } from "../../core/extraction/SocietyExpenseDetector";
+import { getProfessionalCategoryLabel, type ProfessionalProfile } from "../../core/extraction/ProfessionalCategoryDetector";
 
 function formatDate(iso: string | null | undefined): string {
   if (!iso) return "—";
@@ -2043,21 +2044,29 @@ export function ViewScreen() {
                 </div>
               </div>
 
-              {/* Category (society mode — auto-detected at import) */}
-              {!isPreviewMode && prefs.activeMode === "society" && (
-                <div style={{ padding: "12px 20px 0" }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>
-                    Category
+              {/* Category — auto-detected at import for all non-personal profiles */}
+              {!isPreviewMode && prefs.activeMode !== "personal" && (() => {
+                const mode = prefs.activeMode;
+                const label = detailCategory
+                  ? mode === "society"
+                    ? (SOCIETY_CATEGORY_LABEL[detailCategory as SocietyExpenseCategory] ?? detailCategory.replace(/_/g, " "))
+                    : getProfessionalCategoryLabel(mode as ProfessionalProfile, detailCategory)
+                  : null;
+                return (
+                  <div style={{ padding: "12px 20px 0" }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>
+                      Category
+                    </div>
+                    {label ? (
+                      <span style={{ display: "inline-block", fontSize: 13, fontWeight: 600, padding: "4px 10px", borderRadius: 6, background: "var(--color-accent-light, rgba(99,102,241,0.12))", color: "var(--color-accent, #6366f1)" }}>
+                        {label}
+                      </span>
+                    ) : (
+                      <span style={{ fontSize: 13, color: "var(--color-text-tertiary)" }}>Not detected</span>
+                    )}
                   </div>
-                  {detailCategory ? (
-                    <span style={{ display: "inline-block", fontSize: 13, fontWeight: 600, padding: "4px 10px", borderRadius: 6, background: "var(--color-accent-light, rgba(99,102,241,0.12))", color: "var(--color-accent, #6366f1)" }}>
-                      {SOCIETY_CATEGORY_LABEL[detailCategory as SocietyExpenseCategory] ?? detailCategory.replace(/_/g, " ")}
-                    </span>
-                  ) : (
-                    <span style={{ fontSize: 13, color: "var(--color-text-tertiary)" }}>Not detected</span>
-                  )}
-                </div>
-              )}
+                );
+              })()}
 
               {/* Line items */}
               {detailItems.length > 0 && (

@@ -1,3 +1,14 @@
+export type UserProfile =
+  | "personal"
+  | "society"
+  | "shopkeeper"
+  | "tax_consultant"
+  | "ca"
+  | "real_estate"
+  | "advocate";
+
+const VALID_PROFILES: UserProfile[] = ["society", "shopkeeper", "tax_consultant", "ca", "real_estate", "advocate"];
+
 const PREFIX = "jinvoice:";
 
 function get(key: string): string | null {
@@ -231,17 +242,19 @@ export const prefs = {
   set planApiOption(v: "shared" | "own") { set("plan_api_option", v); },
 
   // Locked profile type — set once during upgrade flow, never revert
-  get userType(): "personal" | "society" {
-    return get("user_type") === "society" ? "society" : "personal";
+  get userType(): UserProfile {
+    const v = get("user_type") as UserProfile | null;
+    return VALID_PROFILES.includes(v as UserProfile) ? (v as UserProfile) : "personal";
   },
-  set userType(v: "personal" | "society") { set("user_type", v); },
+  set userType(v: UserProfile) { set("user_type", v); },
 
   // Active view mode — freely switchable between "personal" and the locked type
-  get activeMode(): "personal" | "society" {
-    if (get("user_type") !== "society") return "personal";
-    return get("active_mode") === "personal" ? "personal" : "society";
+  get activeMode(): UserProfile {
+    const type = this.userType;
+    if (type === "personal") return "personal";
+    return get("active_mode") === "personal" ? "personal" : type;
   },
-  set activeMode(v: "personal" | "society") { set("active_mode", v); },
+  set activeMode(v: UserProfile) { set("active_mode", v); },
 
   get societyName(): string { return get("society_name") ?? ""; },
   set societyName(v: string) { v ? set("society_name", v) : remove("society_name"); },

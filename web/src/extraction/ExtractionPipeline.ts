@@ -13,10 +13,21 @@ import { db, insertInvoiceWithItems, isDuplicateInvoice, isDuplicateByFilename, 
 import type { InvoicePdfFile } from "../data/InvoiceDatabase";
 import { detectCategory } from "../core/extraction/CategoryDetector";
 import { detectSocietyCategory } from "../core/extraction/SocietyExpenseDetector";
+import { detectProfessionalCategory, type ProfessionalProfile } from "../core/extraction/ProfessionalCategoryDetector";
 import { detectDocType } from "./DocTypeDetector";
 import { computeSentinelForInvoice } from "../service/ExpirySentinel";
 import { detectSentinelCandidates } from "./WarrantyDetector";
 import { prefs } from "../data/AutoImportPreferences";
+
+const PROFESSIONAL_PROFILES: ProfessionalProfile[] = ["shopkeeper", "tax_consultant", "ca", "real_estate", "advocate"];
+
+function resolveCategory(merchantName: string | null, lineItemNames: string[], extraText?: string | null): string {
+  const mode = prefs.activeMode;
+  if (mode === "society") return detectSocietyCategory(merchantName, lineItemNames, extraText);
+  if (PROFESSIONAL_PROFILES.includes(mode as ProfessionalProfile))
+    return detectProfessionalCategory(mode as ProfessionalProfile, merchantName, lineItemNames, extraText);
+  return detectCategory(merchantName, lineItemNames);
+}
 
 // Tracks filenames currently being processed by concurrent workers.
 // Checked synchronously (before any await) so concurrent processFile calls
@@ -398,9 +409,7 @@ async function persistResultWithNote(
 
     const status = result.kind === "success" ? "imported" : "pending_review";
     const lineItemNames = inv.lineItems.map((li) => li.name);
-    const category = prefs.activeMode === "society"
-      ? detectSocietyCategory(inv.merchantName, lineItemNames)
-      : detectCategory(inv.merchantName, lineItemNames);
+    const category = resolveCategory(inv.merchantName, lineItemNames);
     const docTypes = detectDocType(inv.merchantName, lineItemNames, sourceFilename, meta?.subject);
     const docType  = docTypes[0];
     console.log("[Pipeline]", sourceFilename, "docTypes:", docTypes, "allowed:", prefs.importDocTypes);
@@ -582,9 +591,7 @@ async function finalizeExtractedInvoice(
 
   const now = new Date().toISOString();
   const lineItemNames = enhanced.lineItems.map((li) => li.name);
-  const category = prefs.activeMode === "society"
-    ? detectSocietyCategory(enhanced.merchantName, lineItemNames)
-    : detectCategory(enhanced.merchantName, lineItemNames);
+  const category = resolveCategory(enhanced.merchantName, lineItemNames);
   const docTypes = detectDocType(enhanced.merchantName, lineItemNames, undefined, undefined);
   const status = enhanced.confidenceScore >= 0.7 ? "imported" : "pending_review";
   await db.invoices.update(invoiceId, {

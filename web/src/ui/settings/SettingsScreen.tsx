@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { auth } from "../../data/AuthStore";
-import { prefs } from "../../data/AutoImportPreferences";
+import { prefs, type UserProfile } from "../../data/AutoImportPreferences";
+import { PROFESSIONAL_PROFILE_LABEL, type ProfessionalProfile } from "../../core/extraction/ProfessionalCategoryDetector";
 import { useAutoImportViewModel } from "../autoimport/useAutoImportViewModel";
 import { DesktopFolderSettings } from "../autoimport/DesktopFolderSettings";
 import { desktopConnector } from "../../service/AutoImportService";
@@ -28,10 +29,10 @@ interface Props {
 export function SettingsScreen({ onSignOut }: Props) {
   const vm = useAutoImportViewModel();
 
-  const [userType, setUserType] = useState<"personal" | "society">(() => prefs.userType);
-  const [activeMode, setActiveMode] = useState<"personal" | "society">(() => prefs.activeMode);
+  const [userType, setUserType] = useState<UserProfile>(() => prefs.userType);
+  const [activeMode, setActiveMode] = useState<UserProfile>(() => prefs.activeMode);
   const [societyName, setSocietyName] = useState(() => prefs.societyName);
-  const [showSocietyConfirm, setShowSocietyConfirm] = useState(false);
+  const [showProfileConfirm, setShowProfileConfirm] = useState<Exclude<UserProfile, "personal"> | null>(null);
 
   const [showProModal, setShowProModal]   = useState(false);
   const [proName,     setProName]     = useState(() => prefs.customerName);
@@ -154,7 +155,7 @@ export function SettingsScreen({ onSignOut }: Props) {
       <section className="settings-section">
         <div className="settings-section-title">
           Profile
-          {userType === "society" && (
+          {userType !== "personal" && (
             <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 600, color: "var(--color-primary)", background: "color-mix(in srgb, var(--color-primary) 12%, transparent)", padding: "2px 7px", borderRadius: 10 }}>
               Pro
             </span>
@@ -166,9 +167,11 @@ export function SettingsScreen({ onSignOut }: Props) {
           <div>
             <span className="settings-row-label">Account type</span>
             <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 2 }}>
-              {userType === "society"
-                ? "Housing Society — society-specific categories enabled. Type cannot be changed."
-                : "Personal — your invoices, warranties and expense tracking."}
+              {userType === "personal"
+                ? "Personal — your invoices, warranties and expense tracking."
+                : userType === "society"
+                  ? "Housing Society — society-specific categories enabled. Type cannot be changed."
+                  : `${PROFESSIONAL_PROFILE_LABEL[userType as ProfessionalProfile]} — professional categories enabled. Type cannot be changed.`}
             </p>
           </div>
           <span style={{
@@ -177,7 +180,7 @@ export function SettingsScreen({ onSignOut }: Props) {
             background: "var(--color-surface-2)", color: "var(--color-text)",
             flexShrink: 0,
           }}>
-            {userType === "society" ? "Housing Society" : "Personal"}
+            {userType === "personal" ? "Personal" : userType === "society" ? "Housing Society" : PROFESSIONAL_PROFILE_LABEL[userType as ProfessionalProfile]}
           </span>
         </div>
 
@@ -196,17 +199,17 @@ export function SettingsScreen({ onSignOut }: Props) {
           </div>
         )}
 
-        {/* Mode switcher — society users can toggle active context */}
-        {userType === "society" && (
+        {/* Mode switcher — non-personal users can toggle between personal and their profile */}
+        {userType !== "personal" && (
           <div className="settings-row" style={{ marginTop: 12 }}>
             <div>
               <span className="settings-row-label">Active mode</span>
               <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 2 }}>
-                Switch between personal and society context. Categories and detection follow the active mode.
+                Switch context. Categories and detection follow the active mode.
               </p>
             </div>
             <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-              {(["personal", "society"] as const).map((mode) => (
+              {(["personal", userType] as UserProfile[]).map((mode) => (
                 <button
                   key={mode}
                   onClick={() => { prefs.activeMode = mode; setActiveMode(mode); }}
@@ -217,69 +220,70 @@ export function SettingsScreen({ onSignOut }: Props) {
                     color: activeMode === mode ? "#fff" : "var(--color-text-secondary)",
                   }}
                 >
-                  {mode === "personal" ? "Personal" : "Society"}
+                  {mode === "personal" ? "Personal" : mode === "society" ? "Society" : PROFESSIONAL_PROFILE_LABEL[mode as ProfessionalProfile]}
                 </button>
               ))}
             </div>
           </div>
         )}
 
-        {/* Upgrade to Housing Society (personal Pro users only) */}
+        {/* Profile upgrade options — personal users only, all Pro-gated */}
         {userType === "personal" && (
-          <div className="settings-row" style={{ marginTop: 12 }}>
-            <div>
-              <span className="settings-row-label">Housing Society</span>
-              <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 2 }}>
-                {prefs.isProActive
-                  ? "Set up a Housing Society profile to enable society-specific document categories."
-                  : "Available on Pro. Upgrade to unlock Housing Society profile."}
-              </p>
-            </div>
-            <button
-              disabled={!prefs.isProActive}
-              onClick={() => setShowSocietyConfirm(true)}
-              style={{
-                padding: "5px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600,
-                cursor: prefs.isProActive ? "pointer" : "not-allowed",
-                border: "1px solid var(--color-border)",
-                background: prefs.isProActive ? "var(--color-surface)" : "var(--color-surface-2)",
-                color: prefs.isProActive ? "var(--color-text)" : "var(--color-text-secondary)",
-                flexShrink: 0,
-                opacity: prefs.isProActive ? 1 : 0.6,
-              }}
-            >
-              {prefs.isProActive ? "Set up" : "Pro only"}
-            </button>
-          </div>
+          <>
+            <p style={{ fontSize: 12, color: "var(--color-text-secondary)", margin: "12px 0 4px" }}>
+              {prefs.isProActive
+                ? "Choose a professional profile to enable category auto-detection. This cannot be changed later."
+                : "Available on Pro. Upgrade to unlock professional profiles."}
+            </p>
+            {(["society", "shopkeeper", "tax_consultant", "ca", "real_estate", "advocate"] as Exclude<UserProfile, "personal">[]).map((profile) => (
+              <div key={profile} className="settings-row" style={{ marginTop: 8 }}>
+                <span className="settings-row-label">
+                  {profile === "society" ? "Housing Society" : PROFESSIONAL_PROFILE_LABEL[profile as ProfessionalProfile]}
+                </span>
+                <button
+                  disabled={!prefs.isProActive}
+                  onClick={() => setShowProfileConfirm(profile)}
+                  style={{
+                    padding: "5px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600, flexShrink: 0,
+                    cursor: prefs.isProActive ? "pointer" : "not-allowed",
+                    border: "1px solid var(--color-border)",
+                    background: prefs.isProActive ? "var(--color-surface)" : "var(--color-surface-2)",
+                    color: prefs.isProActive ? "var(--color-text)" : "var(--color-text-secondary)",
+                    opacity: prefs.isProActive ? 1 : 0.6,
+                  }}
+                >
+                  {prefs.isProActive ? "Set up" : "Pro only"}
+                </button>
+              </div>
+            ))}
+          </>
         )}
       </section>
 
-      {/* Society setup confirmation modal */}
-      {showSocietyConfirm && (
-        <div className="modal-overlay" onClick={() => setShowSocietyConfirm(false)}>
+      {/* Profile setup confirmation modal */}
+      {showProfileConfirm && (
+        <div className="modal-overlay" onClick={() => setShowProfileConfirm(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 360, padding: 24 }}>
-            <h2 style={{ fontSize: 17, marginBottom: 8 }}>Set up Housing Society profile?</h2>
+            <h2 style={{ fontSize: 17, marginBottom: 8 }}>
+              Set up {showProfileConfirm === "society" ? "Housing Society" : PROFESSIONAL_PROFILE_LABEL[showProfileConfirm as ProfessionalProfile]} profile?
+            </h2>
             <p style={{ fontSize: 13, color: "var(--color-text-secondary)", lineHeight: 1.5, marginBottom: 20 }}>
-              This will switch your profile type to <strong>Housing Society</strong> and enable society-specific expense categories.
+              This will enable <strong>{showProfileConfirm === "society" ? "Housing Society" : PROFESSIONAL_PROFILE_LABEL[showProfileConfirm as ProfessionalProfile]}</strong>-specific document categories and auto-detection.
               <br /><br />
               <strong>This cannot be changed later.</strong>
             </p>
             <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-              <button
-                className="btn-ghost"
-                onClick={() => setShowSocietyConfirm(false)}
-                style={{ fontSize: 13 }}
-              >
+              <button className="btn-ghost" onClick={() => setShowProfileConfirm(null)} style={{ fontSize: 13 }}>
                 Cancel
               </button>
               <button
                 className="btn-sm"
                 onClick={() => {
-                  prefs.userType = "society";
-                  prefs.activeMode = "society";
-                  setUserType("society");
-                  setActiveMode("society");
-                  setShowSocietyConfirm(false);
+                  prefs.userType = showProfileConfirm;
+                  prefs.activeMode = showProfileConfirm;
+                  setUserType(showProfileConfirm);
+                  setActiveMode(showProfileConfirm);
+                  setShowProfileConfirm(null);
                 }}
                 style={{ fontSize: 13 }}
               >
