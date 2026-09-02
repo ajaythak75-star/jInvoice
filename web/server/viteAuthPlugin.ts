@@ -17,21 +17,21 @@ export function authPlugin(env: Record<string, string>): Plugin {
   const SUPABASE_URL         = env.VITE_SUPABASE_URL ?? env.SUPABASE_URL ?? "";
   const SUPABASE_ANON_KEY    = env.VITE_SUPABASE_ANON_KEY ?? env.SUPABASE_ANON_KEY ?? "";
   const SUPABASE_SERVICE_KEY = env.SUPABASE_SERVICE_KEY ?? "";
-  const BREVO_API_KEY        = env.BREVO_API_KEY ?? "";
-  const BREVO_FROM_EMAIL     = env.BREVO_FROM_EMAIL ?? env.GMAIL_USER ?? "";
+  const RESEND_API_KEY       = env.RESEND_API_KEY ?? "";
+  const RESEND_FROM_EMAIL    = env.RESEND_FROM_EMAIL ?? "onboarding@resend.dev";
 
   const _otpStore = new Map<string, { code: string; expiresAt: number }>();
 
   async function sendEmail(to: string, subject: string, html: string) {
-    if (!BREVO_API_KEY) throw new Error("Email service not configured (BREVO_API_KEY missing).");
-    const r = await fetch("https://api.brevo.com/v3/smtp/email", {
+    if (!RESEND_API_KEY) throw new Error("Email service not configured (RESEND_API_KEY missing).");
+    const r = await fetch("https://api.resend.com/emails", {
       method: "POST",
-      headers: { "api-key": BREVO_API_KEY, "Content-Type": "application/json" },
-      body: JSON.stringify({ sender: { name: "jInvoice", email: BREVO_FROM_EMAIL }, to: [{ email: to }], subject, htmlContent: html }),
+      headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ from: `jInvoice <${RESEND_FROM_EMAIL}>`, to: [to], subject, html }),
     });
     if (!r.ok) {
       const d = await r.json().catch(() => ({})) as Record<string, string>;
-      throw new Error(d.message ?? `Brevo error ${r.status}`);
+      throw new Error(d.message ?? `Resend error ${r.status}`);
     }
   }
 

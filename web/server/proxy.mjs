@@ -535,25 +535,24 @@ app.post("/api/gemini", async (req, res) => {
 
 const _otpStore = new Map(); // email → { code, expiresAt }
 
-const BREVO_API_KEY   = process.env.BREVO_API_KEY   ?? "";
-const BREVO_FROM_EMAIL = process.env.BREVO_FROM_EMAIL ?? GMAIL_USER;
+const RESEND_API_KEY   = process.env.RESEND_API_KEY   ?? "";
+const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL ?? "onboarding@resend.dev";
 
 async function _sendEmail(to, subject, html) {
-  // HTTP API — no SMTP, no IPv6 issues, works on any cloud host
-  if (!BREVO_API_KEY) throw new Error("Email service not configured (BREVO_API_KEY missing).");
-  const res = await fetch("https://api.brevo.com/v3/smtp/email", {
+  if (!RESEND_API_KEY) throw new Error("Email service not configured (RESEND_API_KEY missing).");
+  const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
-    headers: { "api-key": BREVO_API_KEY, "Content-Type": "application/json" },
+    headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      sender:      { name: "jInvoice", email: BREVO_FROM_EMAIL },
-      to:          [{ email: to }],
+      from:    `jInvoice <${RESEND_FROM_EMAIL}>`,
+      to:      [to],
       subject,
-      htmlContent: html,
+      html,
     }),
   });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    throw new Error(data.message ?? `Brevo error ${res.status}`);
+    throw new Error(data.message ?? `Resend error ${res.status}`);
   }
 }
 
