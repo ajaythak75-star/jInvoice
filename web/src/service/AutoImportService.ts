@@ -3,8 +3,8 @@ import { GmailConnector } from "../autoimport/GmailConnector";
 import { OutlookConnector } from "../autoimport/OutlookConnector";
 import { ImapConnector, isImapAvailable } from "../autoimport/ImapConnector";
 import { DesktopFolderConnector } from "../autoimport/DesktopFolderConnector";
-import { processFile } from "../extraction/ExtractionPipeline";
-import { markAsImported, deduplicateInvoices, addSecurityAlert } from "../data/InvoiceDatabase";
+import { processFile, extractInvoiceWithAI } from "../extraction/ExtractionPipeline";
+import { db, markAsImported, deduplicateInvoices, addSecurityAlert } from "../data/InvoiceDatabase";
 import { assessEmailThreat } from "./SpamDetector";
 
 const SCHEDULE_CHECK_INTERVAL_MS = 5 * 60 * 1000;
@@ -142,6 +142,9 @@ export async function poll(): Promise<{ found: number; processed: number; cancel
   let found = 0;
   let processed = 0;
 
+  // Snapshot max ID before sync so we can find newly-saved pending docs afterwards.
+  const maxIdBefore = (await db.invoices.orderBy("id").last())?.id as number ?? 0;
+
   try {
     // ── build active account lists ────────────────────────────────────────
     const gmailAccounts = [
@@ -237,6 +240,21 @@ export async function poll(): Promise<{ found: number; processed: number; cancel
         await processFile(file, "desktop_folder");
         await markAsImported(key, "desktop_folder");
         processed++;
+        window.dispatchEvent(new CustomEvent("jinvoice:sync-progress", { detail: { processed, found } }));
+      }
+    }
+
+    // ── auto-extract pending docs from this sync ──────────────────────────
+    // Email PDFs that local extraction couldn't handle are saved as pending_extraction.
+    // Run AI extraction on them now so the user sees results without manual clicks.
+    if (!_syncCancelled) {
+      const newPending = await db.invoices
+        .where("id").above(maxIdBefore)
+        .filter(inv => inv.status === "pending_extraction" && inv.importSource !== "manual_upload")
+        .toArray();
+      for (const inv of newPending) {
+        if (_syncCancelled) break;
+        await extractInvoiceWithAI(inv.id as number);
         window.dispatchEvent(new CustomEvent("jinvoice:sync-progress", { detail: { processed, found } }));
       }
     }

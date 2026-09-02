@@ -543,7 +543,24 @@ export async function extractInvoiceWithAI(invoiceId: number): Promise<Extracted
     }
   }
 
-  // ── Step 2: check blur before Gemini — skip if image is unreadable ────────
+  // ── Step 2: Gemini text (fast — try before Vision when rawText is available) ─
+  // Text API has no PDF rendering overhead and a much smaller payload than Vision.
+  // Works well for native PDFs; for truly scanned docs with garbled rawText it will
+  // return null and we fall through to Vision below.
+  if (rawRec?.rawText && rawRec.rawText.length > 50) {
+    try {
+      const textEnhanced = await enhanceWithClaude({ ...blank, rawText: rawRec.rawText });
+      if (textEnhanced && (textEnhanced.grandTotalPaise != null || textEnhanced.merchantName != null)) {
+        console.log("[extractInvoiceWithAI] Gemini text succeeded — skipping Vision");
+        return finalizeExtractedInvoice(invoiceId, textEnhanced);
+      }
+      console.log("[extractInvoiceWithAI] Gemini text gave no result — falling through to Vision");
+    } catch (e) {
+      console.warn("[extractInvoiceWithAI] Gemini text failed:", e);
+    }
+  }
+
+  // ── Step 3: Gemini Vision (for scanned docs or when text extraction failed) ─
   const pdfRec = await db.pdfFiles.where("invoiceId").equals(invoiceId).first();
   if (pdfRec?.bytes) {
     let enhanced: ExtractedInvoice | null = null;
@@ -583,7 +600,7 @@ export async function extractInvoiceWithAI(invoiceId: number): Promise<Extracted
         enhanced = await enhanceWithClaudeVision(blank, pages);
       }
     } catch (e) {
-      console.warn("[extractInvoiceWithAI] vision failed, falling back to text:", e);
+      console.warn("[extractInvoiceWithAI] vision failed:", e);
     }
 
     if (enhanced && (enhanced.grandTotalPaise != null || enhanced.merchantName != null)) {
@@ -591,25 +608,15 @@ export async function extractInvoiceWithAI(invoiceId: number): Promise<Extracted
     }
   }
 
-  // ── Step 3: Gemini text fallback ──────────────────────────────────────────
-  if (!rawRec?.rawText) {
-    await db.invoices.update(invoiceId, {
-      status: "extraction_failed",
-      extractionNote: "No PDF data stored — re-upload the original file to extract",
-      updatedAt: new Date().toISOString(),
-    });
-    return null;
-  }
-  const enhanced = await enhanceWithClaude({ ...blank, rawText: rawRec.rawText });
-  if (!enhanced || (enhanced.grandTotalPaise == null && enhanced.merchantName == null)) {
-    await db.invoices.update(invoiceId, {
-      status: "extraction_failed",
-      extractionNote: "AI could not read the document — try re-uploading a clearer scan",
-      updatedAt: new Date().toISOString(),
-    });
-    return null;
-  }
-  return finalizeExtractedInvoice(invoiceId, enhanced);
+  // ── Step 4: no usable data ────────────────────────────────────────────────
+  await db.invoices.update(invoiceId, {
+    status: "extraction_failed",
+    extractionNote: rawRec?.rawText
+      ? "AI could not read the document — try re-uploading a clearer scan"
+      : "No PDF data stored — re-upload the original file to extract",
+    updatedAt: new Date().toISOString(),
+  });
+  return null;
 }
 
 async function finalizeExtractedInvoice(
