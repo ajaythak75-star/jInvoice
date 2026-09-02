@@ -1010,6 +1010,7 @@ export function ViewScreen() {
           merchantGstin: inv.merchantGstin,
           merchantPhone: inv.merchantPhone ?? null,
           merchantPincode: inv.merchantPincode ?? null,
+          platform: inv.platform ?? null,
           invoiceNumber: inv.invoiceNumber,
           invoiceDate: inv.invoiceDate,
           subtotalPaise: inv.subtotalPaise,
@@ -1670,6 +1671,7 @@ export function ViewScreen() {
 
         const fields: Array<{ label: string; value: string | null; badgeInfo: { badge: AccBadge; note?: string } }> = [
           { label: "Shop Name",       value: r.merchantName,    badgeInfo: accBadge(r.merchantName) },
+          { label: "Platform",        value: r.platform ?? null, badgeInfo: accBadge(r.platform) },
           { label: "GSTIN",           value: r.merchantGstin,   badgeInfo: accBadge(r.merchantGstin, "gstin") },
           { label: "Invoice Number",  value: r.invoiceNumber ?? null,   badgeInfo: accBadge(r.invoiceNumber) },
           { label: "Date of Purchase",value: r.invoiceDate,     badgeInfo: accBadge(r.invoiceDate, "date") },
@@ -1751,6 +1753,7 @@ export function ViewScreen() {
                             merchantGstin: inv.merchantGstin,
                             merchantPhone: inv.merchantPhone ?? null,
                             merchantPincode: inv.merchantPincode ?? null,
+                            platform: inv.platform ?? null,
                             invoiceNumber: inv.invoiceNumber,
                             invoiceDate: inv.invoiceDate,
                             subtotalPaise: inv.subtotalPaise,

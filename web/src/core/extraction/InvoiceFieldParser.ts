@@ -60,6 +60,47 @@ export function extractGstin(text: string): string | null {
   return GSTIN_RX.exec(text)?.[1] ?? null;
 }
 
+export function extractMerchantAddress(text: string): string | null {
+  // Address block immediately after the merchant name line under "Sold By :"
+  const m = /(?:sold\s+by|seller)\s*[:\-]\s*\n?\s*[A-Z][^\n]*\n((?:(?!billing\s+address|shipping\s+address|pan\s+no|gstin|cin|authorized|order\s+number|invoice\s+number|place\s+of)[^\n]+\n?){1,8})/im.exec(text);
+  if (!m) return null;
+  const lines = m[1]
+    .split("\n")
+    .map((l) => l.replace(/^\*\s*/, "").trim())
+    .filter((l) => l && l !== "IN" && l.length > 1 && !/^[A-Z]{2}\s*$/.test(l));
+  return lines.length ? lines.join(", ") : null;
+}
+
+export function extractMerchantPincode(text: string): string | null {
+  // Prefer pincode inside the seller address block
+  const soldByBlock = /(?:sold\s+by|seller)\s*[:\-][\s\S]{10,500}?(?=billing\s+address|shipping\s+address|pan\s+no|authorized\s+signatory|$)/im.exec(text);
+  if (soldByBlock) {
+    const m = /\b(\d{6})\b/.exec(soldByBlock[0]);
+    if (m) return m[1];
+  }
+  // Fallback: explicit "pin"/"pincode" label anywhere
+  const pinM = /(?:pin(?:code)?)\s*[:\-]?\s*(\d{6})/i.exec(text);
+  return pinM?.[1] ?? null;
+}
+
+const PLATFORM_PATTERNS: Array<[RegExp, string]> = [
+  [/asspl|amazon\s*seller\s*services|amazon\.in/i, "Amazon.in"],
+  [/flipkart/i, "Flipkart"],
+  [/myntra/i, "Myntra"],
+  [/meesho/i, "Meesho"],
+  [/nykaa/i, "Nykaa"],
+  [/snapdeal/i, "Snapdeal"],
+  [/tata\s*cliq/i, "Tata CLiQ"],
+  [/ajio\.com/i, "AJIO"],
+];
+
+export function extractPlatform(text: string): string | null {
+  for (const [rx, label] of PLATFORM_PATTERNS) {
+    if (rx.test(text)) return label;
+  }
+  return null;
+}
+
 export function extractInvoiceNumber(text: string): string | null {
   return INVOICE_NO_RX.exec(text)?.[1]?.trim() ?? null;
 }

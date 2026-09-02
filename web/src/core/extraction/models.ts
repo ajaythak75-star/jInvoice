@@ -24,6 +24,7 @@ export interface ExtractedInvoice {
   merchantGstin: string | null;
   merchantPhone: string | null;
   merchantPincode: string | null;
+  platform?: string | null;          // marketplace / channel, e.g. "Amazon.in"
   invoiceNumber: string | null;
   invoiceDate: string | null;      // ISO 8601
   lineItems: LineItem[];

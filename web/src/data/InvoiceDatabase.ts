@@ -24,6 +24,7 @@ export interface InvoiceMeta {
   merchantPincode?: string | null;
   invoiceNumber?: string | null;
   subtotalPaise?: number | null;
+  platform?: string | null;
   clientTags?: string[];
   projectTag?: string | null;
   extractionNote?: string | null;
