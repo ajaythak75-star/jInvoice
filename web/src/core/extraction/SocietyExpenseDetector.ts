@@ -6,7 +6,13 @@ export type SocietyExpenseCategory =
   | "civil_work"
   | "insurance"
   | "government_dues"
-  | "other_expense";
+  | "cheque"
+  | "agreement"
+  | "share_certificate"
+  | "legal_document"
+  | "financial_document"
+  | "meeting_record"
+  | "other";
 
 const SOCIETY_KEYWORDS: Array<{ cat: SocietyExpenseCategory; keywords: string[] }> = [
   {
@@ -22,7 +28,7 @@ const SOCIETY_KEYWORDS: Array<{ cat: SocietyExpenseCategory; keywords: string[] 
     cat: "lift_amc",
     keywords: [
       "lift", "elevator", "escalator", "otis", "kone", "schindler", "thyssenkrupp",
-      "johnson lifts", "fujitec", "mitsubishi elevator", "amc", "annual maintenance",
+      "johnson lifts", "fujitec", "mitsubishi elevator",
     ],
   },
   {
@@ -38,7 +44,7 @@ const SOCIETY_KEYWORDS: Array<{ cat: SocietyExpenseCategory; keywords: string[] 
     keywords: [
       "housekeeping", "cleaning", "sweeping", "pest control", "fumigation",
       "landscaping", "gardening", "garbage", "waste management", "sanitation",
-      "janitorial", "maid", "caretaker",
+      "janitorial", "caretaker",
     ],
   },
   {
@@ -61,8 +67,53 @@ const SOCIETY_KEYWORDS: Array<{ cat: SocietyExpenseCategory; keywords: string[] 
     cat: "government_dues",
     keywords: [
       "property tax", "municipal tax", "bmc", "mcgm", "nmmc", "pcmc",
-      "professional tax", "labour cess", "stamp duty", "registration",
-      "government", "municipal corporation", "nagar palika",
+      "professional tax", "labour cess", "stamp duty", "government",
+      "municipal corporation", "nagar palika", "registration fees",
+    ],
+  },
+  {
+    cat: "cheque",
+    keywords: [
+      "cheque", "check", "bearer", "pay to", "drawn on", "account payee",
+      "bank draft", "demand draft", "dd no",
+    ],
+  },
+  {
+    cat: "agreement",
+    keywords: [
+      "agreement", "contract", "memorandum", "mou", "service agreement",
+      "maintenance contract", "amc contract", "terms and conditions",
+    ],
+  },
+  {
+    cat: "share_certificate",
+    keywords: [
+      "share certificate", "share no", "share holder", "equity share",
+      "cooperative society share", "society membership", "form no 5",
+    ],
+  },
+  {
+    cat: "legal_document",
+    keywords: [
+      "noc", "no objection", "occupation certificate", "oc certificate",
+      "completion certificate", "transfer letter", "mutation", "conveyance deed",
+      "sale deed", "possession letter", "allotment letter",
+    ],
+  },
+  {
+    cat: "financial_document",
+    keywords: [
+      "bank statement", "audit report", "balance sheet", "income expenditure",
+      "receipt and payment", "fixed deposit", "fd receipt", "passbook",
+      "trial balance", "ledger", "chartered accountant",
+    ],
+  },
+  {
+    cat: "meeting_record",
+    keywords: [
+      "agm", "annual general meeting", "special general meeting", "sgm",
+      "managing committee", "meeting notice", "minutes of meeting",
+      "resolution", "agenda", "attendance register",
     ],
   },
 ];
@@ -78,16 +129,22 @@ export function detectSocietyCategory(
   for (const { cat, keywords } of SOCIETY_KEYWORDS) {
     if (keywords.some((kw) => haystack.includes(kw))) return cat;
   }
-  return "other_expense";
+  return "other";
 }
 
 export const SOCIETY_CATEGORY_LABEL: Record<SocietyExpenseCategory, string> = {
-  utilities: "Utilities",
-  lift_amc: "Lift / AMC",
-  security: "Security",
-  housekeeping: "Housekeeping",
-  civil_work: "Civil Work",
-  insurance: "Insurance",
-  government_dues: "Government Dues",
-  other_expense: "Other Expense",
+  utilities:          "Utilities",
+  lift_amc:           "Lift / AMC",
+  security:           "Security",
+  housekeeping:       "Housekeeping",
+  civil_work:         "Civil Work",
+  insurance:          "Insurance",
+  government_dues:    "Government Dues",
+  cheque:             "Cheque",
+  agreement:          "Agreement",
+  share_certificate:  "Share Certificate",
+  legal_document:     "Legal Document",
+  financial_document: "Financial Document",
+  meeting_record:     "Meeting Record",
+  other:              "Other",
 };

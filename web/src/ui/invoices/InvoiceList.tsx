@@ -5,6 +5,7 @@ import { desktopConnector } from "../../service/AutoImportService";
 import { prefs } from "../../data/AutoImportPreferences";
 import { generateInvoicePdf, invoicePdfFilename } from "../../service/InvoicePdfGenerator";
 import { DOC_TYPE_SUBFOLDER, type DocType } from "../../extraction/DocTypeDetector";
+import { SOCIETY_CATEGORY_LABEL, type SocietyExpenseCategory } from "../../core/extraction/SocietyExpenseDetector";
 
 async function downloadInvoicePdf(
   inv: InvoiceMeta,
@@ -66,6 +67,14 @@ function FieldRow({ label, value, found }: { label: string; value: string; found
 }
 
 function ReviewPanel({ inv, lineItems, onClose }: { inv: InvoiceMeta; lineItems: LineItemRow[]; onClose: () => void }) {
+  const isSociety = prefs.userType === "society";
+  const [category, setCategory] = useState(inv.category ?? "");
+
+  const handleCategoryChange = async (val: string) => {
+    setCategory(val);
+    if (inv.id != null) await db.invoices.update(inv.id, { category: val });
+  };
+
   const isPending = inv.status === "pending_review";
   const flags = [
     inv.merchantName != null,
@@ -105,7 +114,7 @@ function ReviewPanel({ inv, lineItems, onClose }: { inv: InvoiceMeta; lineItems:
           <FieldRow label="Payment"  value={inv.paymentMode ?? ""}          found={inv.paymentMode != null && inv.paymentMode !== "unknown"} />
         </div>
 
-        {(inv.merchantAddress || inv.merchantGstin || inv.discountPaise > 0 || inv.taxPaise != null || inv.category) && (
+        {(inv.merchantAddress || inv.merchantGstin || inv.discountPaise > 0 || inv.taxPaise != null || category || isSociety) && (
           <>
             <div className="review-section-label">Additional details</div>
             <div className="review-details">
@@ -113,7 +122,28 @@ function ReviewPanel({ inv, lineItems, onClose }: { inv: InvoiceMeta; lineItems:
               {inv.merchantGstin     && <div className="review-detail-row"><span>GSTIN</span><span>{inv.merchantGstin}</span></div>}
               {inv.taxPaise != null  && <div className="review-detail-row"><span>Tax</span><span>{formatAmount(inv.taxPaise)}</span></div>}
               {inv.discountPaise > 0 && <div className="review-detail-row"><span>Discount</span><span>{formatAmount(inv.discountPaise)}</span></div>}
-              {inv.category          && <div className="review-detail-row"><span>Category</span><span>{inv.category.replace(/_/g, " ")}</span></div>}
+              <div className="review-detail-row">
+                <span>Category</span>
+                {isSociety ? (
+                  <select
+                    value={category}
+                    onChange={(e) => handleCategoryChange(e.target.value)}
+                    style={{
+                      fontSize: 12, padding: "2px 6px", borderRadius: 4,
+                      border: "1px solid var(--color-border)",
+                      background: "var(--color-surface)", color: "var(--color-text)",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <option value="">— Pick category —</option>
+                    {(Object.keys(SOCIETY_CATEGORY_LABEL) as SocietyExpenseCategory[]).map((k) => (
+                      <option key={k} value={k}>{SOCIETY_CATEGORY_LABEL[k]}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <span>{category ? category.replace(/_/g, " ") : "—"}</span>
+                )}
+              </div>
             </div>
           </>
         )}
