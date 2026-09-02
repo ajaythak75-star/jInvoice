@@ -15,6 +15,7 @@ import { detectCategory } from "../../core/extraction/CategoryDetector";
 import { detectDocType, DOC_TYPE_LABELS } from "../../extraction/DocTypeDetector";
 import { getWarrantySentinel, computeSentinelForInvoice } from "../../service/ExpirySentinel";
 import { WarrantyPromptModal, type WarrantyPromptItem } from "../sentinel/WarrantyPromptModal";
+import { SOCIETY_CATEGORY_LABEL, type SocietyExpenseCategory } from "../../core/extraction/SocietyExpenseDetector";
 
 function formatDate(iso: string | null | undefined): string {
   if (!iso) return "—";
@@ -848,6 +849,10 @@ export function ViewScreen() {
   const [newProjectName, setNewProjectName] = useState("");
   const [detailRec, setDetailRec] = useState<InvoiceMeta | null>(null);
   const [detailItems, setDetailItems] = useState<LineItemRow[]>([]);
+  const [detailCategory, setDetailCategory] = useState<string>("");
+  const [detailCustomCats, setDetailCustomCats] = useState<string[]>(() => prefs.customSocietyCategories);
+  const [detailAddingCat, setDetailAddingCat] = useState(false);
+  const [detailNewCat, setDetailNewCat] = useState("");
   const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [previewExtracted, setPreviewExtracted] = useState<ExtractedInvoice | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -1028,6 +1033,9 @@ export function ViewScreen() {
     const items = await db.lineItems.where("invoiceId").equals(rec.id!).toArray();
     setDetailItems(items);
     setDetailRec(rec);
+    setDetailCategory(rec.category ?? "");
+    setDetailAddingCat(false);
+    setDetailNewCat("");
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2039,6 +2047,80 @@ export function ViewScreen() {
                   ))}
                 </div>
               </div>
+
+              {/* Category (society mode) */}
+              {!isPreviewMode && r.id != null && (
+                <div style={{ padding: "12px 20px 0" }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>
+                    Category
+                  </div>
+                  {prefs.activeMode === "society" ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      <select
+                        value={detailAddingCat ? "__add__" : detailCategory}
+                        onChange={async (e) => {
+                          if (e.target.value === "__add__") { setDetailAddingCat(true); return; }
+                          setDetailAddingCat(false);
+                          const val = e.target.value;
+                          setDetailCategory(val);
+                          await db.invoices.update(r.id!, { category: val });
+                        }}
+                        style={{ fontSize: 13, padding: "7px 10px", borderRadius: 7, border: "1px solid var(--color-border)", background: "var(--color-surface-2)", color: "var(--color-text)", cursor: "pointer", width: "100%" }}
+                      >
+                        <option value="">— Pick category —</option>
+                        {(Object.keys(SOCIETY_CATEGORY_LABEL) as SocietyExpenseCategory[]).map((k) => (
+                          <option key={k} value={k}>{SOCIETY_CATEGORY_LABEL[k]}</option>
+                        ))}
+                        {detailCustomCats.map((cat) => (
+                          <option key={cat} value={cat}>{cat}</option>
+                        ))}
+                        <option value="__add__">＋ Add category…</option>
+                      </select>
+                      {detailAddingCat && (
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <input
+                            autoFocus
+                            value={detailNewCat}
+                            onChange={(e) => setDetailNewCat(e.target.value)}
+                            onKeyDown={async (e) => {
+                              if (e.key === "Escape") { setDetailAddingCat(false); setDetailNewCat(""); return; }
+                              if (e.key === "Enter") {
+                                const val = detailNewCat.trim();
+                                setDetailAddingCat(false); setDetailNewCat("");
+                                if (!val) return;
+                                const updated = [...detailCustomCats, val];
+                                prefs.customSocietyCategories = updated;
+                                setDetailCustomCats(updated);
+                                setDetailCategory(val);
+                                await db.invoices.update(r.id!, { category: val });
+                              }
+                            }}
+                            placeholder="Category name"
+                            style={{ flex: 1, fontSize: 13, padding: "6px 10px", borderRadius: 7, border: "1px solid var(--color-border)", background: "var(--color-surface)", color: "var(--color-text)", outline: "none" }}
+                          />
+                          <button
+                            onClick={async () => {
+                              const val = detailNewCat.trim();
+                              setDetailAddingCat(false); setDetailNewCat("");
+                              if (!val) return;
+                              const updated = [...detailCustomCats, val];
+                              prefs.customSocietyCategories = updated;
+                              setDetailCustomCats(updated);
+                              setDetailCategory(val);
+                              await db.invoices.update(r.id!, { category: val });
+                            }}
+                            style={{ fontSize: 13, padding: "6px 12px", borderRadius: 7, border: "1px solid var(--color-border)", background: "var(--color-surface)", color: "var(--color-text)", cursor: "pointer" }}
+                          >Add</button>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: 14, color: detailCategory ? "var(--color-text)" : "var(--color-text-tertiary)" }}>
+                      {detailCategory ? detailCategory.replace(/_/g, " ") : "—"}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Line items */}
               {detailItems.length > 0 && (
