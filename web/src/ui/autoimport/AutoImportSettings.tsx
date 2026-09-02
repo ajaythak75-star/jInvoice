@@ -472,7 +472,7 @@ export function AutoImportSettings() {
     setFileQueue(files.map(f => ({ name: f.name, status: "waiting" })));
     for (let i = 0; i < files.length; i++) {
       setFileQueue(q => q.map((e, idx) => idx === i ? { ...e, status: "processing" } : e));
-      const r = await processFile(files[i], "manual_upload", undefined, { skipGemini: true });
+      const r = await processFile(files[i], "manual_upload");
       let invoiceId: number | undefined;
       if (r.kind === "pendingExtraction") {
         // Saved without AI — get the last inserted record ID for cloud save
