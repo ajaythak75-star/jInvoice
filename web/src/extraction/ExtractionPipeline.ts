@@ -562,8 +562,8 @@ async function finalizeExtractedInvoice(
   enhanced: ExtractedInvoice,
   extractionNote?: string,
 ): Promise<ExtractedInvoice | null> {
-  // Content duplicate check — same merchant + total + date already saved
-  if (await isDuplicateInvoice(enhanced.merchantName, enhanced.grandTotalPaise, enhanced.invoiceDate)) {
+  // Content duplicate check — same merchant + total + date already saved (exclude self)
+  if (await isDuplicateInvoice(enhanced.merchantName, enhanced.grandTotalPaise, enhanced.invoiceDate, invoiceId)) {
     console.log("[extractInvoiceWithAI] content duplicate:", enhanced.merchantName, enhanced.invoiceDate);
     await markAsDuplicate(invoiceId);
     return enhanced;

@@ -184,6 +184,7 @@ export async function isDuplicateInvoice(
   merchantName: string | null,
   grandTotalPaise: number | null,
   invoiceDate: string | null,
+  excludeId?: number,
 ): Promise<boolean> {
   if (!merchantName || grandTotalPaise == null || !invoiceDate) return false;
   const lower = merchantName.toLowerCase();
@@ -193,7 +194,8 @@ export async function isDuplicateInvoice(
         inv.merchantName?.toLowerCase() === lower &&
         inv.grandTotalPaise === grandTotalPaise &&
         inv.invoiceDate === invoiceDate &&
-        (inv.status === "imported" || inv.status === "pending_review"),
+        (inv.status === "imported" || inv.status === "pending_review") &&
+        inv.id !== excludeId,
     )
     .count();
   return count > 0;
