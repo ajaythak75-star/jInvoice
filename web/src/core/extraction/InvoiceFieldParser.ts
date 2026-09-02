@@ -26,11 +26,20 @@ const TOTAL_RX = [
 ];
 const LINE_ITEM_RX = /^(.+?)\s+(\d+(?:\.\d+)?)\s+(?:₹|Rs\.?)?\s*([\d,]+\.?\d{0,2})/gim;
 
-// Lines to skip when looking for merchant name
+// Lines to skip when looking for merchant name or line item names
 const HEADER_SKIP = [
   "tax invoice", "bill of supply", "cash memo", "original for recipient",
   "duplicate", "invoice", "receipt", "page ", "gstin", "pan no", "cin no",
   "authorized signatory", "e-invoice", "irn", "ack no",
+];
+
+// Additional phrases that disqualify a line-item name match
+const ITEM_HEADER_SKIP = [
+  ...HEADER_SKIP,
+  "description", "item name", "sl. no", "hsn code", "unit price",
+  "net amount", "tax rate", "tax type", "tax amount", "total amount",
+  "original for", "seller services", "retail india", "fulfillment",
+  "customers desirous", "business account", "demand for payment",
 ];
 
 export function extractDate(text: string): string | null {
@@ -105,15 +114,18 @@ export function extractLineItems(text: string): LineItem[] {
     const name = m[1].trim();
     const qty = parseFloat(m[2]);
     const unitPricePaise = Math.round(parseFloat(m[3].replace(/,/g, "")) * 100);
-    if (name && unitPricePaise > 0) {
-      items.push({
-        name,
-        quantity: qty,
-        unitPricePaise,
-        totalPricePaise: Math.round(qty * unitPricePaise),
-        discountPaise: 0,
-      });
-    }
+    if (!name || unitPricePaise <= 0) continue;
+    // Reject obvious header rows and boilerplate blobs
+    if (name.length > 200) continue;
+    const nameLower = name.toLowerCase();
+    if (ITEM_HEADER_SKIP.some((w) => nameLower.includes(w))) continue;
+    items.push({
+      name,
+      quantity: qty,
+      unitPricePaise,
+      totalPricePaise: Math.round(qty * unitPricePaise),
+      discountPaise: 0,
+    });
   }
   return items;
 }
