@@ -69,6 +69,40 @@ export async function dismissAllSentinels(): Promise<void> {
   await db.sentinelRecords.where("status").equals("active").modify({ status: "dismissed" });
 }
 
+export async function updateSentinelExpiry(id: number, expiresAt: string): Promise<void> {
+  await db.sentinelRecords.update(id, { expiresAt });
+}
+
+/** Create a warranty sentinel manually when none was auto-detected. */
+export async function addManualSentinel(
+  invoiceId: number,
+  expiresAt: string,
+  merchantName: string | null,
+): Promise<void> {
+  const existing = await db.sentinelRecords
+    .where("invoiceId").equals(invoiceId)
+    .and((r) => r.type === "warranty")
+    .count();
+  if (existing > 0) return;
+  await db.sentinelRecords.add({
+    invoiceId,
+    type: "warranty",
+    label: `Warranty — ${merchantName ?? "Unknown merchant"}`,
+    expiresAt,
+    status: "active",
+    createdAt: new Date().toISOString(),
+  });
+}
+
+/** Returns the active warranty sentinel for an invoice, or null. */
+export async function getWarrantySentinel(invoiceId: number): Promise<SentinelRecord | null> {
+  const rec = await db.sentinelRecords
+    .where("invoiceId").equals(invoiceId)
+    .and((r) => r.type === "warranty" && r.status === "active")
+    .first();
+  return rec ?? null;
+}
+
 export function daysUntilExpiry(expiresAt: string): number {
   const today = new Date();
   today.setHours(0, 0, 0, 0);

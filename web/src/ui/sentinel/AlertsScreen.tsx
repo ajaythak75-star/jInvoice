@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getActiveSentinels, dismissSentinel, dismissAllSentinels, daysUntilExpiry } from "../../service/ExpirySentinel";
+import { getActiveSentinels, dismissSentinel, dismissAllSentinels, daysUntilExpiry, updateSentinelExpiry } from "../../service/ExpirySentinel";
 import { db } from "../../data/InvoiceDatabase";
 import type { SentinelRecord, InvoiceMeta, LineItemRow } from "../../data/InvoiceDatabase";
 import { detectBillIssues } from "../../service/BillFraudDetector";
@@ -43,8 +43,15 @@ interface AlertRow {
   item: LineItemRow | null;  // null = no line items for this invoice
 }
 
-function AlertCard({ row, onDismiss }: { row: AlertRow; onDismiss: () => void }) {
+function AlertCard({ row, onDismiss, onExpiryChange }: {
+  row: AlertRow;
+  onDismiss: () => void;
+  onExpiryChange: (newExpiry: string) => void;
+}) {
   const { record, inv, item } = row;
+  const [editing, setEditing] = useState(false);
+  const [editDate, setEditDate] = useState(record.expiresAt);
+  const [saving, setSaving] = useState(false);
   const days = daysUntilExpiry(record.expiresAt);
   const icon = TYPE_ICON[record.type] ?? "🔔";
 
@@ -55,13 +62,33 @@ function AlertCard({ row, onDismiss }: { row: AlertRow; onDismiss: () => void })
   const metaStyle: React.CSSProperties = { fontSize: 11.5, color: "var(--color-text-secondary)" };
   const labelStyle: React.CSSProperties = { fontSize: 10.5, fontWeight: 600, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.04em", marginRight: 3 };
 
+  const handleSave = async () => {
+    if (!record.id || !editDate) return;
+    setSaving(true);
+    try {
+      await updateSentinelExpiry(record.id, editDate);
+      onExpiryChange(editDate);
+      setEditing(false);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="sentinel-card" style={{ flexDirection: "column", gap: 4, alignItems: "stretch" }}>
-      {/* Line 1: icon + item/product name + urgency badge + dismiss */}
+      {/* Line 1: icon + item/product name + urgency badge + edit + dismiss */}
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <span className="sentinel-icon" style={{ flexShrink: 0 }}>{icon}</span>
         <span className="sentinel-label" style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={productName}>{productName}</span>
         <span className={urgencyClass(days)} style={{ flexShrink: 0 }}>{urgencyLabel(days)}</span>
+        {record.type === "warranty" && (
+          <button
+            onClick={() => { setEditing(!editing); setEditDate(record.expiresAt); }}
+            aria-label="Edit expiry"
+            title="Edit warranty expiry date"
+            style={{ background: "none", border: "none", cursor: "pointer", padding: "2px 4px", fontSize: 13, color: "var(--color-text-secondary)", flexShrink: 0 }}
+          >✏️</button>
+        )}
         <button className="sentinel-dismiss" onClick={onDismiss} aria-label="Dismiss">✕</button>
       </div>
       {/* Line 2: Merchant + type */}
@@ -86,6 +113,39 @@ function AlertCard({ row, onDismiss }: { row: AlertRow; onDismiss: () => void })
           {formatDate(record.expiresAt)}
         </span>
       </div>
+      {/* Inline edit row */}
+      {editing && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, paddingLeft: 30, paddingTop: 4 }}>
+          <span style={{ ...labelStyle }}>New Expiry</span>
+          <input
+            type="date"
+            value={editDate}
+            onChange={(e) => setEditDate(e.target.value)}
+            style={{
+              fontSize: 12, padding: "3px 6px", borderRadius: 4,
+              border: "1px solid var(--color-border)",
+              background: "var(--color-surface)", color: "var(--color-text)",
+            }}
+          />
+          <button
+            onClick={handleSave}
+            disabled={saving || !editDate}
+            style={{
+              fontSize: 12, padding: "3px 10px", borderRadius: 4, border: "none",
+              background: "var(--color-primary)", color: "#fff", cursor: saving ? "wait" : "pointer",
+              opacity: saving ? 0.7 : 1,
+            }}
+          >{saving ? "Saving…" : "Save"}</button>
+          <button
+            onClick={() => setEditing(false)}
+            style={{
+              fontSize: 12, padding: "3px 8px", borderRadius: 4,
+              border: "1px solid var(--color-border)",
+              background: "var(--color-surface)", color: "var(--color-text-secondary)", cursor: "pointer",
+            }}
+          >Cancel</button>
+        </div>
+      )}
     </div>
   );
 }
@@ -219,7 +279,16 @@ export function AlertsScreen() {
       {active.length > 0 && (
         <>
           {active.map((row, i) => (
-            <AlertCard key={`${row.record.id}-${i}`} row={row} onDismiss={() => handleDismiss(row.record.id!)} />
+            <AlertCard
+              key={`${row.record.id}-${i}`}
+              row={row}
+              onDismiss={() => handleDismiss(row.record.id!)}
+              onExpiryChange={(newExpiry) => {
+                setRecords((prev) => prev.map((r) =>
+                  r.id === row.record.id ? { ...r, expiresAt: newExpiry } : r
+                ));
+              }}
+            />
           ))}
         </>
       )}
@@ -228,7 +297,16 @@ export function AlertsScreen() {
         <>
           <div className="sentinel-section-label">Expired</div>
           {expired.map((row, i) => (
-            <AlertCard key={`${row.record.id}-${i}`} row={row} onDismiss={() => handleDismiss(row.record.id!)} />
+            <AlertCard
+              key={`${row.record.id}-${i}`}
+              row={row}
+              onDismiss={() => handleDismiss(row.record.id!)}
+              onExpiryChange={(newExpiry) => {
+                setRecords((prev) => prev.map((r) =>
+                  r.id === row.record.id ? { ...r, expiresAt: newExpiry } : r
+                ));
+              }}
+            />
           ))}
         </>
       )}

@@ -487,7 +487,10 @@ export async function extractInvoiceWithAI(invoiceId: number): Promise<Extracted
     const inv = await db.invoices.get(invoiceId);
     const sourceType = (inv?.pdfSourceType ?? "NATIVE_PDF") as ExtractedInvoice["sourceType"];
     const localInv = extractLocalDoc(rawRec.rawText, sourceType);
-    if (localInv.confidenceScore >= 0.70) {
+    // Require items OR very high confidence to skip Gemini.
+    // Bank statements / cheques score ≥ 0.9 and have no items by design — correctly skipped.
+    // Shopping invoices (Amazon etc.) score ~0.75 with no items — fall through so Gemini can find them.
+    if (localInv.confidenceScore >= 0.70 && (localInv.lineItems.length > 0 || localInv.confidenceScore >= 0.9)) {
       console.log("[extractInvoiceWithAI] local extraction succeeded (confidence:", localInv.confidenceScore, ") — skipping Gemini");
       return finalizeExtractedInvoice(invoiceId, localInv, "Extracted locally without AI");
     }

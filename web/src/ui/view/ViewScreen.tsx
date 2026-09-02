@@ -13,6 +13,8 @@ import { getBulkExtractionState, runBulkExtraction, type BulkState } from "../..
 import type { ExtractedInvoice } from "../../core/extraction/models";
 import { detectCategory } from "../../core/extraction/CategoryDetector";
 import { detectDocType, DOC_TYPE_LABELS } from "../../extraction/DocTypeDetector";
+import { getWarrantySentinel, computeSentinelForInvoice } from "../../service/ExpirySentinel";
+import { WarrantyPromptModal, type WarrantyPromptItem } from "../sentinel/WarrantyPromptModal";
 
 function formatDate(iso: string | null | undefined): string {
   if (!iso) return "—";
@@ -853,6 +855,8 @@ export function ViewScreen() {
   const [previewCloudSaving, setPreviewCloudSaving] = useState(false);
   const [aiExtracting, setAiExtracting] = useState(false);
   const [bulkState, setBulkState] = useState<BulkState>(() => getBulkExtractionState());
+  const [warrantyItems, setWarrantyItems] = useState<WarrantyPromptItem[]>([]);
+  const pendingBulkIds = useRef<number[]>([]);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const [billIssues, setBillIssues] = useState<Map<number, BillIssue[]>>(new Map());
   const [syncingId, setSyncingId] = useState<number | null>(null);
@@ -873,17 +877,47 @@ export function ViewScreen() {
       .finally(() => { setLoading(false); setRefreshing(false); });
   }, []);
 
+  // After extraction, collect warranty sentinels for the given invoice IDs and show the prompt.
+  const checkWarrantyPrompt = async (invoiceIds: number[]) => {
+    const items: WarrantyPromptItem[] = [];
+    for (const id of invoiceIds) {
+      const inv = await db.invoices.get(id);
+      if (!inv || inv.status === "duplicate" || inv.status === "extraction_failed") continue;
+      const sentinel = await getWarrantySentinel(id);
+      if (!sentinel) continue;
+      const dbItems = await db.lineItems.where("invoiceId").equals(id).toArray();
+      const productName = dbItems[0]?.name ?? inv.merchantName ?? "Unknown product";
+      items.push({
+        sentinelId: sentinel.id ?? null,
+        invoiceId: id,
+        productName,
+        merchantName: inv.merchantName,
+        expiresAt: sentinel.expiresAt,
+      });
+    }
+    if (items.length > 0) setWarrantyItems(items);
+  };
+
   useEffect(() => {
     load();
     desktopConnector.preloadHandle();
-    window.addEventListener("jinvoice:sync-complete", load);
+    const onSyncComplete = () => {
+      load();
+      // Bulk extraction warranty check — triggered when bulk run finishes
+      const ids = pendingBulkIds.current;
+      if (ids.length > 0) {
+        pendingBulkIds.current = [];
+        checkWarrantyPrompt(ids);
+      }
+    };
+    window.addEventListener("jinvoice:sync-complete", onSyncComplete);
     window.addEventListener("jinvoice:sync-progress", load);
     const onBulkProgress = (e: Event) => {
       setBulkState((e as CustomEvent<BulkState>).detail);
     };
     window.addEventListener("jinvoice:bulk-extract-progress", onBulkProgress);
     return () => {
-      window.removeEventListener("jinvoice:sync-complete", load);
+      window.removeEventListener("jinvoice:sync-complete", onSyncComplete);
       window.removeEventListener("jinvoice:sync-progress", load);
       window.removeEventListener("jinvoice:bulk-extract-progress", onBulkProgress);
     };
@@ -1155,6 +1189,7 @@ export function ViewScreen() {
       .filter((r) => r.id != null && selected.has(r.id) && r.status === "pending_extraction")
       .map((r) => r.id!);
     if (ids.length === 0) return;
+    pendingBulkIds.current = ids;   // saved so warranty prompt can check them when bulk completes
     runBulkExtraction(ids);
   };
 
@@ -1196,6 +1231,12 @@ export function ViewScreen() {
 
   return (
     <>
+      {warrantyItems.length > 0 && (
+        <WarrantyPromptModal
+          items={warrantyItems}
+          onDone={() => setWarrantyItems([])}
+        />
+      )}
       <div className="invoice-list" style={{ paddingBottom: selected.size > 0 ? 72 : 20 }}>
         <div className="invoice-list-header">
           <h2>All Files</h2>
@@ -1730,6 +1771,10 @@ export function ViewScreen() {
                             if (inv && updated?.status === "duplicate") {
                               alert("This invoice is a duplicate of one already imported (same merchant, amount, and date). Marked as Duplicate.");
                             }
+                            // Show warranty prompt if a sentinel was created
+                            if (inv && updated?.status !== "duplicate") {
+                              await checkWarrantyPrompt([r.id]);
+                            }
                           } finally {
                             setAiExtracting(false);
                           }
@@ -1786,6 +1831,8 @@ export function ViewScreen() {
                         prefs.incrementDailyCount();
                         const isComplete = !!(inv.merchantName && inv.grandTotalPaise && inv.invoiceDate && inv.lineItems.length > 0);
                         rewards.recordUpload(isComplete);
+                        // Create warranty sentinel for manually submitted previews (not done by processFile for this path)
+                        await computeSentinelForInvoice(newId, inv.invoiceDate, inv.merchantName, lineItemNames, inv.rawText ?? null);
                         return newId;
                       };
                       return (
@@ -1812,6 +1859,7 @@ export function ViewScreen() {
                                   const newId = await doInsert(previewExtracted);
                                   if (newId != null) {
                                     try { await syncNewInvoice(newId); rewards.recordCloudSync(); } catch {}
+                                    await checkWarrantyPrompt([newId]);
                                   }
                                   load();
                                   closeDetailPanel();
@@ -1836,7 +1884,8 @@ export function ViewScreen() {
                               }
                               setPreviewSubmitting(true);
                               try {
-                                await doInsert(previewExtracted);
+                                const newId = await doInsert(previewExtracted);
+                                if (newId != null) await checkWarrantyPrompt([newId]);
                                 load();
                                 closeDetailPanel();
                               } finally { setPreviewSubmitting(false); }
