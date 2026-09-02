@@ -31,25 +31,40 @@ function formatDate(iso: string | null | undefined): string {
   return isNaN(d.getTime()) ? iso : d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
 }
 
-function AlertCard({ record, inv, lineItems, onDismiss }: { record: SentinelRecord; inv?: InvoiceMeta; lineItems?: LineItemRow[]; onDismiss: () => void }) {
+// Strip extension from a filename for display
+function fileLabel(inv: InvoiceMeta | undefined): string | null {
+  if (!inv?.isRenamed || !inv.sourceFilename) return null;
+  return inv.sourceFilename.replace(/\.[^.]+$/, "");
+}
+
+interface AlertRow {
+  record: SentinelRecord;
+  inv?: InvoiceMeta;
+  item: LineItemRow | null;  // null = no line items for this invoice
+}
+
+function AlertCard({ row, onDismiss }: { row: AlertRow; onDismiss: () => void }) {
+  const { record, inv, item } = row;
   const days = daysUntilExpiry(record.expiresAt);
   const icon = TYPE_ICON[record.type] ?? "🔔";
-  // Subject (email) takes priority; otherwise use first line item or merchant name
-  const productName = lineItems?.[0]?.name ?? inv?.merchantName ?? record.label;
-  const title = inv?.subject ?? productName;
+
+  // Priority: item name > renamed file label > subject > merchant name > sentinel label
+  const label = fileLabel(inv);
+  const productName = item?.name ?? label ?? inv?.subject ?? inv?.merchantName ?? record.label;
+
   const metaStyle: React.CSSProperties = { fontSize: 11.5, color: "var(--color-text-secondary)" };
   const labelStyle: React.CSSProperties = { fontSize: 10.5, fontWeight: 600, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.04em", marginRight: 3 };
 
   return (
     <div className="sentinel-card" style={{ flexDirection: "column", gap: 4, alignItems: "stretch" }}>
-      {/* Line 1: icon + product/subject + urgency badge + dismiss */}
+      {/* Line 1: icon + item/product name + urgency badge + dismiss */}
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <span className="sentinel-icon" style={{ flexShrink: 0 }}>{icon}</span>
-        <span className="sentinel-label" style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={title}>{title}</span>
+        <span className="sentinel-label" style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={productName}>{productName}</span>
         <span className={urgencyClass(days)} style={{ flexShrink: 0 }}>{urgencyLabel(days)}</span>
         <button className="sentinel-dismiss" onClick={onDismiss} aria-label="Dismiss">✕</button>
       </div>
-      {/* Line 2: Merchant + type label */}
+      {/* Line 2: Merchant + type */}
       <div style={{ display: "flex", alignItems: "center", gap: 12, paddingLeft: 30, ...metaStyle }}>
         <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           <span style={labelStyle}>Merchant</span>
@@ -139,22 +154,39 @@ export function AlertsScreen() {
     );
   }
 
+  // Expand each sentinel into one row per line item (or one row if no items)
+  function expandRows(sentinels: SentinelRecord[]): AlertRow[] {
+    const rows: AlertRow[] = [];
+    for (const r of sentinels) {
+      const inv = invoiceMap.get(r.invoiceId);
+      const items = lineItemMap.get(r.invoiceId) ?? [];
+      if (items.length === 0) {
+        rows.push({ record: r, inv, item: null });
+      } else {
+        for (const item of items) rows.push({ record: r, inv, item });
+      }
+    }
+    return rows;
+  }
+
   const matchesQuery = (r: SentinelRecord): boolean => {
     if (!query.trim()) return true;
     const q = query.toLowerCase();
     const inv = invoiceMap.get(r.invoiceId);
+    const items = lineItemMap.get(r.invoiceId) ?? [];
     return (
       r.label?.toLowerCase().includes(q) ||
       inv?.subject?.toLowerCase().includes(q) ||
       inv?.sourceFilename?.toLowerCase().includes(q) ||
-      inv?.senderEmail?.toLowerCase().includes(q) ||
+      inv?.merchantName?.toLowerCase().includes(q) ||
+      items.some((li) => li.name.toLowerCase().includes(q)) ||
       false
     );
   };
 
   const visible  = records.filter(matchesQuery);
-  const expired  = visible.filter((r) => daysUntilExpiry(r.expiresAt) < 0);
-  const active   = visible.filter((r) => daysUntilExpiry(r.expiresAt) >= 0);
+  const expired  = expandRows(visible.filter((r) => daysUntilExpiry(r.expiresAt) < 0));
+  const active   = expandRows(visible.filter((r) => daysUntilExpiry(r.expiresAt) >= 0));
 
   return (
     <div className="sentinel-screen">
@@ -172,7 +204,7 @@ export function AlertsScreen() {
       <input
         className="view-search"
         type="search"
-        placeholder="Search subject, file, sender…"
+        placeholder="Search item, merchant, file, sender…"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         style={{ marginBottom: 10 }}
@@ -186,8 +218,8 @@ export function AlertsScreen() {
 
       {active.length > 0 && (
         <>
-          {active.map((r) => (
-            <AlertCard key={r.id} record={r} inv={invoiceMap.get(r.invoiceId)} lineItems={lineItemMap.get(r.invoiceId)} onDismiss={() => handleDismiss(r.id!)} />
+          {active.map((row, i) => (
+            <AlertCard key={`${row.record.id}-${i}`} row={row} onDismiss={() => handleDismiss(row.record.id!)} />
           ))}
         </>
       )}
@@ -195,8 +227,8 @@ export function AlertsScreen() {
       {expired.length > 0 && (
         <>
           <div className="sentinel-section-label">Expired</div>
-          {expired.map((r) => (
-            <AlertCard key={r.id} record={r} inv={invoiceMap.get(r.invoiceId)} lineItems={lineItemMap.get(r.invoiceId)} onDismiss={() => handleDismiss(r.id!)} />
+          {expired.map((row, i) => (
+            <AlertCard key={`${row.record.id}-${i}`} row={row} onDismiss={() => handleDismiss(row.record.id!)} />
           ))}
         </>
       )}
