@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
-import { db, type InvoiceMeta, type LineItemRow, insertInvoiceWithItems } from "../../data/InvoiceDatabase";
+import { db, type InvoiceMeta, type LineItemRow, type SentinelRecord, insertInvoiceWithItems } from "../../data/InvoiceDatabase";
 import { syncNewInvoice } from "../../service/SupabaseSync";
 import { runBillChecksForAll, type BillIssue } from "../../service/BillFraudDetector";
 import { rewards } from "../../data/RewardsStore";
@@ -13,7 +13,7 @@ import { getBulkExtractionState, runBulkExtraction, type BulkState } from "../..
 import type { ExtractedInvoice } from "../../core/extraction/models";
 import { detectCategory } from "../../core/extraction/CategoryDetector";
 import { detectDocType, DOC_TYPE_LABELS } from "../../extraction/DocTypeDetector";
-import { getWarrantySentinel, computeSentinelForInvoice } from "../../service/ExpirySentinel";
+import { getWarrantySentinel, computeSentinelForInvoice, addManualAlert } from "../../service/ExpirySentinel";
 import { WarrantyPromptModal, type WarrantyPromptItem } from "../sentinel/WarrantyPromptModal";
 import { SOCIETY_CATEGORY_LABEL, type SocietyExpenseCategory } from "../../core/extraction/SocietyExpenseDetector";
 import { getProfessionalCategoryLabel, type ProfessionalProfile } from "../../core/extraction/ProfessionalCategoryDetector";
@@ -660,6 +660,116 @@ function switchTab(name,btn){
 </html>`;
 }
 
+// ── ViewCard Add-Alert Modal ─────────────────────────────────────────────────
+const VC_TYPE_ICON: Record<string, string> = {
+  warranty: "🛡️", insurance: "📋", prescription: "👓",
+  service_interval: "🔧", amc_renewal: "🔧", agreement_expiry: "📄",
+  gst_due: "🧾", itr_filing: "📝", membership_renewal: "🎓",
+  software_renewal: "💻", retainer_renewal: "⚖️",
+};
+const VC_TYPE_LABEL: Record<string, string> = {
+  warranty: "Warranty", insurance: "Insurance", prescription: "Prescription",
+  service_interval: "Service Interval", amc_renewal: "AMC Renewal",
+  agreement_expiry: "Agreement / Rent", gst_due: "GST Return Due",
+  itr_filing: "ITR Filing", membership_renewal: "Membership Renewal",
+  software_renewal: "Software Renewal", retainer_renewal: "Retainer Renewal",
+};
+const VC_ALL_TYPES = Object.keys(VC_TYPE_LABEL) as SentinelRecord["type"][];
+
+function ViewCardAddAlertModal({ merchantName, onClose }: { merchantName: string | null; onClose: () => void }) {
+  const [label, setLabel]   = useState(merchantName ?? "");
+  const [type, setType]     = useState<SentinelRecord["type"]>("warranty");
+  const [expiry, setExpiry] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr]       = useState<string | null>(null);
+
+  const inputStyle: React.CSSProperties = {
+    width: "100%", padding: "7px 10px", borderRadius: 6, fontSize: 13,
+    border: "1px solid var(--color-border)", background: "var(--color-surface)",
+    color: "var(--color-text)", boxSizing: "border-box",
+  };
+  const lblStyle: React.CSSProperties = {
+    fontSize: 12, color: "var(--color-text-secondary)", display: "block", marginBottom: 5,
+  };
+
+  const handleSubmit = async () => {
+    if (!label.trim()) { setErr("Enter a description for this alert."); return; }
+    if (!expiry)       { setErr("Select an expiry / due date."); return; }
+    setSaving(true);
+    try {
+      await addManualAlert(label.trim(), type, expiry);
+      window.dispatchEvent(new Event("jinvoice:sync-complete"));
+      onClose();
+    } catch {
+      setErr("Failed to save alert. Try again.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      className="modal-overlay"
+      onClick={onClose}
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}
+    >
+      <div
+        className="modal"
+        onClick={(e) => e.stopPropagation()}
+        style={{ maxWidth: 380, width: "92%", padding: 24, borderRadius: 12, background: "var(--color-surface)", boxShadow: "0 8px 32px rgba(0,0,0,0.2)" }}
+      >
+        <h2 style={{ fontSize: 17, marginBottom: 18 }}>Add Alert</h2>
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <div>
+            <label style={lblStyle}>Description *</label>
+            <input
+              autoFocus
+              style={inputStyle}
+              placeholder="e.g. Samsung TV Warranty, Lift AMC"
+              value={label}
+              onChange={(e) => { setLabel(e.target.value); setErr(null); }}
+              onKeyDown={(e) => { if (e.key === "Enter") handleSubmit(); if (e.key === "Escape") onClose(); }}
+            />
+          </div>
+          <div>
+            <label style={lblStyle}>Alert type *</label>
+            <select
+              style={{ ...inputStyle, cursor: "pointer" }}
+              value={type}
+              onChange={(e) => setType(e.target.value as SentinelRecord["type"])}
+            >
+              {VC_ALL_TYPES.map((t) => (
+                <option key={t} value={t}>{VC_TYPE_ICON[t]} {VC_TYPE_LABEL[t]}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label style={lblStyle}>Due / Expiry date *</label>
+            <input
+              type="date"
+              style={inputStyle}
+              value={expiry}
+              onChange={(e) => { setExpiry(e.target.value); setErr(null); }}
+            />
+          </div>
+        </div>
+        {err && <p style={{ fontSize: 12, color: "#ef4444", marginTop: 10, marginBottom: 0 }}>{err}</p>}
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 20 }}>
+          <button
+            onClick={onClose}
+            style={{ fontSize: 13, padding: "6px 16px", borderRadius: 6, border: "1px solid var(--color-border)", background: "var(--color-surface)", color: "var(--color-text-secondary)", cursor: "pointer" }}
+          >Cancel</button>
+          <button
+            onClick={handleSubmit}
+            disabled={saving}
+            style={{ fontSize: 13, padding: "6px 18px", borderRadius: 6, border: "none", background: "var(--color-primary)", color: "#fff", cursor: saving ? "wait" : "pointer", fontWeight: 700, opacity: saving ? 0.7 : 1 }}
+          >{saving ? "Saving…" : "Add Alert"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Upload Modal ──────────────────────────────────────────────────────────────
 function UploadModal({ entries, onClose }: { entries: UploadEntry[]; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
@@ -865,6 +975,7 @@ export function ViewScreen() {
   const [syncingId, setSyncingId] = useState<number | null>(null);
   const hasLoadedRef = useRef(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [showAddAlertModal, setShowAddAlertModal] = useState(false);
 
   const load = useCallback(() => {
     // Only show the full-page loading screen on the very first load.
@@ -1098,6 +1209,7 @@ export function ViewScreen() {
     setDetailRec(null);
     setIsPreviewMode(false);
     setPreviewExtracted(null);
+    setShowAddAlertModal(false);
   };
 
   const openBulkTagging = (e: React.MouseEvent<HTMLButtonElement>) => {
@@ -1965,6 +2077,12 @@ export function ViewScreen() {
                         </button>
                       );
                     })()}
+                    {!isPreviewMode && r.id != null && (
+                      <button
+                        onClick={() => setShowAddAlertModal(true)}
+                        style={{ padding: "5px 10px", borderRadius: 6, border: "1px solid #6366f1", background: "rgba(99,102,241,0.08)", color: "#6366f1", fontSize: 12, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}
+                      >+ Alert</button>
+                    )}
                     <button
                       onClick={closeDetailPanel}
                       style={{ background: "none", border: "none", cursor: "pointer", fontSize: 20, color: "var(--color-text-secondary)", lineHeight: 1, padding: "0 2px" }}
@@ -2118,6 +2236,12 @@ export function ViewScreen() {
               )}
               </div>{/* /scrollable content */}
             </div>
+            {showAddAlertModal && (
+              <ViewCardAddAlertModal
+                merchantName={r.merchantName}
+                onClose={() => setShowAddAlertModal(false)}
+              />
+            )}
           </>
         );
       })()}
