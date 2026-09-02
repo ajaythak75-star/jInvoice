@@ -238,6 +238,12 @@ export const prefs = {
   get societyName(): string { return get("society_name") ?? ""; },
   set societyName(v: string) { v ? set("society_name", v) : remove("society_name"); },
 
+  get customSocietyCategories(): string[] {
+    const v = get("custom_society_categories");
+    try { return v ? JSON.parse(v) : []; } catch { return []; }
+  },
+  set customSocietyCategories(v: string[]) { set("custom_society_categories", JSON.stringify(v)); },
+
   revokeGmail(): void {
     this.gmailEnabled = false;
     this.gmailConsentGiven = false;

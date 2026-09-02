@@ -69,10 +69,24 @@ function FieldRow({ label, value, found }: { label: string; value: string; found
 function ReviewPanel({ inv, lineItems, onClose }: { inv: InvoiceMeta; lineItems: LineItemRow[]; onClose: () => void }) {
   const isSociety = prefs.userType === "society";
   const [category, setCategory] = useState(inv.category ?? "");
+  const [customCategories, setCustomCategories] = useState<string[]>(() => prefs.customSocietyCategories);
+  const [addingCategory, setAddingCategory] = useState(false);
+  const [newCatInput, setNewCatInput] = useState("");
 
   const handleCategoryChange = async (val: string) => {
     setCategory(val);
     if (inv.id != null) await db.invoices.update(inv.id, { category: val });
+  };
+
+  const handleAddCategory = async () => {
+    const val = newCatInput.trim();
+    setAddingCategory(false);
+    setNewCatInput("");
+    if (!val) return;
+    const updated = [...customCategories, val];
+    prefs.customSocietyCategories = updated;
+    setCustomCategories(updated);
+    await handleCategoryChange(val);
   };
 
   const isPending = inv.status === "pending_review";
@@ -122,24 +136,66 @@ function ReviewPanel({ inv, lineItems, onClose }: { inv: InvoiceMeta; lineItems:
               {inv.merchantGstin     && <div className="review-detail-row"><span>GSTIN</span><span>{inv.merchantGstin}</span></div>}
               {inv.taxPaise != null  && <div className="review-detail-row"><span>Tax</span><span>{formatAmount(inv.taxPaise)}</span></div>}
               {inv.discountPaise > 0 && <div className="review-detail-row"><span>Discount</span><span>{formatAmount(inv.discountPaise)}</span></div>}
-              <div className="review-detail-row">
+              <div className="review-detail-row" style={{ alignItems: "flex-start" }}>
                 <span>Category</span>
                 {isSociety ? (
-                  <select
-                    value={category}
-                    onChange={(e) => handleCategoryChange(e.target.value)}
-                    style={{
-                      fontSize: 12, padding: "2px 6px", borderRadius: 4,
-                      border: "1px solid var(--color-border)",
-                      background: "var(--color-surface)", color: "var(--color-text)",
-                      cursor: "pointer",
-                    }}
-                  >
-                    <option value="">— Pick category —</option>
-                    {(Object.keys(SOCIETY_CATEGORY_LABEL) as SocietyExpenseCategory[]).map((k) => (
-                      <option key={k} value={k}>{SOCIETY_CATEGORY_LABEL[k]}</option>
-                    ))}
-                  </select>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-end" }}>
+                    <select
+                      value={addingCategory ? "__add_custom__" : category}
+                      onChange={(e) => {
+                        if (e.target.value === "__add_custom__") {
+                          setAddingCategory(true);
+                        } else {
+                          setAddingCategory(false);
+                          handleCategoryChange(e.target.value);
+                        }
+                      }}
+                      style={{
+                        fontSize: 12, padding: "2px 6px", borderRadius: 4,
+                        border: "1px solid var(--color-border)",
+                        background: "var(--color-surface)", color: "var(--color-text)",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <option value="">— Pick category —</option>
+                      {(Object.keys(SOCIETY_CATEGORY_LABEL) as SocietyExpenseCategory[]).map((k) => (
+                        <option key={k} value={k}>{SOCIETY_CATEGORY_LABEL[k]}</option>
+                      ))}
+                      {customCategories.map((cat) => (
+                        <option key={cat} value={cat}>{cat}</option>
+                      ))}
+                      <option value="__add_custom__">＋ Add category…</option>
+                    </select>
+                    {addingCategory && (
+                      <div style={{ display: "flex", gap: 4 }}>
+                        <input
+                          autoFocus
+                          value={newCatInput}
+                          onChange={(e) => setNewCatInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") handleAddCategory();
+                            if (e.key === "Escape") { setAddingCategory(false); setNewCatInput(""); }
+                          }}
+                          placeholder="Category name"
+                          style={{
+                            fontSize: 12, padding: "2px 6px", borderRadius: 4,
+                            border: "1px solid var(--color-border)",
+                            background: "var(--color-surface)", color: "var(--color-text)",
+                            width: 130,
+                          }}
+                        />
+                        <button
+                          onClick={handleAddCategory}
+                          style={{
+                            fontSize: 12, padding: "2px 8px", borderRadius: 4,
+                            border: "1px solid var(--color-border)",
+                            background: "var(--color-surface)", color: "var(--color-text)",
+                            cursor: "pointer",
+                          }}
+                        >Add</button>
+                      </div>
+                    )}
+                  </div>
                 ) : (
                   <span>{category ? category.replace(/_/g, " ") : "—"}</span>
                 )}
