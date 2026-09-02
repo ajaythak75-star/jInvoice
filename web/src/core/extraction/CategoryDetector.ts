@@ -63,8 +63,11 @@ const CATEGORY_KEYWORDS: Array<{ cat: ProductCategory; keywords: string[] }> = [
 export function detectCategory(
   merchantName: string | null,
   lineItemNames: string[],
+  extraText?: string | null,
 ): ProductCategory {
-  const haystack = [merchantName ?? "", ...lineItemNames].join(" ").toLowerCase();
+  const parts = [merchantName ?? "", ...lineItemNames];
+  if (extraText) parts.push(extraText.slice(0, 3000));
+  const haystack = parts.join(" ").toLowerCase();
   for (const { cat, keywords } of CATEGORY_KEYWORDS) {
     if (keywords.some((kw) => haystack.includes(kw))) return cat;
   }

@@ -28,10 +28,11 @@ export async function computeSentinelForInvoice(
   invoiceDate: string | null,
   merchantName: string | null,
   lineItemNames: string[],
+  rawText?: string | null,
 ): Promise<void> {
   if (!invoiceDate) return;
 
-  const cat = detectCategory(merchantName, lineItemNames);
+  const cat = detectCategory(merchantName, lineItemNames, rawText);
   const months = WARRANTY_MONTHS[cat];
   if (!months) return;
 

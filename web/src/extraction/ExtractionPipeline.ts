@@ -447,7 +447,7 @@ async function persistResultWithNote(
       await db.rawTexts.add({ invoiceId, rawText: inv.rawText });
     }
 
-    await computeSentinelForInvoice(invoiceId, inv.invoiceDate, inv.merchantName, lineItemNames);
+    await computeSentinelForInvoice(invoiceId, inv.invoiceDate, inv.merchantName, lineItemNames, inv.rawText);
   } else {
     const status = result.kind === "encryptedPdf" ? "import_blocked_encrypted" : "extraction_failed";
     await insertInvoiceWithItems(
@@ -636,6 +636,7 @@ async function finalizeExtractedInvoice(
     enhanced.invoiceDate,
     enhanced.merchantName,
     enhanced.lineItems.map((li) => li.name),
+    enhanced.rawText,
   );
 
   return enhanced;
