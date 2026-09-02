@@ -34,6 +34,8 @@ export function SettingsScreen({ onSignOut }: Props) {
   const [societyName, setSocietyName] = useState(() => prefs.societyName);
   const [showProfileConfirm, setShowProfileConfirm] = useState<Exclude<UserProfile, "personal"> | null>(null);
 
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+
   const [showProModal, setShowProModal]   = useState(false);
   const [proName,     setProName]     = useState(() => prefs.customerName);
   const [proEmail,    setProEmail]    = useState(() => prefs.customerEmail);
@@ -127,6 +129,28 @@ export function SettingsScreen({ onSignOut }: Props) {
 
   const gmailAuthenticated   = vm.state.gmail.isAuthenticated;
   const outlookAuthenticated = vm.state.outlook.isAuthenticated;
+
+  // Cancellation is allowed after 1 month from subscription start OR at plan end — whichever is sooner.
+  function getCancelEligibleDate(): Date | null {
+    const startStr = prefs.customerAccountCreatedAt;
+    const endStr   = prefs.proEndDate;
+    if (!startStr && !endStr) return null;
+    const candidates: Date[] = [];
+    if (startStr) {
+      const d = new Date(startStr);
+      d.setDate(d.getDate() + 30);
+      candidates.push(d);
+    }
+    if (endStr) candidates.push(new Date(endStr));
+    return candidates.reduce((a, b) => (a < b ? a : b));
+  }
+
+  const handleCancelSubscription = () => {
+    prefs.isSubscribed = false;
+    prefs.customerStatus = "Cancelled";
+    prefs.trialStartedAt = null;
+    setShowCancelConfirm(false);
+  };
 
 
 
@@ -387,6 +411,107 @@ export function SettingsScreen({ onSignOut }: Props) {
           </label>
         </div>
       </section>
+
+      {/* Subscription management — Pro users only */}
+      {prefs.isProActive && (
+        <section className="settings-section">
+          <div className="settings-section-title">Subscription</div>
+          {(() => {
+            const eligibleDate = getCancelEligibleDate();
+            const canCancel    = eligibleDate ? new Date() >= eligibleDate : false;
+            const fmtDate = (iso: string | null | undefined) =>
+              iso
+                ? new Date(iso).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })
+                : "—";
+            return (
+              <>
+                <div className="settings-row">
+                  <span className="settings-row-label">Plan</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: "var(--color-primary)" }}>Pro</span>
+                </div>
+                <div className="settings-row">
+                  <span className="settings-row-label">Active since</span>
+                  <span style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>
+                    {fmtDate(prefs.customerAccountCreatedAt)}
+                  </span>
+                </div>
+                {prefs.proEndDate && (
+                  <div className="settings-row">
+                    <span className="settings-row-label">Plan ends</span>
+                    <span style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>
+                      {fmtDate(prefs.proEndDate)}
+                    </span>
+                  </div>
+                )}
+                <div className="settings-row" style={{ marginTop: 8 }}>
+                  <div>
+                    <span className="settings-row-label">Cancel subscription</span>
+                    {!canCancel && eligibleDate && (
+                      <p style={{ fontSize: 12, color: "var(--color-text-tertiary)", marginTop: 2 }}>
+                        Available from {fmtDate(eligibleDate.toISOString())}
+                      </p>
+                    )}
+                    {canCancel && (
+                      <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 2 }}>
+                        Pro access ends immediately on cancellation.
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    disabled={!canCancel}
+                    onClick={() => setShowCancelConfirm(true)}
+                    style={{
+                      padding: "5px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600, flexShrink: 0,
+                      cursor: canCancel ? "pointer" : "not-allowed",
+                      border: "1px solid",
+                      borderColor: canCancel ? "#ef4444" : "var(--color-border)",
+                      background: "transparent",
+                      color: canCancel ? "#ef4444" : "var(--color-text-tertiary)",
+                      opacity: canCancel ? 1 : 0.6,
+                    }}
+                  >
+                    Cancel plan
+                  </button>
+                </div>
+              </>
+            );
+          })()}
+        </section>
+      )}
+
+      {/* Cancel confirmation modal */}
+      {showCancelConfirm && (
+        <div
+          className="modal-overlay"
+          onClick={() => setShowCancelConfirm(false)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}
+        >
+          <div
+            className="modal"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: 360, width: "90%", padding: 24, borderRadius: 12, background: "var(--color-surface)", boxShadow: "0 8px 32px rgba(0,0,0,0.2)" }}
+          >
+            <h2 style={{ marginBottom: 8, fontSize: 17 }}>Cancel Pro subscription?</h2>
+            <p style={{ fontSize: 13, color: "var(--color-text-secondary)", lineHeight: 1.5, marginBottom: 20 }}>
+              Your Pro access will end immediately. You will revert to the Free plan and lose access to Pro features including professional profiles, unlimited imports, and multi-account sync.
+            </p>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button className="btn-ghost" onClick={() => setShowCancelConfirm(false)} style={{ fontSize: 13 }}>
+                Keep Pro
+              </button>
+              <button
+                onClick={handleCancelSubscription}
+                style={{
+                  padding: "6px 16px", borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: "pointer",
+                  border: "none", background: "#ef4444", color: "#fff",
+                }}
+              >
+                Cancel subscription
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* API Keys */}
       <section className="settings-section">
