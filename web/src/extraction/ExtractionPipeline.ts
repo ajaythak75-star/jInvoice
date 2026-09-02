@@ -129,7 +129,26 @@ export async function processFile(
   // Skip Gemini — try local extraction first; if confident, save immediately.
   // Otherwise save with pending_extraction status for later AI processing in View screen.
   if (options?.skipGemini) {
-    if (classification === "encrypted") return { kind: "encryptedPdf" };
+    if (classification === "encrypted") {
+      // Insert a visible record so the user can see it in the View screen
+      const now = new Date().toISOString();
+      await insertInvoiceWithItems(
+        {
+          merchantName: null, merchantAddress: null, merchantGstin: null,
+          merchantPincode: null, invoiceNumber: null, invoiceDate: null,
+          subtotalPaise: null, grandTotalPaise: null, discountPaise: 0,
+          taxPaise: null, paymentMode: null,
+          importSource, pdfSourceType: "NATIVE_PDF", importRecordId: null,
+          status: "import_blocked_encrypted", docType: "other", docTypes: ["other"],
+          sourceFilename: file.name,
+          extractionNote: "PDF is password-protected",
+          subject: meta?.subject, senderEmail: meta?.senderEmail, receivedAt: meta?.receivedAt, accountEmail: meta?.accountEmail,
+          createdAt: now, updatedAt: now,
+        },
+        [],
+      );
+      return { kind: "encryptedPdf" };
+    }
 
     // Filename duplicate — same file was already saved; mark visible as duplicate
     if (file.name && (filenameKnown || await isDuplicateByFilename(file.name))) {
@@ -474,6 +493,20 @@ export async function extractInvoiceWithAI(invoiceId: number): Promise<Extracted
     let enhanced: ExtractedInvoice | null = null;
     try {
       const file = new File([pdfRec.bytes.buffer as ArrayBuffer], pdfRec.filename, { type: "application/pdf" });
+
+      // Password-protected PDFs cannot be rendered or sent to Gemini
+      const pdfClassification = await classifyPdf(file);
+      if (pdfClassification === "encrypted") {
+        console.log("[extractInvoiceWithAI] PDF is password-protected — skipping Gemini");
+        await db.invoices.update(invoiceId, {
+          status: "import_blocked_encrypted",
+          extractionNote: "PDF is password-protected",
+          updatedAt: new Date().toISOString(),
+        });
+        await db.pdfFiles.where("invoiceId").equals(invoiceId).delete();
+        return null;
+      }
+
       const pages = await renderPdfToImages(file);
       if (pages.length > 0) {
         // Blur check before sending to Gemini

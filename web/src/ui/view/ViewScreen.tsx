@@ -240,6 +240,8 @@ function matchesQuery(rec: InvoiceMeta, q: string): boolean {
     rec.clientTags?.some((t) => t.toLowerCase().includes(lq)) ||
     rec.projectTag?.toLowerCase().includes(lq) ||
     rec.importSource.toLowerCase().includes(lq) ||
+    rec.status.toLowerCase().includes(lq) ||
+    statusText(rec.status).toLowerCase().includes(lq) ||
     false
   );
 }
@@ -1216,17 +1218,17 @@ export function ViewScreen() {
               const selectedPending = records.filter(
                 (r) => r.id != null && selected.has(r.id) && r.status === "pending_extraction"
               );
-              if (!bulkState.running && selectedPending.length === 0) return null;
+              const hasWork = bulkState.running || selectedPending.length > 0;
               return (
                 <button
                   className="btn-sm"
-                  disabled={bulkState.running}
-                  style={{ background: "#8b5cf6", color: "#fff", border: "none", fontWeight: 700 }}
+                  disabled={bulkState.running || selectedPending.length === 0}
+                  style={{ background: "#8b5cf6", color: "#fff", border: "none", fontWeight: 700, opacity: hasWork ? 1 : 0.5 }}
                   onClick={handleBulkExtract}
                 >
                   {bulkState.running
                     ? `Extracting ${bulkState.done}/${bulkState.total}…`
-                    : `Extract AI (${selectedPending.length})`}
+                    : selectedPending.length > 0 ? `Extract AI (${selectedPending.length})` : "Extract AI"}
                 </button>
               );
             })()}
@@ -1518,14 +1520,23 @@ export function ViewScreen() {
               </button>
             );
           })()}
-          <button
-            className="btn-sync-primary"
-            onClick={handleUpload}
-            disabled={preparing}
-            style={{ fontSize: 13, padding: "6px 14px", whiteSpace: "nowrap", width: "auto" }}
-          >
-            {preparing ? "…" : "Upload"}
-          </button>
+          {(() => {
+            const hasSelectedInvoices = records.some(
+              (r) => r.id != null && selected.has(r.id) &&
+              ((r.docTypes ?? (r.docType ? [r.docType] : [])).some((t) => t === "invoice") || r.docType === "invoice")
+            );
+            if (!hasSelectedInvoices) return null;
+            return (
+              <button
+                className="btn-sync-primary"
+                onClick={handleUpload}
+                disabled={preparing}
+                style={{ fontSize: 13, padding: "6px 14px", whiteSpace: "nowrap", width: "auto" }}
+              >
+                {preparing ? "…" : "Upload to Cloud"}
+              </button>
+            );
+          })()}
         </div>
       )}
 
@@ -1874,6 +1885,31 @@ export function ViewScreen() {
                           }}
                         >
                           {syncingId === r.id ? "Syncing…" : "☁ Save to Cloud"}
+                        </button>
+                      );
+                    })()}
+                    {!isPreviewMode && (() => {
+                      const isInv = (r.docTypes ?? (r.docType ? [r.docType] : [])).some((t) => t === "invoice") || r.docType === "invoice";
+                      if (!isInv) return null;
+                      return (
+                        <button
+                          style={{
+                            padding: "5px 12px", borderRadius: 6,
+                            border: "1px solid var(--color-border)",
+                            background: "var(--color-surface-2)", color: "var(--color-text-secondary)",
+                            fontSize: 12, fontWeight: 600, cursor: "pointer",
+                          }}
+                          onClick={() => {
+                            setUploadEntries([{
+                              rec: r,
+                              items: detailItems,
+                              pincode: extractPincode(r.merchantAddress),
+                              discountPct: discountPercent(r.discountPaise, r.grandTotalPaise),
+                              claude: null,
+                            }]);
+                          }}
+                        >
+                          Upload to Cloud
                         </button>
                       );
                     })()}

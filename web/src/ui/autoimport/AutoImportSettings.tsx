@@ -509,7 +509,7 @@ export function AutoImportSettings() {
   };
 
   const handleSyncNow = async () => {
-    if (fsSupported && !prefs.desktopFolderName) { setFolderWarning("sync"); return; }
+    if (!prefs.desktopFolderName) { setFolderWarning("sync"); return; }
     if (fsSupported) await desktopConnector.restoreFolder();
     poll().catch(() => {});
   };
@@ -654,7 +654,7 @@ export function AutoImportSettings() {
             <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
               <button className="btn-sync"
                 onClick={() => {
-                  if (fsSupported && !prefs.desktopFolderName) { setFolderWarning("upload"); return; }
+                  if (!prefs.desktopFolderName) { setFolderWarning("upload"); return; }
                   fileInputRef.current?.click();
                 }}
                 disabled={fileQueue.some(e => e.status !== "done")}
