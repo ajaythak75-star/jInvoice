@@ -11,7 +11,7 @@ import { syncNewInvoice } from "../../service/SupabaseSync";
 import { isSupabaseEnabled } from "../../data/supabase";
 import type { ExtractionResult, ExtractedInvoice } from "../../core/extraction/models";
 import { prefs } from "../../data/AutoImportPreferences";
-import { isFsAccessSupported } from "../../autoimport/DesktopFolderConnector";
+
 
 function fmt(paise: number | null | undefined): string {
   if (paise == null) return "—";
@@ -221,7 +221,6 @@ export function AutoImportSettings() {
   const [syncResult, setSyncResult] = useState<string | null>(null);
   const [fileQueue, setFileQueue]   = useState<FileEntry[]>([]);
   const [dragging, setDragging]     = useState(false);
-  const [fsSupported, setFsSupported] = useState(false);
   const [syncMonths,   setSyncMonths]   = useState(() => prefs.syncMonths);
   const [syncSchedule, setSyncSchedule] = useState(() => prefs.syncSchedule);
   const [syncTime,     setSyncTime]     = useState(() => prefs.syncTime);
@@ -329,7 +328,6 @@ export function AutoImportSettings() {
     setShowProModal(false);
   };
 
-  useEffect(() => { isFsAccessSupported().then(setFsSupported); }, []);
 
   useEffect(() => {
     if (!isImapAvailable()) return;
@@ -510,13 +508,13 @@ export function AutoImportSettings() {
 
   const handleSyncNow = async () => {
     if (!prefs.desktopFolderName) { setFolderWarning("sync"); return; }
-    if (fsSupported) await desktopConnector.restoreFolder();
+    if ("showDirectoryPicker" in window) await desktopConnector.restoreFolder();
     poll().catch(() => {});
   };
 
   const doSyncNow = async () => {
     setFolderWarning(null);
-    if (fsSupported) await desktopConnector.restoreFolder();
+    if ("showDirectoryPicker" in window) await desktopConnector.restoreFolder();
     poll().catch(() => {});
   };
 

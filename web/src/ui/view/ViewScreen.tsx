@@ -1718,19 +1718,14 @@ export function ViewScreen() {
                           setAiExtracting(true);
                           try {
                             const inv = await extractInvoiceWithAI(r.id);
-                            if (inv) {
-                              load();
-                              const updated = await db.invoices.get(r.id);
-                              if (updated) {
-                                setDetailRec(updated);
-                                if (updated.status === "duplicate") {
-                                  alert("This invoice is a duplicate of one already imported (same merchant, amount, and date). Marked as Duplicate.");
-                                }
-                              }
-                              const items = await db.lineItems.where("invoiceId").equals(r.id).toArray();
-                              setDetailItems(items);
-                            } else {
-                              alert("No text available for this file. Use the '+PDF' button to upload and extract it.");
+                            // Always reload the record so the card reflects any status change
+                            load();
+                            const updated = await db.invoices.get(r.id);
+                            if (updated) setDetailRec(updated);
+                            const items = await db.lineItems.where("invoiceId").equals(r.id).toArray();
+                            setDetailItems(items);
+                            if (inv && updated?.status === "duplicate") {
+                              alert("This invoice is a duplicate of one already imported (same merchant, amount, and date). Marked as Duplicate.");
                             }
                           } finally {
                             setAiExtracting(false);

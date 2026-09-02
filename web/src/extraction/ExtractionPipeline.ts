@@ -536,9 +536,23 @@ export async function extractInvoiceWithAI(invoiceId: number): Promise<Extracted
   }
 
   // ── Step 3: Gemini text fallback ──────────────────────────────────────────
-  if (!rawRec?.rawText) return null;
+  if (!rawRec?.rawText) {
+    await db.invoices.update(invoiceId, {
+      status: "extraction_failed",
+      extractionNote: "No PDF data stored — re-upload the original file to extract",
+      updatedAt: new Date().toISOString(),
+    });
+    return null;
+  }
   const enhanced = await enhanceWithClaude({ ...blank, rawText: rawRec.rawText });
-  if (!enhanced || (enhanced.grandTotalPaise == null && enhanced.merchantName == null)) return null;
+  if (!enhanced || (enhanced.grandTotalPaise == null && enhanced.merchantName == null)) {
+    await db.invoices.update(invoiceId, {
+      status: "extraction_failed",
+      extractionNote: "AI could not read the document — try re-uploading a clearer scan",
+      updatedAt: new Date().toISOString(),
+    });
+    return null;
+  }
   return finalizeExtractedInvoice(invoiceId, enhanced);
 }
 
