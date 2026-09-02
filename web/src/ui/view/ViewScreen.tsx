@@ -676,9 +676,23 @@ const VC_TYPE_LABEL: Record<string, string> = {
 };
 const VC_ALL_TYPES = Object.keys(VC_TYPE_LABEL) as SentinelRecord["type"][];
 
-function ViewCardAddAlertModal({ merchantName, onClose }: { merchantName: string | null; onClose: () => void }) {
+const VC_CATEGORY_TO_TYPE: Record<string, SentinelRecord["type"]> = {
+  mobile_smartphone: "warranty",
+  electronics:       "warranty",
+  home_appliance:    "warranty",
+  eyeglasses_vision: "prescription",
+  vehicle:           "service_interval",
+  insurance:         "insurance",
+  other:             "warranty",
+};
+
+function defaultTypeForCategory(category: string | undefined | null): SentinelRecord["type"] {
+  return (category && VC_CATEGORY_TO_TYPE[category]) ? VC_CATEGORY_TO_TYPE[category] : "warranty";
+}
+
+function ViewCardAddAlertModal({ merchantName, category, onClose }: { merchantName: string | null; category?: string | null; onClose: () => void }) {
   const [label, setLabel]   = useState(merchantName ?? "");
-  const [type, setType]     = useState<SentinelRecord["type"]>("warranty");
+  const [type, setType]     = useState<SentinelRecord["type"]>(defaultTypeForCategory(category));
   const [expiry, setExpiry] = useState("");
   const [saving, setSaving] = useState(false);
   const [err, setErr]       = useState<string | null>(null);
@@ -2239,6 +2253,7 @@ export function ViewScreen() {
             {showAddAlertModal && (
               <ViewCardAddAlertModal
                 merchantName={r.merchantName}
+                category={r.category}
                 onClose={() => setShowAddAlertModal(false)}
               />
             )}
