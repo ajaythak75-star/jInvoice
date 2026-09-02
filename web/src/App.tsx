@@ -123,7 +123,8 @@ export function App() {
 
   return (
     <MainLayout active={tab} onNav={setTab} alertCount={alertCount}>
-      {tab === "import"   && <AutoImportSettings />}
+      {/* Keep AutoImportSettings mounted so in-progress uploads survive tab switches */}
+      <div style={{ display: tab === "import" ? "contents" : "none" }}><AutoImportSettings /></div>
       {tab === "view"     && <ViewScreen />}
       {tab === "buy"      && <BuyScreen />}
       {tab === "gst"      && <ReportScreen />}
