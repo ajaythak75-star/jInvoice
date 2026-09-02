@@ -74,6 +74,22 @@ export async function updateSentinelExpiry(id: number, expiresAt: string): Promi
   await db.sentinelRecords.update(id, { expiresAt });
 }
 
+/** Create a fully manual alert with any type, not linked to any invoice (invoiceId = 0). */
+export async function addManualAlert(
+  label: string,
+  type: SentinelRecord["type"],
+  expiresAt: string,
+): Promise<void> {
+  await db.sentinelRecords.add({
+    invoiceId: 0,
+    type,
+    label,
+    expiresAt,
+    status: "active",
+    createdAt: new Date().toISOString(),
+  });
+}
+
 /** Create a warranty sentinel manually when none was auto-detected. */
 export async function addManualSentinel(
   invoiceId: number,
