@@ -351,7 +351,11 @@
 
   /* Upload action bar should respect bottom nav */
   .upload-action-bar {
-    left: 0;
+    left: 14px;
+    right: 14px;
+    width: auto;
+    max-width: none;
+    padding: 10px 0;
     bottom: 64px;
   }
 }
@@ -694,12 +698,14 @@
 .upload-action-bar {
   position: fixed;
   bottom: 0;
-  left: var(--sidebar-w);
-  right: 0;
+  left: calc(var(--sidebar-w) + 28px);
+  right: auto;
+  width: 660px;
+  max-width: calc(100vw - var(--sidebar-w) - 28px);
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 20px;
+  padding: 10px 0;
   background: var(--color-surface);
   border-top: 1px solid var(--color-border);
   box-shadow: 0 -2px 8px rgba(0,0,0,0.07);
