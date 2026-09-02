@@ -398,7 +398,7 @@ async function persistResultWithNote(
 
     const status = result.kind === "success" ? "imported" : "pending_review";
     const lineItemNames = inv.lineItems.map((li) => li.name);
-    const category = prefs.userType === "society"
+    const category = prefs.activeMode === "society"
       ? detectSocietyCategory(inv.merchantName, lineItemNames)
       : detectCategory(inv.merchantName, lineItemNames);
     const docTypes = detectDocType(inv.merchantName, lineItemNames, sourceFilename, meta?.subject);
@@ -582,7 +582,7 @@ async function finalizeExtractedInvoice(
 
   const now = new Date().toISOString();
   const lineItemNames = enhanced.lineItems.map((li) => li.name);
-  const category = prefs.userType === "society"
+  const category = prefs.activeMode === "society"
     ? detectSocietyCategory(enhanced.merchantName, lineItemNames)
     : detectCategory(enhanced.merchantName, lineItemNames);
   const docTypes = detectDocType(enhanced.merchantName, lineItemNames, undefined, undefined);

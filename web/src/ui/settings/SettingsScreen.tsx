@@ -29,7 +29,9 @@ export function SettingsScreen({ onSignOut }: Props) {
   const vm = useAutoImportViewModel();
 
   const [userType, setUserType] = useState<"personal" | "society">(() => prefs.userType);
+  const [activeMode, setActiveMode] = useState<"personal" | "society">(() => prefs.activeMode);
   const [societyName, setSocietyName] = useState(() => prefs.societyName);
+  const [showSocietyConfirm, setShowSocietyConfirm] = useState(false);
 
   const [showProModal, setShowProModal]   = useState(false);
   const [proName,     setProName]     = useState(() => prefs.customerName);
@@ -150,47 +152,143 @@ export function SettingsScreen({ onSignOut }: Props) {
 
       {/* Profile Type */}
       <section className="settings-section">
-        <div className="settings-section-title">Profile</div>
+        <div className="settings-section-title">
+          Profile
+          {userType === "society" && (
+            <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 600, color: "var(--color-primary)", background: "color-mix(in srgb, var(--color-primary) 12%, transparent)", padding: "2px 7px", borderRadius: 10 }}>
+              Pro
+            </span>
+          )}
+        </div>
+
+        {/* Locked type display */}
         <div className="settings-row">
           <div>
             <span className="settings-row-label">Account type</span>
             <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 2 }}>
-              Switch to Housing Society to get society-specific expense categories on every invoice.
+              {userType === "society"
+                ? "Housing Society — society-specific categories enabled. Type cannot be changed."
+                : "Personal — your invoices, warranties and expense tracking."}
             </p>
           </div>
-          <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-            {(["personal", "society"] as const).map((type) => (
-              <button
-                key={type}
-                onClick={() => { prefs.userType = type; setUserType(type); }}
-                style={{
-                  padding: "5px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer",
-                  border: "1px solid var(--color-border)",
-                  background: userType === type ? "var(--color-primary)" : "var(--color-surface)",
-                  color: userType === type ? "#fff" : "var(--color-text-secondary)",
-                }}
-              >
-                {type === "personal" ? "Personal" : "Housing Society"}
-              </button>
-            ))}
-          </div>
+          <span style={{
+            padding: "4px 12px", borderRadius: 6, fontSize: 12, fontWeight: 600,
+            border: "1px solid var(--color-border)",
+            background: "var(--color-surface-2)", color: "var(--color-text)",
+            flexShrink: 0,
+          }}>
+            {userType === "society" ? "Housing Society" : "Personal"}
+          </span>
         </div>
+
+        {/* Society name (society users only) */}
         {userType === "society" && (
           <div className="settings-field" style={{ marginTop: 10 }}>
             <label className="settings-field-label">Society Name</label>
-            <div style={{ display: "flex", gap: 8 }}>
-              <input
-                className="settings-input"
-                style={{ flex: 1 }}
-                placeholder="e.g. Sunshine CHS"
-                value={societyName}
-                onChange={(e) => setSocietyName(e.target.value)}
-                onBlur={() => { prefs.societyName = societyName.trim(); }}
-              />
+            <input
+              className="settings-input"
+              style={{ width: "100%" }}
+              placeholder="e.g. Sunshine CHS"
+              value={societyName}
+              onChange={(e) => setSocietyName(e.target.value)}
+              onBlur={() => { prefs.societyName = societyName.trim(); }}
+            />
+          </div>
+        )}
+
+        {/* Mode switcher — society users can toggle active context */}
+        {userType === "society" && (
+          <div className="settings-row" style={{ marginTop: 12 }}>
+            <div>
+              <span className="settings-row-label">Active mode</span>
+              <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 2 }}>
+                Switch between personal and society context. Categories and detection follow the active mode.
+              </p>
+            </div>
+            <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+              {(["personal", "society"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  onClick={() => { prefs.activeMode = mode; setActiveMode(mode); }}
+                  style={{
+                    padding: "5px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                    border: "1px solid var(--color-border)",
+                    background: activeMode === mode ? "var(--color-primary)" : "var(--color-surface)",
+                    color: activeMode === mode ? "#fff" : "var(--color-text-secondary)",
+                  }}
+                >
+                  {mode === "personal" ? "Personal" : "Society"}
+                </button>
+              ))}
             </div>
           </div>
         )}
+
+        {/* Upgrade to Housing Society (personal Pro users only) */}
+        {userType === "personal" && (
+          <div className="settings-row" style={{ marginTop: 12 }}>
+            <div>
+              <span className="settings-row-label">Housing Society</span>
+              <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 2 }}>
+                {prefs.isProActive
+                  ? "Set up a Housing Society profile to enable society-specific document categories."
+                  : "Available on Pro. Upgrade to unlock Housing Society profile."}
+              </p>
+            </div>
+            <button
+              disabled={!prefs.isProActive}
+              onClick={() => setShowSocietyConfirm(true)}
+              style={{
+                padding: "5px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600,
+                cursor: prefs.isProActive ? "pointer" : "not-allowed",
+                border: "1px solid var(--color-border)",
+                background: prefs.isProActive ? "var(--color-surface)" : "var(--color-surface-2)",
+                color: prefs.isProActive ? "var(--color-text)" : "var(--color-text-secondary)",
+                flexShrink: 0,
+                opacity: prefs.isProActive ? 1 : 0.6,
+              }}
+            >
+              {prefs.isProActive ? "Set up" : "Pro only"}
+            </button>
+          </div>
+        )}
       </section>
+
+      {/* Society setup confirmation modal */}
+      {showSocietyConfirm && (
+        <div className="modal-overlay" onClick={() => setShowSocietyConfirm(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 360, padding: 24 }}>
+            <h2 style={{ fontSize: 17, marginBottom: 8 }}>Set up Housing Society profile?</h2>
+            <p style={{ fontSize: 13, color: "var(--color-text-secondary)", lineHeight: 1.5, marginBottom: 20 }}>
+              This will switch your profile type to <strong>Housing Society</strong> and enable society-specific expense categories.
+              <br /><br />
+              <strong>This cannot be changed later.</strong>
+            </p>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button
+                className="btn-ghost"
+                onClick={() => setShowSocietyConfirm(false)}
+                style={{ fontSize: 13 }}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn-sm"
+                onClick={() => {
+                  prefs.userType = "society";
+                  prefs.activeMode = "society";
+                  setUserType("society");
+                  setActiveMode("society");
+                  setShowSocietyConfirm(false);
+                }}
+                style={{ fontSize: 13 }}
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <section className="settings-section">
         <div className="settings-section-title">Desktop Folder</div>

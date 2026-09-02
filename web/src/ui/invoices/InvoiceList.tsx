@@ -67,7 +67,7 @@ function FieldRow({ label, value, found }: { label: string; value: string; found
 }
 
 function ReviewPanel({ inv, lineItems, onClose }: { inv: InvoiceMeta; lineItems: LineItemRow[]; onClose: () => void }) {
-  const isSociety = prefs.userType === "society";
+  const isSociety = prefs.activeMode === "society";
   const [category, setCategory] = useState(inv.category ?? "");
   const [customCategories, setCustomCategories] = useState<string[]>(() => prefs.customSocietyCategories);
   const [addingCategory, setAddingCategory] = useState(false);
