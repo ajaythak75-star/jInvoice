@@ -2245,7 +2245,9 @@ export function ViewScreen() {
               )}
               {detailItems.length === 0 && (
                 <div style={{ padding: "12px 20px 24px", fontSize: 13, color: "var(--color-text-secondary)" }}>
-                  No line items extracted.
+                  {r.grandTotalPaise != null
+                    ? "Single-amount document — no itemised breakdown."
+                    : "No line items extracted."}
                 </div>
               )}
               </div>{/* /scrollable content */}
