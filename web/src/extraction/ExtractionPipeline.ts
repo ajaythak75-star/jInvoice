@@ -126,7 +126,7 @@ export async function processFile(
   file: File,
   importSource: string,
   meta?: { subject?: string; senderEmail?: string; receivedAt?: string; accountEmail?: string | null },
-  options?: { skipGemini?: boolean },
+  options?: { skipGemini?: boolean; skipAll?: boolean },
 ): Promise<ExtractionResult> {
   if (prefs.isDailyLimitReached) {
     return { kind: "dailyLimitReached", limit: prefs.FREE_DAILY_LIMIT };
@@ -146,7 +146,7 @@ export async function processFile(
 
   // Skip Gemini — try local extraction first; if confident, save immediately.
   // Otherwise save with pending_extraction status for later AI processing in View screen.
-  if (options?.skipGemini) {
+  if (options?.skipGemini || options?.skipAll) {
     if (classification === "encrypted") {
       // Insert a visible record so the user can see it in the View screen
       const now = new Date().toISOString();
@@ -205,8 +205,12 @@ export async function processFile(
       const tr = await extractNativePdf(file);
       if ((tr.kind === "success" || tr.kind === "lowConfidence") && tr.invoice.rawText) {
         rawText = tr.invoice.rawText;
-        const loc = extractLocalDoc(rawText, tr.invoice.sourceType);
-        if (loc.confidenceScore >= 0.65) localInv = loc;
+        // skipAll: capture rawText for the later "Extract with AI" fallback,
+        // but don't score or save locally — always go to pending_extraction.
+        if (!options?.skipAll) {
+          const loc = extractLocalDoc(rawText, tr.invoice.sourceType);
+          if (loc.confidenceScore >= 0.65) localInv = loc;
+        }
       }
     } catch {}
 
