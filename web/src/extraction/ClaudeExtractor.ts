@@ -72,7 +72,7 @@ function parseOpenAIResponse(data: unknown): ClaudeInvoiceData {
 
 async function openaiPost(body: Record<string, unknown>): Promise<unknown> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  const userKey = prefs.geminiApiKey.trim(); // reuses the "bring your own key" field
+  const userKey = prefs.openaiApiKey.trim();
   if (userKey) headers["x-openai-key"] = userKey;
 
   const resp = await fetch("/api/openai", {

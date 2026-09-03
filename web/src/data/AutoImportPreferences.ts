@@ -193,6 +193,10 @@ export const prefs = {
   get geminiApiKey(): string { return get("gemini_api_key") ?? ""; },
   set geminiApiKey(v: string) { v ? set("gemini_api_key", v) : remove("gemini_api_key"); },
 
+  // User-configurable OpenAI API key (overrides server OPENAI_API_KEY env var)
+  get openaiApiKey(): string { return get("openai_api_key") ?? ""; },
+  set openaiApiKey(v: string) { v ? set("openai_api_key", v) : remove("openai_api_key"); },
+
   // jInvoice secret key — used for mobile sync authentication and API access
   get jInvoiceSecret(): string { return get("jinvoice_secret") ?? ""; },
   set jInvoiceSecret(v: string) { v ? set("jinvoice_secret", v) : remove("jinvoice_secret"); },
