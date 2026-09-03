@@ -167,7 +167,7 @@ app.post("/api/stripe-checkout", async (req, res) => {
   } catch (e) { res.status(500).json({ error: String(e) }); }
 });
 
-app.use(express.json({ limit: "1mb" }));
+app.use(express.json({ limit: "20mb" }));
 
 // CORS for desktop app (http://localhost:7823) calling cross-origin Render endpoints
 app.use((req, res, next) => {
