@@ -514,7 +514,6 @@ export function SettingsScreen({ onSignOut }: Props) {
           <label className="settings-field-label">Gemini API Key</label>
           <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginBottom: 6 }}>
             Use your own Gemini API key instead of the shared server key.
-            {isProActive && <> <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" style={{ color: "var(--color-primary)", textDecoration: "none" }}>Get key →</a></>}
           </p>
           {isProActive && (
             <div style={{ display: "flex", gap: 8 }}>
@@ -553,7 +552,6 @@ export function SettingsScreen({ onSignOut }: Props) {
           <label className="settings-field-label">OpenAI API Key</label>
           <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginBottom: 6 }}>
             Use your own OpenAI API key for GPT-4o-mini invoice extraction.
-            {isProActive && <> <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" style={{ color: "var(--color-primary)", textDecoration: "none" }}>Get key →</a></>}
           </p>
           {isProActive && (
             <div style={{ display: "flex", gap: 8 }}>

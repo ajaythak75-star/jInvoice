@@ -127,10 +127,8 @@ function InvoiceResultModal({ inv, filename, onClose }: { inv: ExtractedInvoice;
 }
 
 const SYNC_OPTIONS: { months: number; label: string; pro: boolean }[] = [
-  { months: 1,  label: "1 month",  pro: false },
-  { months: 3,  label: "3 months", pro: false },
-  { months: 6,  label: "6 months", pro: true  },
-  { months: 12, label: "1 year",   pro: true  },
+  { months: 1, label: "1 month",  pro: false },
+  { months: 3, label: "3 months", pro: true  },
 ];
 
 function FolderPicker({

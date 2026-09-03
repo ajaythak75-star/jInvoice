@@ -32,6 +32,7 @@ export interface InvoiceMeta {
   senderEmail?: string;
   receivedAt?: string;
   accountEmail?: string | null;
+  docMetadata?: Record<string, string> | null;
   createdAt: string;
   updatedAt: string;
 }

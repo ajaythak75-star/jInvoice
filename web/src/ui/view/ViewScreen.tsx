@@ -17,6 +17,7 @@ import { getWarrantySentinel, computeSentinelForInvoice, addManualAlert } from "
 import { WarrantyPromptModal, type WarrantyPromptItem } from "../sentinel/WarrantyPromptModal";
 import { SOCIETY_CATEGORY_LABEL, type SocietyExpenseCategory } from "../../core/extraction/SocietyExpenseDetector";
 import { getProfessionalCategoryLabel, type ProfessionalProfile } from "../../core/extraction/ProfessionalCategoryDetector";
+import { UniversalDocView } from "./UniversalDocView";
 
 function formatDate(iso: string | null | undefined): string {
   if (!iso) return "—";
@@ -2155,114 +2156,121 @@ export function ViewScreen() {
                 </div>
               )}
 
-              {/* Merchant card */}
-              <div style={{ margin: "16px 20px 4px", background: "var(--color-surface-2)", border: "1px solid var(--color-border)", borderRadius: 10, padding: "14px 16px", display: "flex", alignItems: "center", gap: 14 }}>
-                <div style={{ width: 42, height: 42, borderRadius: 10, background: "var(--color-primary)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, fontWeight: 700, flexShrink: 0 }}>
-                  {initial}
-                </div>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: "var(--color-text)", marginBottom: 2 }}>{merchant.toUpperCase()}</div>
-                  {r.merchantAddress && (
-                    <div style={{ fontSize: 12, color: "var(--color-text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {r.merchantAddress}
+              {/* Detail body: Universal format for Pro, existing format for Free */}
+              {prefs.isProActive && !isPreviewMode ? (
+                <UniversalDocView rec={r} items={detailItems} category={detailCategory} activeMode={prefs.activeMode} />
+              ) : (
+                <>
+                  {/* Merchant card */}
+                  <div style={{ margin: "16px 20px 4px", background: "var(--color-surface-2)", border: "1px solid var(--color-border)", borderRadius: 10, padding: "14px 16px", display: "flex", alignItems: "center", gap: 14 }}>
+                    <div style={{ width: 42, height: 42, borderRadius: 10, background: "var(--color-primary)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, fontWeight: 700, flexShrink: 0 }}>
+                      {initial}
+                    </div>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: "var(--color-text)", marginBottom: 2 }}>{merchant.toUpperCase()}</div>
+                      {r.merchantAddress && (
+                        <div style={{ fontSize: 12, color: "var(--color-text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {r.merchantAddress}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Extracted fields */}
+                  <div style={{ padding: "16px 20px 0" }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>
+                      Extracted Fields
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                      {fields.map(({ label, value, badgeInfo }) => (
+                        <div key={label} style={{ background: "var(--color-surface-2)", border: "1px solid var(--color-border)", borderRadius: 8, padding: "10px 12px" }}>
+                          <div style={{ fontSize: 10, fontWeight: 600, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 5 }}>
+                            {label}
+                          </div>
+                          <div style={{ fontSize: 14, fontWeight: 600, color: value ? "var(--color-text)" : "var(--color-text-tertiary)", marginBottom: 6, wordBreak: "break-all" }}>
+                            {value ?? "null"}
+                          </div>
+                          {badgeChip(badgeInfo.badge, badgeInfo.note)}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Category */}
+                  {!isPreviewMode && prefs.activeMode !== "personal" && (() => {
+                    const mode = prefs.activeMode;
+                    const label = detailCategory
+                      ? mode === "society"
+                        ? (SOCIETY_CATEGORY_LABEL[detailCategory as SocietyExpenseCategory] ?? detailCategory.replace(/_/g, " "))
+                        : getProfessionalCategoryLabel(mode as ProfessionalProfile, detailCategory)
+                      : null;
+                    return (
+                      <div style={{ padding: "12px 20px 0" }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>
+                          Category
+                        </div>
+                        {label ? (
+                          <span style={{ display: "inline-block", fontSize: 13, fontWeight: 600, padding: "4px 10px", borderRadius: 6, background: "var(--color-accent-light, rgba(99,102,241,0.12))", color: "var(--color-accent, #6366f1)" }}>
+                            {label}
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: 13, color: "var(--color-text-tertiary)" }}>Not detected</span>
+                        )}
+                      </div>
+                    );
+                  })()}
+
+                  {/* Line items */}
+                  {detailItems.length > 0 && (
+                    <div style={{ padding: "16px 20px 24px" }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>
+                        Line Items ({detailItems.length} extracted)
+                      </div>
+                      <div style={{ overflowX: "auto" }}>
+                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                          <thead>
+                            <tr style={{ borderBottom: "1px solid var(--color-border)" }}>
+                              {["#", "Item Name", "Qty", "Amount (₹)"].map((h) => (
+                                <th key={h} style={{ padding: "6px 8px", textAlign: h === "Amount (₹)" ? "right" : "left", fontSize: 10, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                                  {h}
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {detailItems.map((it, i) => {
+                              const nameUnclear = it.name.trim().length < 3;
+                              return (
+                                <tr key={it.id ?? i} style={{ borderBottom: "1px solid var(--color-border)" }}>
+                                  <td style={{ padding: "8px 8px", color: "var(--color-text-secondary)", fontVariantNumeric: "tabular-nums" }}>{i + 1}</td>
+                                  <td style={{ padding: "8px 8px" }}>
+                                    <span style={{ color: "var(--color-text)" }}>{it.name}</span>
+                                    {nameUnclear && (
+                                      <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: "#92400e", background: "#fef3c7", border: "1px solid #fde68a", borderRadius: 4, padding: "1px 5px" }}>
+                                        NAME UNCLEAR
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td style={{ padding: "8px 8px", color: "var(--color-text-secondary)", fontVariantNumeric: "tabular-nums" }}>{it.quantity}</td>
+                                  <td style={{ padding: "8px 8px", textAlign: "right", fontVariantNumeric: "tabular-nums", color: "var(--color-text)", fontWeight: 600 }}>
+                                    {(it.totalPricePaise / 100).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
                   )}
-                </div>
-              </div>
-
-              {/* Extracted fields */}
-              <div style={{ padding: "16px 20px 0" }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>
-                  Extracted Fields
-                </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                  {fields.map(({ label, value, badgeInfo }) => (
-                    <div key={label} style={{ background: "var(--color-surface-2)", border: "1px solid var(--color-border)", borderRadius: 8, padding: "10px 12px" }}>
-                      <div style={{ fontSize: 10, fontWeight: 600, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 5 }}>
-                        {label}
-                      </div>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: value ? "var(--color-text)" : "var(--color-text-tertiary)", marginBottom: 6, wordBreak: "break-all" }}>
-                        {value ?? "null"}
-                      </div>
-                      {badgeChip(badgeInfo.badge, badgeInfo.note)}
+                  {detailItems.length === 0 && (
+                    <div style={{ padding: "12px 20px 24px", fontSize: 13, color: "var(--color-text-secondary)" }}>
+                      {r.grandTotalPaise != null
+                        ? "Single-amount document — no itemised breakdown."
+                        : "No line items extracted."}
                     </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Category — auto-detected at import for all non-personal profiles */}
-              {!isPreviewMode && prefs.activeMode !== "personal" && (() => {
-                const mode = prefs.activeMode;
-                const label = detailCategory
-                  ? mode === "society"
-                    ? (SOCIETY_CATEGORY_LABEL[detailCategory as SocietyExpenseCategory] ?? detailCategory.replace(/_/g, " "))
-                    : getProfessionalCategoryLabel(mode as ProfessionalProfile, detailCategory)
-                  : null;
-                return (
-                  <div style={{ padding: "12px 20px 0" }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>
-                      Category
-                    </div>
-                    {label ? (
-                      <span style={{ display: "inline-block", fontSize: 13, fontWeight: 600, padding: "4px 10px", borderRadius: 6, background: "var(--color-accent-light, rgba(99,102,241,0.12))", color: "var(--color-accent, #6366f1)" }}>
-                        {label}
-                      </span>
-                    ) : (
-                      <span style={{ fontSize: 13, color: "var(--color-text-tertiary)" }}>Not detected</span>
-                    )}
-                  </div>
-                );
-              })()}
-
-              {/* Line items */}
-              {detailItems.length > 0 && (
-                <div style={{ padding: "16px 20px 24px" }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>
-                    Line Items ({detailItems.length} extracted)
-                  </div>
-                  <div style={{ overflowX: "auto" }}>
-                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                      <thead>
-                        <tr style={{ borderBottom: "1px solid var(--color-border)" }}>
-                          {["#", "Item Name", "Qty", "Amount (₹)"].map((h) => (
-                            <th key={h} style={{ padding: "6px 8px", textAlign: h === "Amount (₹)" ? "right" : "left", fontSize: 10, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                              {h}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {detailItems.map((it, i) => {
-                          const nameUnclear = it.name.trim().length < 3;
-                          return (
-                            <tr key={it.id ?? i} style={{ borderBottom: "1px solid var(--color-border)" }}>
-                              <td style={{ padding: "8px 8px", color: "var(--color-text-secondary)", fontVariantNumeric: "tabular-nums" }}>{i + 1}</td>
-                              <td style={{ padding: "8px 8px" }}>
-                                <span style={{ color: "var(--color-text)" }}>{it.name}</span>
-                                {nameUnclear && (
-                                  <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: "#92400e", background: "#fef3c7", border: "1px solid #fde68a", borderRadius: 4, padding: "1px 5px" }}>
-                                    NAME UNCLEAR
-                                  </span>
-                                )}
-                              </td>
-                              <td style={{ padding: "8px 8px", color: "var(--color-text-secondary)", fontVariantNumeric: "tabular-nums" }}>{it.quantity}</td>
-                              <td style={{ padding: "8px 8px", textAlign: "right", fontVariantNumeric: "tabular-nums", color: "var(--color-text)", fontWeight: 600 }}>
-                                {(it.totalPricePaise / 100).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-              {detailItems.length === 0 && (
-                <div style={{ padding: "12px 20px 24px", fontSize: 13, color: "var(--color-text-secondary)" }}>
-                  {r.grandTotalPaise != null
-                    ? "Single-amount document — no itemised breakdown."
-                    : "No line items extracted."}
-                </div>
+                  )}
+                </>
               )}
               </div>{/* /scrollable content */}
             </div>

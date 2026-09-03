@@ -258,17 +258,30 @@ app.get("/mobile", (_req, res) => {
   res.send(MOBILE_HTML);
 });
 
-// Upload: Gemini extraction → return data (not stored server-side; mobile saves to localStorage)
+// Upload: OpenAI (images) / Gemini (PDFs) extraction → return data (not stored server-side)
 app.post("/api/mobile/upload", upload.single("file"), async (req, res) => {
   const token = (req.headers.authorization ?? "").replace(/^Bearer\s+/i, "");
   const userId = await validateSupabaseJWT(token);
   if (!userId) return res.status(401).json({ error: "Unauthorized. Please sign in again." });
 
   if (!req.file) return res.status(400).json({ error: "no file attached" });
-  const apiKey = req.headers["x-gemini-key"] || process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
-  if (!apiKey) return res.status(503).json({ error: "No Gemini API key configured on server." });
+  const isImage = req.file.mimetype.startsWith("image/");
   try {
-    const data = await extractWithGemini(req.file.buffer, req.file.mimetype, apiKey);
+    let data;
+    if (isImage) {
+      const apiKey = (req.headers["x-openai-key"] ?? "").toString().trim() || OPENAI_API_KEY;
+      if (!apiKey) return res.status(503).json({ error: "No OpenAI API key configured on server." });
+      data = await extractWithOpenAI(req.file.buffer, req.file.mimetype, apiKey);
+    } else {
+      const apiKey = (req.headers["x-gemini-key"] ?? "").toString().trim() || GEMINI_API_KEY;
+      if (!apiKey) return res.status(503).json({ error: "No Gemini API key configured on server." });
+      data = await extractWithGemini(req.file.buffer, req.file.mimetype, apiKey);
+    }
+
+    // Strip item details for free users on finance/tax documents
+    const isPro = await isMobileUserPro(userId);
+    const items = (isPro || !isTaxOrFinanceDoc(data)) ? (data.items ?? []) : [];
+
     const inv = {
       id:               ++_relayId,
       user_id:          userId,
@@ -285,7 +298,7 @@ app.post("/api/mobile/upload", upload.single("file"), async (req, res) => {
       discount_inr:     data.discountInr     ?? null,
       final_payment_inr: data.finalPaymentInr ?? null,
       date_of_purchase: data.dateOfPurchase  ?? null,
-      items:            data.items           ?? null,
+      items,
       uploaded_at:      new Date().toISOString(),
       pending_sync:     false,
       synced_at:        null,
@@ -337,7 +350,7 @@ app.post("/api/mobile/ack", async (req, res) => {
 
 // ── [MOBILE] Gemini extraction ────────────────────────────────────────────────
 
-const GEMINI_MODEL = "gemini-2.5-flash";
+const GEMINI_MODEL = "gemini-3.6-flash";
 const EXTRACTION_PROMPT = `You are an invoice data extractor for Indian businesses. Extract the following fields and respond ONLY with valid JSON, no explanation or markdown.
 
 {
@@ -391,6 +404,66 @@ async function extractWithGemini(fileBuf, mimeType, apiKey) {
     raw = m ? m[0] : "{}";
   }
   try { return JSON.parse(raw); } catch { return {}; }
+}
+
+async function extractWithOpenAI(fileBuf, mimeType, apiKey) {
+  const b64 = fileBuf.toString("base64");
+  const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: [
+        { type: "image_url", image_url: { url: `data:${mimeType};base64,${b64}`, detail: "high" } },
+        { type: "text", text: EXTRACTION_PROMPT },
+      ]}],
+      max_tokens: 4096,
+    }),
+  });
+  if (!resp.ok) {
+    const err = await resp.text().catch(() => resp.statusText);
+    throw new Error(`OpenAI ${resp.status}: ${err}`);
+  }
+  const d = await resp.json();
+  let raw = (d?.choices?.[0]?.message?.content ?? "{}");
+  raw = raw.replace(/^```json?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
+  if (!raw.startsWith("{")) { const m = raw.match(/\{[\s\S]*\}/); raw = m ? m[0] : "{}"; }
+  try { return JSON.parse(raw); } catch { return {}; }
+}
+
+function isTaxOrFinanceDoc(data) {
+  const text = [data.shopName ?? "", ...(data.items ?? []).map(it => it.name ?? "")].join(" ").toLowerCase();
+  return [
+    "income tax", "tds", "form 16", "form 26as", "gstr", "itr", "challan",
+    "advance tax", "tax refund", "tax certificate",
+    "insurance premium", "insurance policy", "bank statement", "mutual fund",
+    "loan statement", "credit card statement", "salary slip", "payslip",
+  ].some(k => text.includes(k));
+}
+
+async function getMobileUserEmail(userId) {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY || !userId) return null;
+  try {
+    const r = await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${userId}`, {
+      headers: { apikey: SUPABASE_SERVICE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_KEY}` },
+    });
+    if (!r.ok) return null;
+    return (await r.json()).email ?? null;
+  } catch { return null; }
+}
+
+async function isMobileUserPro(userId) {
+  const email = await getMobileUserEmail(userId);
+  if (!email) return false;
+  const { data } = await _sbService(`/user_plans?email=eq.${encodeURIComponent(email.toLowerCase())}&limit=1`);
+  if (!data?.[0]) return false;
+  const row = data[0];
+  if (row.plan === "pro_paid" && row.status === "active") return true;
+  if (row.plan === "pro_trial") {
+    const endsAt = row.trial_ends_at ? new Date(row.trial_ends_at) : null;
+    return endsAt ? endsAt > new Date() : false;
+  }
+  return false;
 }
 
 function base(req) {
@@ -1326,12 +1399,8 @@ body.nav-visible .fab{bottom:calc(72px + env(safe-area-inset-bottom))}
   <header><h1>j<span>Invoice</span></h1><span style="font-size:13px;font-weight:600;color:var(--text2)">Settings</span></header>
   <div class="info-scroll"><div style="padding:16px;display:flex;flex-direction:column;gap:14px">
     <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:14px;padding:18px">
-      <div style="font-size:12px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px">AI Settings</div>
-      <label style="display:block;font-size:12px;font-weight:600;color:var(--text2);margin-bottom:6px">Gemini API Key <span style="font-weight:400;color:var(--text3)">(optional)</span></label>
-      <input type="password" id="settings-gemini" class="inp" placeholder="Leave blank to use server key" autocomplete="off">
-      <div id="settings-msg" style="font-size:12px;margin-top:6px;min-height:18px"></div>
-      <button class="btn btn-secondary" onclick="saveGeminiKey()" style="margin-top:10px">Save Key</button>
-      <div style="font-size:11px;color:var(--text3);margin-top:8px;line-height:1.5">Used for invoice extraction. Leave blank to use the shared server key.</div>
+      <div style="font-size:12px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">AI Settings</div>
+      <div style="font-size:13px;color:var(--text2);line-height:1.6">Activate Pro from the <strong style="color:var(--text)">Pricing</strong> tab to use your own API keys.</div>
     </div>
     <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:14px;padding:18px">
       <div style="font-size:12px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px">Account</div>
@@ -1632,7 +1701,7 @@ function renderProcessing(name){
     '<div class="sheet-title">Extracting…</div>'+
     '<div class="loading-row"><div class="spinner"></div>'+
     '<div>Reading <strong>'+esc(name)+'</strong></div>'+
-    '<div class="loading-label">Gemini AI is extracting invoice data.<br>This may take a few seconds.</div></div>';
+    '<div class="loading-label">AI is extracting invoice data.<br>This may take a few seconds.</div></div>';
 }
 async function doUpload(file){
   const fd=new FormData();fd.append('file',file,file.name);
@@ -1721,20 +1790,7 @@ function loadRewardsScreen(){
 }
 
 // ── Settings screen ─────────────────────────────────────────────────────────
-function initSettingsScreen(){
-  var gk=sessionStorage.getItem('jgk')||'';
-  var el=document.getElementById('settings-gemini');
-  if(el)el.value=gk;
-  var msg=document.getElementById('settings-msg');
-  if(msg)msg.textContent='';
-}
-function saveGeminiKey(){
-  var k=(document.getElementById('settings-gemini').value||'').trim();
-  GEMINI_KEY=k;
-  if(k)sessionStorage.setItem('jgk',k);else sessionStorage.removeItem('jgk');
-  var msg=document.getElementById('settings-msg');
-  if(msg){msg.textContent='Saved!';msg.style.color='var(--success)';setTimeout(function(){if(msg)msg.textContent='';},2000);}
-}
+function initSettingsScreen(){}
 
 // ── FAQ screen ──────────────────────────────────────────────────────────────
 function faqToggle(btn){

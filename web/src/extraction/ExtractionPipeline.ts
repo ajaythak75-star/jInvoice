@@ -455,6 +455,10 @@ async function persistResultWithNote(
 
     prefs.incrementDailyCount();
 
+    // Pro users get full item-wise details; free users see only summary for finance/tax docs
+    const isTaxOrFinance = docTypes.some(dt => dt === "tax" || dt === "finance");
+    const lineItemsToSave = (!prefs.isProActive && isTaxOrFinance) ? [] : inv.lineItems;
+
     const invoiceId = await insertInvoiceWithItems(
       {
         merchantName: inv.merchantName,
@@ -485,7 +489,7 @@ async function persistResultWithNote(
         createdAt: now,
         updatedAt: now,
       },
-      inv.lineItems.map((li) => ({
+      lineItemsToSave.map((li) => ({
         name: li.name,
         quantity: li.quantity,
         unitPricePaise: li.unitPricePaise,
@@ -636,6 +640,11 @@ async function finalizeExtractedInvoice(
   const category = resolveCategory(enhanced.merchantName, lineItemNames);
   const docTypes = detectDocType(enhanced.merchantName, lineItemNames, undefined, undefined, enhanced.rawText);
   const status = enhanced.confidenceScore >= 0.7 ? "imported" : "pending_review";
+
+  // Pro users get full item-wise details; free users see only summary for finance/tax docs
+  const isTaxOrFinance = docTypes.some(dt => dt === "tax" || dt === "finance");
+  const lineItemsToSave = (!prefs.isProActive && isTaxOrFinance) ? [] : enhanced.lineItems;
+
   await db.invoices.update(invoiceId, {
     merchantName: enhanced.merchantName,
     merchantAddress: enhanced.merchantAddress,
@@ -658,8 +667,8 @@ async function finalizeExtractedInvoice(
     updatedAt: now,
   });
   await db.lineItems.where("invoiceId").equals(invoiceId).delete();
-  if (enhanced.lineItems.length > 0) {
-    await db.lineItems.bulkAdd(enhanced.lineItems.map((li) => ({
+  if (lineItemsToSave.length > 0) {
+    await db.lineItems.bulkAdd(lineItemsToSave.map((li) => ({
       invoiceId,
       name: li.name,
       quantity: li.quantity,
