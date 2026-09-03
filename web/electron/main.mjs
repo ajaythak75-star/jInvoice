@@ -96,6 +96,29 @@ httpApp.post("/api/pick-folder-local", async (req, res) => {
   res.json({ ok: true, path: folderPath, name });
 });
 
+// Renderer-callable file save — no secret required (desktop-app only).
+// Saves a PDF buffer to the desktop folder, creating subfolders as needed.
+// x-filename header may include a subfolder prefix (e.g. "manual/file.pdf").
+httpApp.post(
+  "/api/save-to-folder-local",
+  express.raw({ type: "application/pdf", limit: "20mb" }),
+  (req, res) => {
+    const cfg = getDesktopFolderConfig();
+    if (!cfg?.path) return res.status(409).json({ error: "No desktop folder configured." });
+    const raw = String(req.headers["x-filename"] || `invoice-${Date.now()}.pdf`);
+    const segments = raw.split("/").filter(Boolean).map((s) => s.replace(/[\\:*?"<>|]/g, "_").slice(0, 200));
+    const relPath = segments.join("/") || `invoice-${Date.now()}.pdf`;
+    const outPath = join(cfg.path, relPath);
+    try {
+      mkdirSync(dirname(outPath), { recursive: true });
+      writeFileSync(outPath, req.body);
+      res.json({ ok: true, saved: relPath });
+    } catch (e) {
+      res.status(500).json({ error: String(e) });
+    }
+  }
+);
+
 // Open system folder-picker dialog → persist path to desktop-folder.json
 httpApp.post("/api/pick-desktop-folder", async (req, res) => {
   const secret = process.env.JINVOICE_SECRET || "jinvoice-change-me";

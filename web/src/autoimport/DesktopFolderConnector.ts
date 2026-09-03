@@ -37,7 +37,9 @@ async function loadHandle(): Promise<FileSystemDirectoryHandle | null> {
 }
 
 function isElectronRenderer(): boolean {
-  return typeof window !== "undefined" && window.location.hostname === "127.0.0.1";
+  if (typeof window === "undefined") return false;
+  const h = window.location.hostname;
+  return h === "127.0.0.1" || h === "localhost";
 }
 
 export async function isFsAccessSupported(): Promise<boolean> {
@@ -139,16 +141,14 @@ export class DesktopFolderConnector {
   }
 
   async saveInvoiceToFolder(data: Uint8Array, filename: string, subfolder?: string): Promise<boolean> {
-    // Electron path: no FSAPI handle — post directly to the local HTTP server
+    // Electron / local-server path: no FSAPI handle — post to the no-auth renderer endpoint
     if (isElectronRenderer()) {
       try {
         const xFilename = subfolder ? `${subfolder}/${filename}` : filename;
-        const secret = prefs.jInvoiceSecret || "jinvoice-change-me";
-        const resp = await fetch("/api/receive-invoice", {
+        const resp = await fetch("/api/save-to-folder-local", {
           method: "POST",
           headers: {
             "Content-Type": "application/pdf",
-            "x-jinvoice-key": secret,
             "x-filename": xFilename,
           },
           body: data.buffer as ArrayBuffer,
