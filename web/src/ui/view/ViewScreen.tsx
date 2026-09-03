@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
-import { db, type InvoiceMeta, type LineItemRow, type SentinelRecord, insertInvoiceWithItems } from "../../data/InvoiceDatabase";
+import { db, type InvoiceMeta, type LineItemRow, type SentinelRecord, type InvoicePdfFile, insertInvoiceWithItems } from "../../data/InvoiceDatabase";
 import { syncNewInvoice } from "../../service/SupabaseSync";
 import { runBillChecksForAll, type BillIssue } from "../../service/BillFraudDetector";
 import { rewards } from "../../data/RewardsStore";
@@ -8,12 +8,12 @@ import type { ClaudeInvoiceData } from "../../extraction/ClaudeExtractor";
 import { desktopConnector } from "../../service/AutoImportService";
 import { prefs } from "../../data/AutoImportPreferences";
 import { ImapConnector } from "../../autoimport/ImapConnector";
-import { extractFilePreview, extractInvoiceWithAI } from "../../extraction/ExtractionPipeline";
+import { extractFilePreview, extractInvoiceWithAI, resolveCategory } from "../../extraction/ExtractionPipeline";
 import { getBulkExtractionState, runBulkExtraction, type BulkState } from "../../service/BulkExtractionService";
 import type { ExtractedInvoice } from "../../core/extraction/models";
 import { detectCategory } from "../../core/extraction/CategoryDetector";
 import { detectDocType, DOC_TYPE_LABELS } from "../../extraction/DocTypeDetector";
-import { getWarrantySentinel, computeSentinelForInvoice, addManualAlert } from "../../service/ExpirySentinel";
+import { getWarrantySentinel, computeSentinelForInvoice, computeSentinelForProfileCategory, addManualAlert } from "../../service/ExpirySentinel";
 import { WarrantyPromptModal, type WarrantyPromptItem } from "../sentinel/WarrantyPromptModal";
 import { SOCIETY_CATEGORY_LABEL, type SocietyExpenseCategory } from "../../core/extraction/SocietyExpenseDetector";
 import { getProfessionalCategoryLabel, type ProfessionalProfile } from "../../core/extraction/ProfessionalCategoryDetector";
@@ -1191,8 +1191,9 @@ export function ViewScreen() {
         const inv = result.invoice;
         const now = new Date().toISOString();
         const lineItemNames = inv.lineItems.map((li) => li.name);
-        const category = detectCategory(inv.merchantName, lineItemNames);
-        const docTypes = detectDocType(inv.merchantName, lineItemNames, file.name, undefined);
+        // Use profile-aware category (same logic as Extract AI / bulk extraction)
+        const category = resolveCategory(inv.merchantName, lineItemNames, inv.rawText);
+        const docTypes = detectDocType(inv.merchantName, lineItemNames, file.name, undefined, inv.rawText ?? undefined);
         const docType = docTypes[0] ?? "other";
 
         const newId = await insertInvoiceWithItems(
@@ -1238,9 +1239,19 @@ export function ViewScreen() {
         const isComplete = !!(inv.merchantName && inv.grandTotalPaise && inv.invoiceDate && inv.lineItems.length > 0);
         rewards.recordUpload(isComplete);
         await computeSentinelForInvoice(newId, inv.invoiceDate, inv.merchantName, lineItemNames, inv.rawText ?? null);
+        // Profile-specific sentinel (rent agreement 36 months, insurance, AMC, etc.)
+        await computeSentinelForProfileCategory(newId, inv.invoiceDate, category, prefs.activeMode, inv.merchantName);
+
+        // Store rawText + PDF bytes so "Re-extract with AI" works on this record
+        if (inv.rawText) {
+          await db.rawTexts.add({ invoiceId: newId, rawText: inv.rawText });
+        }
+        const buf = await file.arrayBuffer();
+        try {
+          await db.pdfFiles.add({ invoiceId: newId, bytes: new Uint8Array(buf), filename: file.name } as InvoicePdfFile);
+        } catch {}
 
         if (prefs.desktopFolderName) {
-          const buf = await file.arrayBuffer();
           await desktopConnector.saveInvoiceToFolder(new Uint8Array(buf), file.name, "Manual").catch(() => {});
         }
 

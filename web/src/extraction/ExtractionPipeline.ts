@@ -37,7 +37,7 @@ async function maybeSarvamTranslate(text: string | null): Promise<string | null>
 
 const PROFESSIONAL_PROFILES: ProfessionalProfile[] = ["shopkeeper", "tax_consultant", "ca", "real_estate", "advocate", "bookkeeper"];
 
-function resolveCategory(merchantName: string | null, lineItemNames: string[], extraText?: string | null): string {
+export function resolveCategory(merchantName: string | null, lineItemNames: string[], extraText?: string | null): string {
   const mode = prefs.activeMode;
   if (mode === "society") return detectSocietyCategory(merchantName, lineItemNames, extraText);
   if (PROFESSIONAL_PROFILES.includes(mode as ProfessionalProfile))
