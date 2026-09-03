@@ -47,8 +47,6 @@ export function SettingsScreen({ onSignOut }: Props) {
 
   const [geminiApiKey, setGeminiApiKey] = useState(() => prefs.geminiApiKey);
   const [geminiKeySaved, setGeminiKeySaved] = useState(false);
-  const [openaiApiKey, setOpenaiApiKey] = useState(() => prefs.openaiApiKey);
-  const [openaiKeySaved, setOpenaiKeySaved] = useState(false);
   const [sarvamApiKey, setSarvamApiKey] = useState(() => prefs.sarvamApiKey);
   const [sarvamKeySaved, setSarvamKeySaved] = useState(false);
 
@@ -542,44 +540,6 @@ export function SettingsScreen({ onSignOut }: Props) {
                   className="btn-sm"
                   style={{ color: "#ef4444", borderColor: "#ef4444" }}
                   onClick={() => { prefs.geminiApiKey = ""; setGeminiApiKey(""); }}
-                >
-                  Clear
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-
-        <div className="settings-field" style={{ marginTop: 16 }}>
-          <label className="settings-field-label">OpenAI API Key</label>
-          <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginBottom: 6 }}>
-            Use your own OpenAI API key for GPT-4o-mini invoice extraction.
-          </p>
-          {isProActive && (
-            <div style={{ display: "flex", gap: 8 }}>
-              <input
-                type="password"
-                className="settings-input"
-                style={{ flex: 1, fontFamily: "monospace", fontSize: 12 }}
-                placeholder="Paste your OpenAI API key (sk-…)"
-                value={openaiApiKey}
-                onChange={(e) => setOpenaiApiKey(e.target.value)}
-              />
-              <button
-                className="btn-sm"
-                onClick={() => {
-                  prefs.openaiApiKey = openaiApiKey.trim();
-                  setOpenaiKeySaved(true);
-                  setTimeout(() => setOpenaiKeySaved(false), 2000);
-                }}
-              >
-                {openaiKeySaved ? "✓ Saved" : "Save"}
-              </button>
-              {openaiApiKey && (
-                <button
-                  className="btn-sm"
-                  style={{ color: "#ef4444", borderColor: "#ef4444" }}
-                  onClick={() => { prefs.openaiApiKey = ""; setOpenaiApiKey(""); }}
                 >
                   Clear
                 </button>
