@@ -172,23 +172,39 @@ function AlertCard({ row, onDismiss, onExpiryChange }: {
   );
 }
 
+const MONTH_OPTIONS = [1, 3, 6, 12, 18, 24, 36, 60];
+
+function addMonths(dateStr: string, months: number): string {
+  const d = new Date(dateStr);
+  d.setMonth(d.getMonth() + months);
+  return d.toISOString().slice(0, 10);
+}
+
+function todayIso(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
 // Modal for manually adding an alert
 function AddAlertModal({ onClose, onAdded }: { onClose: () => void; onAdded: () => void }) {
-  const [label, setLabel]     = useState("");
-  const [type, setType]       = useState<SentinelRecord["type"]>("warranty");
-  const [expiry, setExpiry]   = useState("");
-  const [saving, setSaving]   = useState(false);
-  const [err, setErr]         = useState<string | null>(null);
+  const [label, setLabel]         = useState("");
+  const [type, setType]           = useState<SentinelRecord["type"]>("warranty");
+  const [startDate, setStartDate] = useState(todayIso());
+  const [months, setMonths]       = useState<number | null>(null);
+  const [saving, setSaving]       = useState(false);
+  const [err, setErr]             = useState<string | null>(null);
   const labelRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { labelRef.current?.focus(); }, []);
 
+  const expiryDate = startDate && months != null ? addMonths(startDate, months) : null;
+
   const handleSubmit = async () => {
     if (!label.trim()) { setErr("Enter a description for this alert."); return; }
-    if (!expiry)       { setErr("Select an expiry / due date."); return; }
+    if (!startDate)    { setErr("Select a start date."); return; }
+    if (months == null){ setErr("Select a duration in months."); return; }
     setSaving(true);
     try {
-      await addManualAlert(label.trim(), type, expiry);
+      await addManualAlert(label.trim(), type, expiryDate!);
       onAdded();
       onClose();
     } catch {
@@ -204,7 +220,7 @@ function AddAlertModal({ onClose, onAdded }: { onClose: () => void; onAdded: () 
     background: "var(--color-surface)", color: "var(--color-text)",
     boxSizing: "border-box",
   };
-  const labelStyle: React.CSSProperties = {
+  const lblStyle: React.CSSProperties = {
     fontSize: 12, color: "var(--color-text-secondary)", display: "block", marginBottom: 5,
   };
 
@@ -217,13 +233,13 @@ function AddAlertModal({ onClose, onAdded }: { onClose: () => void; onAdded: () 
       <div
         className="modal"
         onClick={(e) => e.stopPropagation()}
-        style={{ maxWidth: 380, width: "92%", padding: 24, borderRadius: 12, background: "var(--color-surface)", boxShadow: "0 8px 32px rgba(0,0,0,0.2)" }}
+        style={{ maxWidth: 400, width: "92%", padding: 24, borderRadius: 12, background: "var(--color-surface)", boxShadow: "0 8px 32px rgba(0,0,0,0.2)" }}
       >
         <h2 style={{ fontSize: 17, marginBottom: 18 }}>Add Alert</h2>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <div>
-            <label style={labelStyle}>Description *</label>
+            <label style={lblStyle}>Description *</label>
             <input
               ref={labelRef}
               style={inputStyle}
@@ -235,7 +251,7 @@ function AddAlertModal({ onClose, onAdded }: { onClose: () => void; onAdded: () 
           </div>
 
           <div>
-            <label style={labelStyle}>Alert type *</label>
+            <label style={lblStyle}>Alert type *</label>
             <select
               style={{ ...inputStyle, cursor: "pointer" }}
               value={type}
@@ -248,14 +264,43 @@ function AddAlertModal({ onClose, onAdded }: { onClose: () => void; onAdded: () 
           </div>
 
           <div>
-            <label style={labelStyle}>Due / Expiry date *</label>
+            <label style={lblStyle}>Start date (purchase / invoice date) *</label>
             <input
               type="date"
               style={inputStyle}
-              value={expiry}
-              onChange={(e) => { setExpiry(e.target.value); setErr(null); }}
+              value={startDate}
+              onChange={(e) => { setStartDate(e.target.value); setErr(null); }}
             />
           </div>
+
+          <div>
+            <label style={lblStyle}>Duration *</label>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {MONTH_OPTIONS.map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => { setMonths(m); setErr(null); }}
+                  style={{
+                    padding: "5px 11px", borderRadius: 6, fontSize: 12.5, fontWeight: 600, cursor: "pointer",
+                    border: months === m ? "none" : "1px solid var(--color-border)",
+                    background: months === m ? "#7c3aed" : "var(--color-surface-2)",
+                    color: months === m ? "#fff" : "var(--color-text)",
+                  }}
+                >
+                  {m < 12 ? `${m}m` : `${m / 12}y`}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {expiryDate && (
+            <div style={{ fontSize: 12.5, color: "var(--color-text-secondary)", background: "var(--color-surface-2)", padding: "7px 12px", borderRadius: 6 }}>
+              Expires on: <strong style={{ color: "var(--color-text)" }}>
+                {new Date(expiryDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+              </strong>
+            </div>
+          )}
         </div>
 
         {err && (
@@ -263,11 +308,7 @@ function AddAlertModal({ onClose, onAdded }: { onClose: () => void; onAdded: () 
         )}
 
         <div style={{ display: "flex", gap: 10, marginTop: 20, justifyContent: "flex-end" }}>
-          <button
-            className="btn-ghost"
-            onClick={onClose}
-            style={{ fontSize: 13 }}
-          >Cancel</button>
+          <button className="btn-ghost" onClick={onClose} style={{ fontSize: 13 }}>Cancel</button>
           <button
             onClick={handleSubmit}
             disabled={saving}
