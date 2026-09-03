@@ -871,7 +871,13 @@ export function AutoImportSettings() {
                   <button className="btn-sync-primary" onClick={handleImapConnect} disabled={imapBusy} style={{ fontSize: 13 }}>
                     {imapBusy ? "Connecting…" : "Connect"}
                   </button>
-                  <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}>
+                  <a
+                    href={/\@(hotmail|outlook|live|msn)\./i.test(imapInputEmail)
+                      ? "https://account.live.com/proofs/AppPassword"
+                      : "https://myaccount.google.com/apppasswords"}
+                    target="_blank" rel="noopener noreferrer"
+                    style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}
+                  >
                     How to get an App Password ↗
                   </a>
                 </div>
