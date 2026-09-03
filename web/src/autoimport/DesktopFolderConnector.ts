@@ -139,6 +139,27 @@ export class DesktopFolderConnector {
   }
 
   async saveInvoiceToFolder(data: Uint8Array, filename: string, subfolder?: string): Promise<boolean> {
+    // Electron path: no FSAPI handle — post directly to the local HTTP server
+    if (isElectronRenderer()) {
+      try {
+        const xFilename = subfolder ? `${subfolder}/${filename}` : filename;
+        const secret = prefs.jInvoiceSecret || "jinvoice-change-me";
+        const resp = await fetch("/api/receive-invoice", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/pdf",
+            "x-jinvoice-key": secret,
+            "x-filename": xFilename,
+          },
+          body: data.buffer as ArrayBuffer,
+        });
+        return resp.ok;
+      } catch (err) {
+        console.error("[jInvoice] saveInvoiceToFolder (electron) failed:", err);
+        return false;
+      }
+    }
+    // Browser FSAPI path
     if (!this.handle) {
       const restored = await this.restoreFolder();
       if (!restored) return false;
