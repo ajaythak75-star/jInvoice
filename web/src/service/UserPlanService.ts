@@ -76,3 +76,11 @@ export async function cancelPlan(): Promise<ServerPlan> {
   applyPlanToPrefs(plan);
   return plan;
 }
+
+export async function requestProAccess(): Promise<void> {
+  const r = await fetch("/api/subscription/request-pro", { method: "POST", headers: authHeaders() });
+  if (!r.ok) {
+    const body = await r.json().catch(() => ({}));
+    throw new Error((body as any).error ?? "Failed to send request.");
+  }
+}

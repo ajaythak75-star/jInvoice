@@ -593,8 +593,9 @@ app.post("/api/openai", async (req, res) => {
 
 const _otpStore = new Map(); // email → { code, expiresAt }
 
-const RESEND_API_KEY   = process.env.RESEND_API_KEY   ?? "";
+const RESEND_API_KEY    = process.env.RESEND_API_KEY    ?? "";
 const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL ?? "onboarding@resend.dev";
+const ADMIN_EMAIL       = process.env.ADMIN_EMAIL       ?? "ajaythak75@gmail.com";
 
 async function _sendEmail(to, subject, html) {
   if (!RESEND_API_KEY) throw new Error("Email service not configured (RESEND_API_KEY missing).");
@@ -728,10 +729,23 @@ app.get("/api/subscription", async (req, res) => {
   res.json(row);
 });
 
+// Returns true if the email is in the allowed_users table (Pro access whitelist).
+// Falls open (allow) only when Supabase is not configured at all.
+async function _isAllowedForPro(email) {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) return true;
+  const r = await _sbService(`/allowed_users?email=eq.${encodeURIComponent(email.toLowerCase())}&select=email&limit=1`);
+  return Array.isArray(r.data) && r.data.length > 0;
+}
+
 app.post("/api/subscription/start-trial", async (req, res) => {
   const email = _verifyToken(_planToken(req));
   if (!email) return res.status(401).json({ error: "unauthorized" });
   if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) return res.status(503).json({ error: "Supabase not configured" });
+
+  // Whitelist check — only allowed users can start Pro trial
+  const allowed = await _isAllowedForPro(email);
+  if (!allowed) return res.status(403).json({ error: "approval_required" });
+
   const { data: rows } = await _sbService(`/user_plans?email=eq.${encodeURIComponent(email)}&limit=1`);
   const row = Array.isArray(rows) ? rows[0] : null;
   if (row?.trial_used) return res.status(400).json({ error: "Trial already used for this account." });
@@ -740,6 +754,32 @@ app.post("/api/subscription/start-trial", async (req, res) => {
   const patch = { plan: "pro_trial", status: "active", trial_used: true, trial_started_at: now.toISOString(), trial_ends_at: trialEnds.toISOString(), updated_at: now.toISOString() };
   const { data: updated } = await _sbService(`/user_plans?email=eq.${encodeURIComponent(email)}`, { method: "PATCH", body: JSON.stringify(patch) });
   res.json(Array.isArray(updated) ? updated[0] : (updated ?? { ...row, ...patch }));
+});
+
+// POST /api/subscription/request-pro — user requests Pro access; emails admin
+app.post("/api/subscription/request-pro", async (req, res) => {
+  const email = _verifyToken(_planToken(req));
+  if (!email) return res.status(401).json({ error: "unauthorized" });
+  try {
+    await _sendEmail(
+      ADMIN_EMAIL,
+      `jInvoice Pro Access Request — ${email}`,
+      `<div style="font-family:sans-serif;max-width:480px;margin:40px auto;padding:32px;border:1px solid #e5e7eb;border-radius:12px">
+        <h2 style="margin:0 0 8px;color:#111">Pro Access Request</h2>
+        <p style="color:#555;margin-top:0">A user is requesting Pro access on jInvoice:</p>
+        <p style="font-size:20px;font-weight:700;color:#4f46e5;margin:16px 0">${email}</p>
+        <p style="color:#555">To approve, add this email to the <strong>allowed_users</strong> table in Supabase:</p>
+        <pre style="background:#f3f4f6;padding:12px;border-radius:6px;font-size:13px;overflow-x:auto">INSERT INTO allowed_users (email)
+VALUES ('${email.replace(/'/g, "''")}')
+ON CONFLICT (email) DO NOTHING;</pre>
+        <p style="color:#888;font-size:12px;margin-top:16px">Once added, the user can start their 14-day Pro trial from the Pricing screen.</p>
+      </div>`
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[request-pro] email failed:", e);
+    res.status(500).json({ error: "Failed to send request email. Try again." });
+  }
 });
 
 app.post("/api/subscription/cancel", async (req, res) => {

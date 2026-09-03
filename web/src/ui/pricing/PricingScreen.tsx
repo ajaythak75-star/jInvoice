@@ -9,6 +9,7 @@ import {
   isProActive as serverIsProActive,
   trialDaysLeft as serverTrialDaysLeft,
 } from "../../service/SubscriptionService";
+import { startTrial as startTrialServer, requestProAccess } from "../../service/UserPlanService";
 
 const INDIAN_STATES = [
   "Andhra Pradesh","Arunachal Pradesh","Assam","Bihar","Chhattisgarh","Goa","Gujarat",
@@ -255,6 +256,10 @@ export function PricingScreen() {
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showApiKeyModal,  setShowApiKeyModal]  = useState(false);
+  const [approvalRequired, setApprovalRequired] = useState(false);
+  const [requestSent,      setRequestSent]      = useState(false);
+  const [requestingAccess, setRequestingAccess] = useState(false);
+  const [trialError,       setTrialError]       = useState<string | null>(null);
 
   useEffect(() => {
     subscriptionService.get().then((s) => { setSub(s); setLoading(false); });
@@ -290,10 +295,11 @@ export function PricingScreen() {
   };
 
   const handleStartTrial = async () => {
-    const updated = await subscriptionService.startTrial();
-    if (updated) {
-      setSub(updated);
-      prefs.startTrial(); // keep local prefs in sync
+    setTrialError(null);
+    try {
+      const updated = await startTrialServer();
+      setSub(updated as unknown as Subscription);
+      prefs.startTrial();
       if (auth.email) {
         saveCustomerPlan(auth.email, {
           plan: apiOption === "shared" ? "pro_shared" : "pro_own",
@@ -302,6 +308,26 @@ export function PricingScreen() {
           trial_started_at: updated.trial_started_at ?? new Date().toISOString(),
         });
       }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg === "approval_required") {
+        setApprovalRequired(true);
+      } else {
+        setTrialError(msg || "Failed to start trial.");
+      }
+    }
+  };
+
+  const handleRequestAccess = async () => {
+    setRequestingAccess(true);
+    try {
+      await requestProAccess();
+      setRequestSent(true);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setTrialError(msg || "Failed to send request. Please try again.");
+    } finally {
+      setRequestingAccess(false);
     }
   };
 
@@ -577,6 +603,28 @@ export function PricingScreen() {
                   {checkoutLoading ? "Redirecting…" : "Subscribe now →"}
                 </button>
               </>
+            ) : approvalRequired ? (
+              requestSent ? (
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#059669" }}>✓ Request sent!</div>
+                  <div style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 3 }}>
+                    Admin will review and enable your Pro access.
+                  </div>
+                </div>
+              ) : (
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ fontSize: 12.5, color: "#92400e", marginBottom: 8 }}>
+                    Pro access requires admin approval for your account.
+                  </div>
+                  <button
+                    onClick={handleRequestAccess}
+                    disabled={requestingAccess}
+                    style={{ padding: "10px 20px", borderRadius: 8, border: "none", background: "#f59e0b", color: "#fff", fontSize: 13, fontWeight: 700, cursor: requestingAccess ? "wait" : "pointer", opacity: requestingAccess ? 0.7 : 1 }}
+                  >
+                    {requestingAccess ? "Sending…" : "Request Pro Access →"}
+                  </button>
+                </div>
+              )
             ) : !trialUsed ? (
               <>
                 <button
@@ -595,6 +643,11 @@ export function PricingScreen() {
               >
                 {checkoutLoading ? "Redirecting…" : "Continue with Pro →"}
               </button>
+            )}
+            {trialError && (
+              <div style={{ marginTop: 4, padding: "10px 14px", borderRadius: 8, background: "#fef2f2", border: "1px solid #fca5a5", color: "#b91c1c", fontSize: 12.5, lineHeight: 1.5 }}>
+                {trialError}
+              </div>
             )}
             {checkoutError && (
               <div style={{ marginTop: 4, padding: "10px 14px", borderRadius: 8, background: "#fef2f2", border: "1px solid #fca5a5", color: "#b91c1c", fontSize: 12.5, lineHeight: 1.5 }}>
