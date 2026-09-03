@@ -56,7 +56,7 @@ Rules:
 
 // Always proxy Gemini calls through the server — keeps the API key server-side,
 // avoids CORS, and works identically in Electron and web/Render.
-const GEMINI_MODEL = "gemini-2.5-flash";
+const GEMINI_MODEL = "gemini-2.0-flash";
 
 function geminiEndpoint(): { url: string; isProxy: boolean } {
   return { url: "/api/gemini", isProxy: true };

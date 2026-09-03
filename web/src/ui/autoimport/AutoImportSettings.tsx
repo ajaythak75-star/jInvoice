@@ -531,10 +531,10 @@ export function AutoImportSettings() {
 
   const handleImapConnect = async () => {
     if (!imapInputEmail.trim() || !imapInputPass.trim()) {
-      setImapMsg({ ok: false, text: "Enter your email address and App Password." });
+      setImapMsg({ ok: false, text: "Enter your Gmail username and App Password." });
       return;
     }
-    const email = imapInputEmail.trim();
+    const email = imapInputEmail.trim().replace(/@.*$/, "") + "@gmail.com";
     const pass  = imapInputPass.trim();
     // Duplicate check across all providers
     const allEmails = new Set([
@@ -865,16 +865,26 @@ export function AutoImportSettings() {
             {/* IMAP inline form */}
             {isImapAvailable() && imapShowForm && (
               <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 10, padding: "10px 12px", background: "var(--color-surface-2)", borderRadius: 8, border: "1px solid var(--color-border)" }}>
-                <input className="settings-input" type="email" placeholder="your@gmail.com" value={imapInputEmail} onChange={(e) => setImapInputEmail(e.target.value)} style={{ fontSize: 13 }} />
+                <div style={{ display: "flex", alignItems: "center", gap: 0, border: "1px solid var(--color-border)", borderRadius: 6, overflow: "hidden", background: "var(--color-surface)" }}>
+                  <input
+                    className="settings-input"
+                    type="text"
+                    placeholder="username"
+                    value={imapInputEmail}
+                    onChange={(e) => setImapInputEmail(e.target.value.replace(/@.*$/, "").replace(/\s/g, ""))}
+                    style={{ fontSize: 13, border: "none", borderRadius: 0, flex: 1, minWidth: 0 }}
+                  />
+                  <span style={{ fontSize: 13, color: "var(--color-text-secondary)", background: "var(--color-surface-2)", padding: "0 10px", borderLeft: "1px solid var(--color-border)", whiteSpace: "nowrap", lineHeight: "36px" }}>
+                    @gmail.com
+                  </span>
+                </div>
                 <input className="settings-input" type="password" placeholder="App Password (16 chars)" value={imapInputPass} onChange={(e) => setImapInputPass(e.target.value)} style={{ fontSize: 13 }} />
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <button className="btn-sync-primary" onClick={handleImapConnect} disabled={imapBusy} style={{ fontSize: 13 }}>
                     {imapBusy ? "Connecting…" : "Connect"}
                   </button>
                   <a
-                    href={/\@(hotmail|outlook|live|msn)\./i.test(imapInputEmail)
-                      ? "https://account.live.com/proofs/AppPassword"
-                      : "https://myaccount.google.com/apppasswords"}
+                    href="https://myaccount.google.com/apppasswords"
                     target="_blank" rel="noopener noreferrer"
                     style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}
                   >
