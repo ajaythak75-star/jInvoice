@@ -1182,57 +1182,86 @@ export function ViewScreen() {
     setUploadedFile(file);
     setPreviewLoading(true);
     try {
+      if (prefs.isManualUploadLimitReached) {
+        alert(`Daily upload limit reached — you have used ${prefs.todayManualUploadCount}/${prefs.effectiveManualUploadLimit} manual uploads today. Try again tomorrow or upgrade your plan for a higher limit.`);
+        return;
+      }
       const result = await extractFilePreview(file);
       if (result.kind === "success" || result.kind === "lowConfidence") {
         const inv = result.invoice;
-        const fakeMeta = {
-          merchantName: inv.merchantName,
-          merchantAddress: inv.merchantAddress,
-          merchantGstin: inv.merchantGstin,
-          merchantPhone: inv.merchantPhone ?? null,
-          merchantPincode: inv.merchantPincode ?? null,
-          platform: inv.platform ?? null,
-          invoiceNumber: inv.invoiceNumber,
-          invoiceDate: inv.invoiceDate,
-          subtotalPaise: inv.subtotalPaise,
-          taxPaise: inv.taxPaise,
-          discountPaise: inv.discountPaise ?? 0,
-          grandTotalPaise: inv.grandTotalPaise,
-          pdfSourceType: inv.sourceType,
-          importSource: "manual_upload",
-          status: "pending_review",
-          sourceFilename: file.name,
-          paymentMode: inv.paymentMode,
-          importRecordId: null,
-          docType: "invoice",
-          docTypes: ["invoice"],
-          category: undefined,
-          clientTags: [],
-          subject: "Unknown",
-          senderEmail: "Manual",
-          receivedAt: undefined,
-          isRenamed: false,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        } as InvoiceMeta;
-        const fakeItems: LineItemRow[] = inv.lineItems.map((li, i) => ({
-          id: i,
-          invoiceId: 0,
-          name: li.name,
-          quantity: li.quantity,
-          unitPricePaise: li.unitPricePaise,
-          totalPricePaise: li.totalPricePaise,
-          discountPaise: li.discountPaise ?? 0,
-        }));
-        setPreviewExtracted(inv);
-        setDetailItems(fakeItems);
-        setDetailRec(fakeMeta);
-        setIsPreviewMode(true);
+        const now = new Date().toISOString();
+        const lineItemNames = inv.lineItems.map((li) => li.name);
+        const category = detectCategory(inv.merchantName, lineItemNames);
+        const docTypes = detectDocType(inv.merchantName, lineItemNames, file.name, undefined);
+        const docType = docTypes[0] ?? "other";
+
+        const newId = await insertInvoiceWithItems(
+          {
+            merchantName: inv.merchantName,
+            merchantAddress: inv.merchantAddress,
+            merchantGstin: inv.merchantGstin,
+            merchantPhone: inv.merchantPhone ?? null,
+            merchantPincode: inv.merchantPincode ?? null,
+            platform: inv.platform ?? null,
+            invoiceNumber: inv.invoiceNumber,
+            invoiceDate: inv.invoiceDate,
+            subtotalPaise: inv.subtotalPaise,
+            grandTotalPaise: inv.grandTotalPaise,
+            discountPaise: inv.discountPaise ?? 0,
+            taxPaise: inv.taxPaise,
+            paymentMode: inv.paymentMode,
+            importSource: "manual_upload",
+            pdfSourceType: inv.sourceType,
+            importRecordId: null,
+            status: "imported",
+            category,
+            docType,
+            docTypes,
+            sourceFilename: file.name,
+            subject: "Unknown",
+            senderEmail: "Manual",
+            isRenamed: false,
+            createdAt: now,
+            updatedAt: now,
+          },
+          inv.lineItems.map((li) => ({
+            name: li.name,
+            quantity: li.quantity,
+            unitPricePaise: li.unitPricePaise,
+            totalPricePaise: li.totalPricePaise,
+            discountPaise: li.discountPaise ?? 0,
+          })),
+        );
+
+        prefs.incrementDailyCount();
+        prefs.incrementManualUploadCount();
+        const isComplete = !!(inv.merchantName && inv.grandTotalPaise && inv.invoiceDate && inv.lineItems.length > 0);
+        rewards.recordUpload(isComplete);
+        await computeSentinelForInvoice(newId, inv.invoiceDate, inv.merchantName, lineItemNames, inv.rawText ?? null);
+
+        if (prefs.desktopFolderName) {
+          const buf = await file.arrayBuffer();
+          await desktopConnector.saveInvoiceToFolder(new Uint8Array(buf), file.name, "Manual").catch(() => {});
+        }
+
+        await load();
+
+        const saved = await db.invoices.get(newId);
+        const savedItems = await db.lineItems.where("invoiceId").equals(newId).toArray();
+        if (saved) {
+          setDetailRec(saved);
+          setDetailItems(savedItems);
+          setIsPreviewMode(false);
+          setPreviewExtracted(null);
+        }
+
+        await checkWarrantyPrompt([newId]);
       }
     } catch (err) {
-      console.error("[Preview upload]", err);
+      console.error("[Upload]", err);
     } finally {
       setPreviewLoading(false);
+      setUploadedFile(null);
     }
   };
 
