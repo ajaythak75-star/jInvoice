@@ -21,6 +21,35 @@ import { syncPlanFromServer } from "./service/UserPlanService";
 import { getActiveSentinels } from "./service/ExpirySentinel";
 import { getActiveSecurityAlerts } from "./data/InvoiceDatabase";
 
+function TrialExpiredBanner({ onSubscribe, onContinueFree }: { onSubscribe: () => void; onContinueFree: () => void }) {
+  return (
+    <div style={{
+      background: "#fff7ed", borderBottom: "1px solid #fdba74",
+      padding: "12px 20px", display: "flex", alignItems: "center",
+      justifyContent: "space-between", gap: 12, flexWrap: "wrap",
+      fontSize: 13, flexShrink: 0,
+    }}>
+      <span style={{ color: "#92400e", fontWeight: 600 }}>
+        ⚠ Your 14-day Pro trial has ended. Subscribe to keep Pro features, or continue on the free plan.
+      </span>
+      <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+        <button
+          onClick={onContinueFree}
+          style={{ padding: "6px 14px", borderRadius: 6, border: "1px solid #fdba74", background: "transparent", color: "#92400e", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
+        >
+          Continue with Free
+        </button>
+        <button
+          onClick={onSubscribe}
+          style={{ padding: "6px 14px", borderRadius: 6, border: "none", background: "#7c3aed", color: "#fff", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}
+        >
+          Subscribe to Pro →
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // Process OAuth hash params — called at module init AND on hashchange.
 // Returns true if the user is now signed in.
 function applyOAuthHash(): boolean {
@@ -73,6 +102,7 @@ export function App() {
   const [loggedIn, setLoggedIn] = useState(auth.isLoggedIn);
   const [tab, setTab] = useState("import");
   const [alertCount, setAlertCount] = useState(0);
+  const [showTrialBanner, setShowTrialBanner] = useState(false);
 
   // Handle hash set by executeJavaScript (same-page navigation — no reload).
   useEffect(() => {
@@ -86,7 +116,14 @@ export function App() {
   // Sync subscription plan from Supabase on every login/startup
   useEffect(() => {
     if (!loggedIn) return;
-    syncPlanFromServer().catch(() => {});
+    syncPlanFromServer().then((plan) => {
+      if (!plan) return;
+      const trialActive = plan.plan === "pro_trial" && !!plan.trial_ends_at
+        && new Date(plan.trial_ends_at) > new Date() && plan.status === "active";
+      const isPaid = plan.plan === "pro_paid" && plan.status === "active";
+      const expired = plan.trial_used && !trialActive && !isPaid;
+      setShowTrialBanner(expired && !localStorage.getItem("jinvoice:trial_ack"));
+    }).catch(() => {});
   }, [loggedIn]);
 
   // Push the stored jInvoice secret to the server on every startup so the
@@ -130,6 +167,15 @@ export function App() {
 
   return (
     <MainLayout active={tab} onNav={setTab} alertCount={alertCount}>
+      {showTrialBanner && (
+        <TrialExpiredBanner
+          onSubscribe={() => { setTab("pricing"); }}
+          onContinueFree={() => {
+            try { localStorage.setItem("jinvoice:trial_ack", "1"); } catch {}
+            setShowTrialBanner(false);
+          }}
+        />
+      )}
       {/* Keep AutoImportSettings mounted so in-progress uploads survive tab switches */}
       <div style={{ display: tab === "import" ? "contents" : "none" }}><AutoImportSettings /></div>
       {tab === "view"     && <ViewScreen />}
