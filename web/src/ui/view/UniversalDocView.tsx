@@ -4,28 +4,47 @@ import { SOCIETY_CATEGORY_LABEL, type SocietyExpenseCategory } from "../../core/
 import { getProfessionalCategoryLabel, type ProfessionalProfile } from "../../core/extraction/ProfessionalCategoryDetector";
 
 type DocClass = "invoice" | "tax" | "financial" | "payroll" | "legal" | "society_vendor"
-  | "utility" | "medical" | "insurance" | "education" | "rent" | "shopping" | "other";
+  | "utility" | "medical" | "insurance" | "education" | "rent" | "shopping" | "travel" | "other";
 type ItemLayout = "invoice" | "simple" | "financial" | "payroll" | "none";
 
+// Professional profile categories → DocClass mappings
+const CAT_TAX      = new Set(["itr_filing","gst_return","tds_tcs","advance_tax","gst_tax","tax_filing","gst_compliance"]);
+const CAT_PAYROLL  = new Set(["staff_payroll"]);
+const CAT_LEGAL    = new Set(["court_fees","stamp_duty","legal_notice","documentation_charges","roc_mca","property_registration","legal_documentation","legal_document","agreement","share_certificate"]);
+const CAT_FINANCE  = new Set(["bank_charges","financial_document"]);
+const CAT_UTILITY  = new Set(["rent_utilities","office_expenses","office_software"]);
+const CAT_TRAVEL   = new Set(["site_visit"]);
+
 function classifyDoc(docTypes: string[], activeMode: string, category: string): DocClass {
-  if (docTypes.includes("tax")) return "tax";
-  if (docTypes.includes("financial") || docTypes.includes("finance")) return "financial";
-  if (docTypes.includes("insurance")) return "insurance";
-  if (docTypes.includes("payroll")) return "payroll";
-  if (docTypes.includes("legal")) return "legal";
-  if (docTypes.includes("utility")) return "utility";
-  if (docTypes.includes("medical")) return "medical";
-  if (docTypes.includes("education")) return "education";
-  if (docTypes.includes("rent")) return "rent";
-  if (docTypes.includes("shopping")) return "shopping";
-  if (docTypes.includes("society")) return "society_vendor";
+  // DocType-based (covers personal + pro extraction results for all profiles)
+  if (docTypes.includes("tax"))                                        return "tax";
+  if (docTypes.includes("financial") || docTypes.includes("finance"))  return "financial";
+  if (docTypes.includes("insurance"))                                  return "insurance";
+  if (docTypes.includes("payroll"))                                    return "payroll";
+  if (docTypes.includes("legal"))                                      return "legal";
+  if (docTypes.includes("utility"))                                    return "utility";
+  if (docTypes.includes("medical"))                                    return "medical";
+  if (docTypes.includes("education"))                                  return "education";
+  if (docTypes.includes("rent"))                                       return "rent";
+  if (docTypes.includes("shopping"))                                   return "shopping";
+  if (docTypes.includes("travel"))                                     return "travel";
+  if (docTypes.includes("society"))                                    return "society_vendor";
+
+  // Society profile — map society-specific categories
   if (activeMode === "society") {
-    if (["legal_document", "agreement", "share_certificate", "cheque", "meeting_record"].includes(category))
-      return "legal";
-    if (category === "financial_document") return "financial";
+    if (CAT_LEGAL.has(category) || category === "meeting_record" || category === "cheque") return "legal";
+    if (CAT_FINANCE.has(category)) return "financial";
     return "society_vendor";
   }
-  if (activeMode === "shopkeeper" && category === "staff_payroll") return "payroll";
+
+  // Professional profiles — map their per-profile categories to DocClass
+  if (CAT_TAX.has(category))     return "tax";
+  if (CAT_PAYROLL.has(category)) return "payroll";
+  if (CAT_LEGAL.has(category))   return "legal";
+  if (CAT_FINANCE.has(category)) return "financial";
+  if (CAT_UTILITY.has(category)) return "utility";
+  if (CAT_TRAVEL.has(category))  return "travel";
+
   if (docTypes.includes("invoice")) return "invoice";
   return "other";
 }
@@ -102,6 +121,11 @@ const DOC_CONFIGS: Record<DocClass, DocConfig> = {
     primaryLabel: "Store / Platform", nameLabel: "Store", refLabel: "Order / Bill No.",
     dateLabel: "Purchase Date", totalLabel: "Total Paid", itemLayout: "invoice", itemsLabel: "Items Purchased",
     accent: "#ec4899", badge: "Shopping",
+  },
+  travel: {
+    primaryLabel: "Airline / Service", nameLabel: "Provider", refLabel: "PNR / Booking Ref.",
+    dateLabel: "Travel Date", totalLabel: "Amount Paid", itemLayout: "simple", itemsLabel: "Travel Details",
+    accent: "#0ea5e9", badge: "Travel",
   },
   other: {
     primaryLabel: "Entity", nameLabel: "Name", refLabel: "Reference No.",
