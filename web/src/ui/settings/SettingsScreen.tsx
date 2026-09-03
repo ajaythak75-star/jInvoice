@@ -501,14 +501,20 @@ export function SettingsScreen({ onSignOut }: Props) {
             </span>
           )}
         </div>
+
+        {!isProActive && (
+          <p style={{ fontSize: 12.5, color: "var(--color-text-secondary)", fontStyle: "italic", marginBottom: 14 }}>
+            Activate Pro from the <strong>Pricing</strong> tab to use your own API keys.
+          </p>
+        )}
+
         <div className="settings-field">
           <label className="settings-field-label">Gemini API Key</label>
           <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginBottom: 6 }}>
-            {isProActive
-              ? <>Use your own Gemini API key instead of the shared server key. <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" style={{ color: "var(--color-primary)", textDecoration: "none" }}>Get key →</a></>
-              : "Upgrade to Pro to use your own Gemini API key and avoid shared quota limits."}
+            Use your own Gemini API key instead of the shared server key.
+            {isProActive && <> <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" style={{ color: "var(--color-primary)", textDecoration: "none" }}>Get key →</a></>}
           </p>
-          {isProActive ? (
+          {isProActive && (
             <div style={{ display: "flex", gap: 8 }}>
               <input
                 type="password"
@@ -538,21 +544,16 @@ export function SettingsScreen({ onSignOut }: Props) {
                 </button>
               )}
             </div>
-          ) : (
-            <p style={{ fontSize: 12.5, color: "var(--color-text-secondary)", fontStyle: "italic" }}>
-              Activate Pro from the <strong>Pricing</strong> tab to use your own API keys.
-            </p>
           )}
         </div>
 
         <div className="settings-field" style={{ marginTop: 16 }}>
           <label className="settings-field-label">OpenAI API Key</label>
           <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginBottom: 6 }}>
-            {isProActive
-              ? <>Use your own OpenAI API key for GPT-4o-mini invoice extraction. <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" style={{ color: "var(--color-primary)", textDecoration: "none" }}>Get key →</a></>
-              : "Upgrade to Pro to use your own OpenAI API key."}
+            Use your own OpenAI API key for GPT-4o-mini invoice extraction.
+            {isProActive && <> <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" style={{ color: "var(--color-primary)", textDecoration: "none" }}>Get key →</a></>}
           </p>
-          {isProActive ? (
+          {isProActive && (
             <div style={{ display: "flex", gap: 8 }}>
               <input
                 type="password"
@@ -582,7 +583,7 @@ export function SettingsScreen({ onSignOut }: Props) {
                 </button>
               )}
             </div>
-          ) : null}
+          )}
         </div>
 
         <div className="settings-field" style={{ marginTop: 16 }}>
