@@ -34,6 +34,7 @@ export function SettingsScreen({ onSignOut }: Props) {
   const [activeMode, setActiveMode] = useState<UserProfile>(() => prefs.activeMode);
   const [societyName, setSocietyName] = useState(() => prefs.societyName);
   const [showProfileConfirm, setShowProfileConfirm] = useState<Exclude<UserProfile, "personal"> | null>(null);
+  const [selectedProfile, setSelectedProfile] = useState<Exclude<UserProfile, "personal">>("society");
 
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
@@ -236,28 +237,39 @@ export function SettingsScreen({ onSignOut }: Props) {
           <>
             {isProActive ? (
               <>
-                <p style={{ fontSize: 12, color: "var(--color-text-secondary)", margin: "12px 0 4px" }}>
+                <p style={{ fontSize: 12, color: "var(--color-text-secondary)", margin: "12px 0 8px" }}>
                   Choose a professional profile to enable category auto-detection. This cannot be changed later.
                 </p>
-                {(["society", "shopkeeper", "tax_consultant", "ca", "real_estate", "advocate", "bookkeeper"] as Exclude<UserProfile, "personal">[]).map((profile) => (
-                  <div key={profile} className="settings-row" style={{ marginTop: 8 }}>
-                    <span className="settings-row-label">
-                      {profile === "society" ? "Housing Society" : PROFESSIONAL_PROFILE_LABEL[profile as ProfessionalProfile]}
-                    </span>
-                    <button
-                      onClick={() => setShowProfileConfirm(profile)}
-                      style={{
-                        padding: "5px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600, flexShrink: 0,
-                        cursor: "pointer",
-                        border: "1px solid var(--color-border)",
-                        background: "var(--color-surface)",
-                        color: "var(--color-text)",
-                      }}
-                    >
-                      Set up
-                    </button>
-                  </div>
-                ))}
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <select
+                    value={selectedProfile}
+                    onChange={(e) => setSelectedProfile(e.target.value as Exclude<UserProfile, "personal">)}
+                    style={{
+                      flex: 1, padding: "7px 10px", borderRadius: 6, fontSize: 13,
+                      border: "1px solid var(--color-border)",
+                      background: "var(--color-bg)", color: "var(--color-text)",
+                      outline: "none", cursor: "pointer",
+                    }}
+                  >
+                    {(["society", "shopkeeper", "tax_consultant", "ca", "real_estate", "advocate", "bookkeeper"] as Exclude<UserProfile, "personal">[]).map((profile) => (
+                      <option key={profile} value={profile}>
+                        {profile === "society" ? "Housing Society" : PROFESSIONAL_PROFILE_LABEL[profile as ProfessionalProfile]}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => setShowProfileConfirm(selectedProfile)}
+                    style={{
+                      padding: "7px 16px", borderRadius: 6, fontSize: 12, fontWeight: 600, flexShrink: 0,
+                      cursor: "pointer",
+                      border: "1px solid var(--color-border)",
+                      background: "var(--color-surface)",
+                      color: "var(--color-text)",
+                    }}
+                  >
+                    Set up
+                  </button>
+                </div>
               </>
             ) : null}
           </>
