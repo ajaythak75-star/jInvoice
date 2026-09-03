@@ -160,7 +160,11 @@ function mergeClaudeData(invoice: ExtractedInvoice, data: ClaudeInvoiceData): Ex
     subtotalPaise:   data.subtotalInr   != null ? Math.round(data.subtotalInr * 100)      : invoice.subtotalPaise,
     discountPaise:   data.discountInr   != null ? Math.round(data.discountInr * 100)      : invoice.discountPaise,
     taxPaise:        data.gstAmountInr  != null ? Math.round(data.gstAmountInr * 100)     : invoice.taxPaise,
-    grandTotalPaise: data.finalPaymentInr != null ? Math.round(data.finalPaymentInr * 100) : invoice.grandTotalPaise,
+    grandTotalPaise: data.finalPaymentInr != null
+      ? Math.round(data.finalPaymentInr * 100)
+      : (data.items?.length > 0
+          ? data.items.reduce((sum, it) => sum + Math.round(it.amountInr * 100), 0)
+          : invoice.grandTotalPaise),
     lineItems: (data.items ?? []).length > 0
       ? (data.items ?? []).map((it) => ({
           name:            it.name,

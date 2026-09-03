@@ -279,7 +279,8 @@ function resolveEntry(entry: UploadEntry) {
       gstAmountInr:   claude.gstAmountInr,
       dateOfPurchase: claude.dateOfPurchase,
       discountInr:    claude.discountInr,
-      finalPaymentInr: claude.finalPaymentInr,
+      finalPaymentInr: claude.finalPaymentInr ??
+        (claude.items?.length > 0 ? claude.items.reduce((sum, it) => sum + it.amountInr, 0) : null),
       items:          claude.items,
       source:         "claude" as const,
     };
