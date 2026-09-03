@@ -226,6 +226,10 @@ export function AutoImportSettings() {
   const [syncTime,     setSyncTime]     = useState(() => prefs.syncTime);
   const [showProBanner, setShowProBanner] = useState(false);
   const [folderWarning, setFolderWarning] = useState<"sync" | "upload" | null>(null);
+  const [manualUploadCount, setManualUploadCount] = useState(0);
+  const [uploadLimitMsg, setUploadLimitMsg] = useState<string | null>(null);
+
+  const FREE_UPLOAD_LIMIT = 5;
 
   // Gmail label picker state
   const [gmailLabels,        setGmailLabels]        = useState<{ id: string; name: string }[]>([]);
@@ -446,6 +450,13 @@ export function AutoImportSettings() {
     };
   }, []);
 
+  // Load manual upload count for free-tier limit tracking
+  const refreshManualCount = async () => {
+    const count = await db.invoices.where("importSource").equals("manual_upload").count();
+    setManualUploadCount(count);
+  };
+  useEffect(() => { refreshManualCount(); }, []);
+
   // Auto-sync check on mount
   useEffect(() => {
     const schedule = prefs.syncSchedule;
@@ -466,8 +477,24 @@ export function AutoImportSettings() {
     poll().catch(console.error);
   }, []);
 
-  const processFiles = async (files: File[]) => {
+  const processFiles = async (filesArg: File[]) => {
+    let files = filesArg;
     if (!files.length) return;
+    setUploadLimitMsg(null);
+
+    if (!prefs.isProActive) {
+      const currentCount = await db.invoices.where("importSource").equals("manual_upload").count();
+      const remaining = FREE_UPLOAD_LIMIT - currentCount;
+      if (remaining <= 0) {
+        setUploadLimitMsg(`Free plan limit reached (${FREE_UPLOAD_LIMIT} manual uploads). Upgrade to Pro for unlimited uploads.`);
+        return;
+      }
+      if (files.length > remaining) {
+        setUploadLimitMsg(`Free plan allows ${FREE_UPLOAD_LIMIT} manual uploads total. You can upload ${remaining} more file${remaining === 1 ? "" : "s"}.`);
+        files = files.slice(0, remaining);
+      }
+    }
+
     const folderReady = prefs.desktopFolderName ? await desktopConnector.restoreFolder() : false;
     setFileQueue(files.map(f => ({ name: f.name, status: "waiting" })));
     for (let i = 0; i < files.length; i++) {
@@ -491,6 +518,7 @@ export function AutoImportSettings() {
       setFileQueue(q => q.map((e, idx) => idx === i ? { ...e, status: "done", result: r, invoiceId } : e));
     }
     if (fileInputRef.current) fileInputRef.current.value = "";
+    await refreshManualCount();
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -647,11 +675,22 @@ export function AutoImportSettings() {
             onDrop={handleDrop}
             style={dragging ? { borderColor: "var(--color-primary)", background: "var(--accent-subtle)", transition: "background 0.15s, border-color 0.15s" } : { transition: "background 0.15s, border-color 0.15s" }}
           >
-            <h3>Manual Upload</h3>
+            <h3 style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              Manual Upload
+              {!prefs.isProActive && (
+                <span style={{ fontSize: 11, fontWeight: 600, color: manualUploadCount >= FREE_UPLOAD_LIMIT ? "#ef4444" : "var(--color-text-tertiary)", background: "var(--color-surface-2)", borderRadius: 4, padding: "1px 6px" }}>
+                  {manualUploadCount}/{FREE_UPLOAD_LIMIT} free uploads used
+                </span>
+              )}
+            </h3>
             <input ref={fileInputRef} type="file" accept=".pdf" multiple style={{ display: "none" }} onChange={handleFileUpload} />
             <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
               <button className="btn-sync"
                 onClick={() => {
+                  if (!prefs.isProActive && manualUploadCount >= FREE_UPLOAD_LIMIT) {
+                    setUploadLimitMsg(`Free plan limit reached (${FREE_UPLOAD_LIMIT} manual uploads). Upgrade to Pro for unlimited uploads.`);
+                    return;
+                  }
                   if (!prefs.desktopFolderName) { setFolderWarning("upload"); return; }
                   fileInputRef.current?.click();
                 }}
@@ -661,6 +700,11 @@ export function AutoImportSettings() {
               </button>
               <span style={{ fontSize: 12, color: "var(--color-text-tertiary)" }}>or drag &amp; drop PDFs here</span>
             </div>
+            {uploadLimitMsg && (
+              <div style={{ marginTop: 8, fontSize: 12, color: "#ef4444", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 6, padding: "8px 12px" }}>
+                {uploadLimitMsg}
+              </div>
+            )}
             {fileQueue.length > 0 && (
               <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 3 }}>
                 {fileQueue.map((entry, i) => {
