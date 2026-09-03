@@ -515,7 +515,7 @@ app.post("/api/gemini", async (req, res) => {
   const userKey = (req.headers["x-gemini-key"] ?? "").toString().trim();
   const effectiveKey = userKey || GEMINI_API_KEY;
   if (!effectiveKey) return res.status(503).json({ error: "No Gemini API key configured. Add your key in Settings → API Keys." });
-  const { model = "gemini-2.0-flash", ...body } = req.body ?? {};
+  const { model = "gemini-3.5-flash-lite", ...body } = req.body ?? {};
   try {
     const upstream = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${effectiveKey}`,
