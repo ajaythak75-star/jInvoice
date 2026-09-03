@@ -3,7 +3,8 @@ import { db } from "../data/InvoiceDatabase";
 
 export type BulkState = { running: boolean; done: number; total: number };
 
-const CONCURRENCY = 2;
+const CONCURRENCY = 1;
+const INTER_REQUEST_DELAY_MS = 3_000; // avoid Gemini free-tier rate limits
 
 let _state: BulkState = { running: false, done: 0, total: 0 };
 
@@ -46,6 +47,8 @@ export async function runBulkExtraction(ids: number[]): Promise<void> {
         notify();
         // Trigger list refresh so the card updates in real time
         window.dispatchEvent(new CustomEvent("jinvoice:sync-progress"));
+        // Brief pause between requests to stay within Gemini free-tier rate limits
+        if (queue.length > 0) await new Promise((r) => setTimeout(r, INTER_REQUEST_DELAY_MS));
       }
     })
   );
