@@ -200,13 +200,22 @@ function FolderPicker({
 
 type PendingConsent = "gmail" | "outlook" | "imap" | null;
 
-type FileEntry = { name: string; status: "waiting" | "processing" | "done"; result?: ExtractionResult; invoiceId?: number; cloudSaved?: boolean; cloudSaving?: boolean };
+type FileEntry = { name: string; status: "waiting" | "processing" | "done"; result?: ExtractionResult; invoiceId?: number; cloudSaved?: boolean; cloudSaving?: boolean; savedAs?: string };
 type DetailView = { inv: ExtractedInvoice; filename: string };
 
-function uploadResultMessage(r: ExtractionResult): string {
+function buildDuplicateName(inv: ExtractedInvoice, fallback: string): string {
+  const sanitize = (s: string) => s.replace(/[/\\:*?"<>|]/g, "_").replace(/\s+/g, "_").trim();
+  const parts: string[] = [];
+  if (inv.merchantName)  parts.push(sanitize(inv.merchantName).slice(0, 40));
+  if (inv.invoiceDate)   parts.push(sanitize(inv.invoiceDate));
+  if (inv.invoiceNumber) parts.push(sanitize(inv.invoiceNumber).slice(0, 20));
+  return (parts.length ? parts.join("_") : fallback.replace(/\.pdf$/i, "")) + ".pdf";
+}
+
+function uploadResultMessage(r: ExtractionResult, savedAs?: string): string {
   if (r.kind === "success")            return `Saved — ${r.invoice.merchantName ?? "Invoice"}`;
   if (r.kind === "lowConfidence")      return `Saved for review (${Math.round(r.invoice.confidenceScore * 100)}% confidence)`;
-  if (r.kind === "duplicate")          return `Duplicate — ${r.invoice.merchantName ?? "Invoice"} already saved`;
+  if (r.kind === "duplicate")          return savedAs ? `Duplicate saved as ${savedAs}` : `Duplicate — ${r.invoice.merchantName ?? "Invoice"} already saved`;
   if (r.kind === "encryptedPdf")       return "Encrypted PDF — cannot read";
   if (r.kind === "dailyLimitReached")  return `Daily limit reached (${r.limit}/day on Free plan). Upgrade to Pro.`;
   if (r.kind === "pendingExtraction")  return "Queued — open in View tab to extract with AI";
@@ -571,6 +580,7 @@ export function AutoImportSettings() {
       setFileQueue(q => q.map((e, idx) => idx === i ? { ...e, status: "processing" } : e));
       const r = await processFile(files[i], "manual_upload", undefined, { skipAll: true });
       let invoiceId: number | undefined;
+      let savedAs: string | undefined;
       if (r.kind === "success" || r.kind === "lowConfidence" || r.kind === "pendingExtraction") {
         if (folderReady) {
           const bytes = new Uint8Array(await files[i].arrayBuffer());
@@ -578,8 +588,13 @@ export function AutoImportSettings() {
         }
         const last = await db.invoices.orderBy("id").last();
         if (last?.id != null) invoiceId = last.id as number;
+      } else if (r.kind === "duplicate" && folderReady) {
+        const filename = buildDuplicateName(r.invoice, files[i].name);
+        const bytes = new Uint8Array(await files[i].arrayBuffer());
+        await desktopConnector.saveInvoiceToFolder(bytes, filename, "Duplicates");
+        savedAs = filename;
       }
-      setFileQueue(q => q.map((e, idx) => idx === i ? { ...e, status: "done", result: r, invoiceId } : e));
+      setFileQueue(q => q.map((e, idx) => idx === i ? { ...e, status: "done", result: r, invoiceId, savedAs } : e));
     }
     if (fileInputRef.current) fileInputRef.current.value = "";
     await refreshManualCount();
@@ -776,23 +791,26 @@ export function AutoImportSettings() {
                   const isOk  = r?.kind === "success";
                   const isWrn = r?.kind === "lowConfidence";
                   const isPending = r?.kind === "pendingExtraction";
+                  const isDup = r?.kind === "duplicate" && !!entry.savedAs;
                   const color = entry.status !== "done" ? "var(--color-text-tertiary)"
                     : isOk      ? "#22c55e"
                     : isWrn     ? "#f59e0b"
                     : isPending ? "#8b5cf6"
+                    : isDup     ? "#f97316"
                     : "#ef4444";
                   const icon = entry.status === "waiting"    ? "·"
                     : entry.status === "processing" ? "…"
                     : isOk      ? "✓"
                     : isWrn     ? "⚠"
                     : isPending ? "⏳"
+                    : isDup     ? "⧉"
                     : "✗";
                   return (
                     <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, padding: "5px 8px", borderRadius: 6, background: "var(--color-surface-2)" }}>
                       <span style={{ width: 12, textAlign: "center", color, fontWeight: 700, flexShrink: 0 }}>{icon}</span>
                       <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--color-text-secondary)" }}>{entry.name}</span>
                       {entry.status === "done" && r && (
-                        <span style={{ fontSize: 11, color, whiteSpace: "nowrap", flexShrink: 0 }}>{uploadResultMessage(r)}</span>
+                        <span style={{ fontSize: 11, color, whiteSpace: "nowrap", flexShrink: 0 }}>{uploadResultMessage(r, entry.savedAs)}</span>
                       )}
                       {entry.status === "done" && (r?.kind === "success" || r?.kind === "lowConfidence") && (
                         <>
