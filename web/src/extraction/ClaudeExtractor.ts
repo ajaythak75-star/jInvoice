@@ -56,7 +56,7 @@ Rules:
 
 // Always proxy Gemini calls through the server — keeps the API key server-side,
 // avoids CORS, and works identically in Electron and web/Render.
-const GEMINI_MODEL = "gemini-3.6-flash";
+const GEMINI_MODEL = "gemini-2.5-flash";
 
 function geminiEndpoint(): { url: string; isProxy: boolean } {
   return { url: "/api/gemini", isProxy: true };
@@ -64,7 +64,7 @@ function geminiEndpoint(): { url: string; isProxy: boolean } {
 
 function parseGeminiResponse(data: unknown): ClaudeInvoiceData {
   const parts: any[] = (data as any)?.candidates?.[0]?.content?.parts ?? [];
-  // Thinking models (gemini-3.6-flash) prepend a thought part (thought:true) before the output part.
+  // Some models prepend a thought part (thought:true) before the output part.
   // Always use the first non-thought part as the model's actual response.
   const outputPart = parts.find((p: any) => !p.thought) ?? parts[0] ?? {};
   const text: string = outputPart.text ?? "{}";

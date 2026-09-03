@@ -297,7 +297,7 @@ app.post("/api/mobile/ack", async (req, res) => {
 
 // ── [MOBILE] Gemini extraction ────────────────────────────────────────────────
 
-const GEMINI_MODEL = "gemini-3.6-flash";
+const GEMINI_MODEL = "gemini-2.5-flash";
 const EXTRACTION_PROMPT = `You are an invoice data extractor for Indian businesses. Extract the following fields and respond ONLY with valid JSON, no explanation or markdown.
 
 {
@@ -515,7 +515,7 @@ app.post("/api/gemini", async (req, res) => {
   const userKey = (req.headers["x-gemini-key"] ?? "").toString().trim();
   const effectiveKey = userKey || GEMINI_API_KEY;
   if (!effectiveKey) return res.status(503).json({ error: "No Gemini API key configured. Add your key in Settings → API Keys." });
-  const { model = "gemini-3.6-flash", ...body } = req.body ?? {};
+  const { model = "gemini-2.5-flash", ...body } = req.body ?? {};
   try {
     const upstream = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${effectiveKey}`,
