@@ -96,11 +96,21 @@ async function geminiPost(url: string, body: Record<string, unknown>, label: str
   });
 
   let resp = await attempt();
-  for (let retry = 0; retry < 2 && resp.status === 429; retry++) {
-    const wait = (retry + 1) * 60_000;
-    console.warn(`[Gemini] ${label} rate-limited — retrying in ${wait / 1000}s (attempt ${retry + 2}/3)`);
-    await new Promise((r) => setTimeout(r, wait));
-    resp = await attempt();
+  if (resp.status === 429) {
+    // Check if this is a daily quota exhaustion (not a per-minute rate limit).
+    // Daily quota won't recover within minutes — fail fast with a clear message.
+    const body = await resp.text().catch(() => "");
+    if (body.includes("PerDay") || body.includes("RESOURCE_EXHAUSTED")) {
+      throw new Error(`Gemini daily quota exhausted. Try again tomorrow or add your own Gemini API key in Settings.`);
+    }
+    // Per-minute rate limit — retry with back-off.
+    for (let retry = 0; retry < 2; retry++) {
+      const wait = (retry + 1) * 60_000;
+      console.warn(`[Gemini] ${label} rate-limited — retrying in ${wait / 1000}s (attempt ${retry + 2}/3)`);
+      await new Promise((r) => setTimeout(r, wait));
+      resp = await attempt();
+      if (resp.status !== 429) break;
+    }
   }
 
   if (!resp.ok) {

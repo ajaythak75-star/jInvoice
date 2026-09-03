@@ -33,22 +33,30 @@ export async function runBulkExtraction(ids: number[]): Promise<void> {
   notify();
 
   const queue = [...toProcess];
+  let quotaExhausted = false;
 
   await Promise.all(
     Array.from({ length: Math.min(CONCURRENCY, toProcess.length) }, async () => {
-      while (queue.length > 0) {
+      while (queue.length > 0 && !quotaExhausted) {
         const id = queue.shift()!;
         try {
           await extractInvoiceWithAI(id);
         } catch (e) {
-          console.error("[BulkExtract] failed for id", id, e);
+          const msg = e instanceof Error ? e.message : String(e);
+          if (msg.includes("daily quota exhausted")) {
+            quotaExhausted = true;
+            console.warn("[BulkExtract] Gemini daily quota exhausted — stopping batch.");
+            window.dispatchEvent(new CustomEvent("jinvoice:quota-exhausted", { detail: { message: msg } }));
+          } else {
+            console.error("[BulkExtract] failed for id", id, e);
+          }
         }
         _state = { ..._state, done: _state.done + 1 };
         notify();
         // Trigger list refresh so the card updates in real time
         window.dispatchEvent(new CustomEvent("jinvoice:sync-progress"));
         // Brief pause between requests to stay within Gemini free-tier rate limits
-        if (queue.length > 0) await new Promise((r) => setTimeout(r, INTER_REQUEST_DELAY_MS));
+        if (queue.length > 0 && !quotaExhausted) await new Promise((r) => setTimeout(r, INTER_REQUEST_DELAY_MS));
       }
     })
   );

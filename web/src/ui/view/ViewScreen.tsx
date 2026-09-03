@@ -982,6 +982,7 @@ export function ViewScreen() {
   const [previewCloudSaving, setPreviewCloudSaving] = useState(false);
   const [aiExtracting, setAiExtracting] = useState(false);
   const [bulkState, setBulkState] = useState<BulkState>(() => getBulkExtractionState());
+  const [quotaError, setQuotaError] = useState<string | null>(null);
   const [warrantyItems, setWarrantyItems] = useState<WarrantyPromptItem[]>([]);
   const pendingBulkIds = useRef<number[]>([]);
   const uploadInputRef = useRef<HTMLInputElement>(null);
@@ -1044,10 +1045,16 @@ export function ViewScreen() {
       setBulkState((e as CustomEvent<BulkState>).detail);
     };
     window.addEventListener("jinvoice:bulk-extract-progress", onBulkProgress);
+    const onQuotaExhausted = (e: Event) => {
+      const msg = (e as CustomEvent<{ message: string }>).detail?.message ?? "Gemini daily quota exhausted. Try again tomorrow or add your own API key in Settings.";
+      setQuotaError(msg);
+    };
+    window.addEventListener("jinvoice:quota-exhausted", onQuotaExhausted);
     return () => {
       window.removeEventListener("jinvoice:sync-complete", onSyncComplete);
       window.removeEventListener("jinvoice:sync-progress", load);
       window.removeEventListener("jinvoice:bulk-extract-progress", onBulkProgress);
+      window.removeEventListener("jinvoice:quota-exhausted", onQuotaExhausted);
     };
   }, []);
 
@@ -1387,6 +1394,11 @@ export function ViewScreen() {
               <button className="btn-sm" onClick={() => uploadInputRef.current?.click()} disabled={previewLoading}>
                 {previewLoading ? "Extracting…" : "+ Upload PDF"}
               </button>
+            {quotaError && (
+              <div style={{ fontSize: 12, color: "#b45309", background: "#fef3c7", border: "1px solid #fcd34d", borderRadius: 6, padding: "4px 10px", maxWidth: 340, cursor: "pointer" }} onClick={() => setQuotaError(null)} title="Click to dismiss">
+                ⚠ {quotaError}
+              </div>
+            )}
             {(() => {
               const selectedPending = records.filter(
                 (r) => r.id != null && selected.has(r.id) && r.status === "pending_extraction"
@@ -1397,7 +1409,7 @@ export function ViewScreen() {
                   className="btn-sm"
                   disabled={bulkState.running || selectedPending.length === 0}
                   style={{ background: "#8b5cf6", color: "#fff", border: "none", fontWeight: 700, opacity: hasWork ? 1 : 0.5 }}
-                  onClick={handleBulkExtract}
+                  onClick={() => { setQuotaError(null); handleBulkExtract(); }}
                 >
                   {bulkState.running
                     ? `Extracting ${bulkState.done}/${bulkState.total}…`
