@@ -19,6 +19,7 @@ const AZURE_CLIENT_SECRET  = process.env.AZURE_CLIENT_SECRET  ?? "";
 const PORT                 = Number(process.env.PORT ?? 3000);
 const SUPABASE_URL         = process.env.SUPABASE_URL         ?? "";
 const SUPABASE_ANON_KEY    = process.env.SUPABASE_ANON_KEY    ?? "";
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY ?? "";
 const STRIPE_SECRET_KEY    = process.env.STRIPE_SECRET_KEY    ?? "";
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET ?? "";
 // Price IDs from your Stripe dashboard
@@ -470,11 +471,16 @@ app.get("/api/local-info", (req, res) => {
 // ── Subscription / pricing ────────────────────────────────────────────────
 
 async function sbFetch(path, token, opts = {}) {
+  const method = (opts.method ?? "GET").toUpperCase();
+  const isWrite = method === "POST" || method === "PATCH" || method === "PUT" || method === "DELETE";
+  // Use service key for server-side writes so RLS doesn't block inserts on new rows.
+  // Reads still use the user JWT so RLS row-isolation still applies there.
+  const authKey = isWrite && SUPABASE_SERVICE_KEY ? SUPABASE_SERVICE_KEY : token;
   const r = await fetch(`${SUPABASE_URL}/rest/v1${path}`, {
     ...opts,
     headers: {
-      apikey: SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${token}`,
+      apikey: isWrite && SUPABASE_SERVICE_KEY ? SUPABASE_SERVICE_KEY : SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${authKey}`,
       "Content-Type": "application/json",
       Prefer: opts.upsert ? "resolution=merge-duplicates" : "return=representation",
       ...opts.headers,

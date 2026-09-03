@@ -108,11 +108,11 @@ app.post("/api/stripe-webhook", express.raw({ type: "application/json" }), async
     const obj = event.data.object;
     const customerId = obj.customer;
     const subscriptionId = obj.subscription ?? null;
-    if (customerId && SUPABASE_URL && SUPABASE_ANON_KEY) {
+    if (customerId && SUPABASE_URL && SUPABASE_SERVICE_KEY) {
       try {
         const lookup = await fetch(
           `${SUPABASE_URL}/rest/v1/subscriptions?stripe_customer_id=eq.${customerId}&select=user_id`,
-          { headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } }
+          { headers: { apikey: SUPABASE_SERVICE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_KEY}` } }
         );
         const rows = await lookup.json();
         if (rows?.[0]?.user_id) {
@@ -120,8 +120,8 @@ app.post("/api/stripe-webhook", express.raw({ type: "application/json" }), async
           await fetch(`${SUPABASE_URL}/rest/v1/subscriptions?user_id=eq.${rows[0].user_id}`, {
             method: "PATCH",
             headers: {
-              apikey: SUPABASE_ANON_KEY,
-              Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+              apikey: SUPABASE_SERVICE_KEY,
+              Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`,
               "Content-Type": "application/json",
             },
             body: JSON.stringify({
@@ -155,11 +155,14 @@ async function validateSupabaseJWT_proxy(token) {
 }
 
 async function sbFetch_proxy(path, token, opts = {}) {
+  const method = (opts.method ?? "GET").toUpperCase();
+  const isWrite = method === "POST" || method === "PATCH" || method === "PUT" || method === "DELETE";
+  const authKey = isWrite && SUPABASE_SERVICE_KEY ? SUPABASE_SERVICE_KEY : token;
   const r = await fetch(`${SUPABASE_URL}/rest/v1${path}`, {
     ...opts,
     headers: {
-      apikey: SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${token}`,
+      apikey: isWrite && SUPABASE_SERVICE_KEY ? SUPABASE_SERVICE_KEY : SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${authKey}`,
       "Content-Type": "application/json",
       Prefer: "return=representation",
       ...opts.headers,

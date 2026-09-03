@@ -192,15 +192,32 @@ export async function isDuplicateByFilename(filename: string): Promise<boolean> 
   return count > 0;
 }
 
+// Returns a filename with _duplicate(N) suffix that doesn't yet exist in the DB.
+// e.g. "bill.pdf" → "bill_duplicate(1).pdf", or "bill_duplicate(2).pdf" if 1 is taken.
+export async function nextDuplicateFilename(baseFilename: string): Promise<string> {
+  const dotIdx = baseFilename.lastIndexOf(".");
+  const stem = dotIdx >= 0 ? baseFilename.slice(0, dotIdx) : baseFilename;
+  const ext  = dotIdx >= 0 ? baseFilename.slice(dotIdx) : "";
+  let n = 1;
+  while (n < 100) {
+    const candidate = `${stem}_duplicate(${n})${ext}`;
+    const count = await db.invoices.where("sourceFilename").equals(candidate).count();
+    if (count === 0) return candidate;
+    n++;
+  }
+  return `${stem}_duplicate(${Date.now()})${ext}`;
+}
+
 export async function isDuplicateInvoice(
   merchantName: string | null,
   grandTotalPaise: number | null,
   invoiceDate: string | null,
   excludeId?: number,
+  invoiceNumber?: string | null,
 ): Promise<boolean> {
   if (!merchantName || grandTotalPaise == null || !invoiceDate) return false;
   const lower = merchantName.toLowerCase();
-  const count = await db.invoices
+  const candidates = await db.invoices
     .filter(
       (inv) =>
         inv.merchantName?.toLowerCase() === lower &&
@@ -209,8 +226,20 @@ export async function isDuplicateInvoice(
         (inv.status === "imported" || inv.status === "pending_review") &&
         inv.id !== excludeId,
     )
-    .count();
-  return count > 0;
+    .toArray();
+
+  if (candidates.length === 0) return false;
+
+  // If this invoice has a known invoice number, only count candidates with the SAME number
+  // (or no number). Different invoice numbers on the same merchant+amount+date = distinct bills.
+  if (invoiceNumber?.trim()) {
+    const num = invoiceNumber.trim().toLowerCase();
+    return candidates.some(
+      (c) => !c.invoiceNumber?.trim() || c.invoiceNumber.trim().toLowerCase() === num,
+    );
+  }
+
+  return true;
 }
 
 export async function isAlreadyImported(messageId: string): Promise<boolean> {
@@ -242,25 +271,37 @@ function dedupKey(inv: InvoiceMeta): string | null {
 
 export async function deduplicateInvoices(): Promise<number> {
   const all = await db.invoices.orderBy("id").toArray();
-  const best = new Map<string, InvoiceMeta>(); // key → record to keep
+  const groups = new Map<string, InvoiceMeta[]>();
 
   for (const inv of all) {
     const key = dedupKey(inv);
     if (!key) continue;
-    const existing = best.get(key);
-    if (!existing) {
-      best.set(key, inv);
-    } else {
-      const invRank = STATUS_RANK[inv.status] ?? 0;
-      const exRank  = STATUS_RANK[existing.status] ?? 0;
-      if (invRank > exRank) best.set(key, inv); // keep better-quality record
-    }
+    const group = groups.get(key) ?? [];
+    group.push(inv);
+    groups.set(key, group);
   }
 
-  const keepIds = new Set(Array.from(best.values()).map((r) => r.id!));
-  const toDelete = all
-    .filter((r) => r.id != null && dedupKey(r) !== null && !keepIds.has(r.id!))
-    .map((r) => r.id!);
+  const toDelete: number[] = [];
+
+  for (const group of groups.values()) {
+    if (group.length <= 1) continue;
+
+    // Records in the same merchant+amount+date group that have DIFFERENT invoice numbers
+    // are distinct bills — do not collapse them.
+    const invoiceNums = group
+      .map((r) => r.invoiceNumber?.trim().toLowerCase())
+      .filter(Boolean) as string[];
+    const uniqueNums = new Set(invoiceNums);
+    if (uniqueNums.size > 1) continue;
+
+    // Keep the best-quality record, delete the rest
+    const ranked = [...group].sort(
+      (a, b) => (STATUS_RANK[b.status] ?? 0) - (STATUS_RANK[a.status] ?? 0),
+    );
+    for (const inv of ranked.slice(1)) {
+      if (inv.id != null) toDelete.push(inv.id);
+    }
+  }
 
   if (toDelete.length > 0) {
     await db.transaction("rw", db.invoices, db.lineItems, async () => {

@@ -12,7 +12,7 @@ const VALID_GST_RATES = [0, 5, 12, 18, 28];
 
 type InvoiceFields = Pick<
   InvoiceMeta,
-  "id" | "merchantName" | "grandTotalPaise" | "invoiceDate" | "taxPaise" | "discountPaise" | "subtotalPaise" | "merchantGstin"
+  "id" | "merchantName" | "grandTotalPaise" | "invoiceDate" | "taxPaise" | "discountPaise" | "subtotalPaise" | "merchantGstin" | "invoiceNumber"
 >;
 
 export async function detectBillIssues(inv: InvoiceFields): Promise<BillIssue[]> {
@@ -28,7 +28,10 @@ export async function detectBillIssues(inv: InvoiceFields): Promise<BillIssue[]>
       (r) =>
         r.id !== inv.id &&
         r.grandTotalPaise === inv.grandTotalPaise &&
-        r.invoiceDate === inv.invoiceDate,
+        r.invoiceDate === inv.invoiceDate &&
+        // Different invoice numbers → distinct bills, not a duplicate
+        !(inv.invoiceNumber?.trim() && r.invoiceNumber?.trim() &&
+          inv.invoiceNumber.trim().toLowerCase() !== r.invoiceNumber.trim().toLowerCase()),
     );
     if (dupe) {
       issues.push({

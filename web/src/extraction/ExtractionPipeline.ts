@@ -9,7 +9,7 @@ import { enhanceWithClaude, enhanceWithClaudeVision } from "./ClaudeExtractor";
 import { renderPdfToImages } from "./WebPdfRenderer";
 import { blurScoreFromBase64 } from "./BlurDetector";
 import { extractLocalDoc } from "./LocalDocExtractor";
-import { db, insertInvoiceWithItems, isDuplicateInvoice, isDuplicateByFilename, markAsDuplicate } from "../data/InvoiceDatabase";
+import { db, insertInvoiceWithItems, isDuplicateInvoice, isDuplicateByFilename, markAsDuplicate, nextDuplicateFilename } from "../data/InvoiceDatabase";
 import type { InvoicePdfFile } from "../data/InvoiceDatabase";
 import { detectCategory } from "../core/extraction/CategoryDetector";
 import { detectSocietyCategory } from "../core/extraction/SocietyExpenseDetector";
@@ -175,6 +175,7 @@ export async function processFile(
         classification === "native" ? "NATIVE_PDF" :
         classification === "scanned" ? "SCANNED_PDF" : "MIXED_PDF";
       const now = new Date().toISOString();
+      const dupFilename = await nextDuplicateFilename(file.name);
       await insertInvoiceWithItems(
         {
           merchantName: null, merchantAddress: null, merchantGstin: null,
@@ -183,7 +184,7 @@ export async function processFile(
           taxPaise: null, paymentMode: null,
           importSource, pdfSourceType, importRecordId: null,
           status: "duplicate", docType: "other", docTypes: ["other"],
-          sourceFilename: file.name,
+          sourceFilename: dupFilename,
           subject: meta?.subject, senderEmail: meta?.senderEmail, receivedAt: meta?.receivedAt, accountEmail: meta?.accountEmail,
           createdAt: now, updatedAt: now,
         },
@@ -416,6 +417,7 @@ async function persistResultWithNote(
     if (sourceFilename && (filenameKnown || await isDuplicateByFilename(sourceFilename))) {
       console.log("[Pipeline] filename duplicate:", sourceFilename);
       const docTypes = detectDocType(inv.merchantName, inv.lineItems.map(li => li.name), sourceFilename, meta?.subject, inv.rawText);
+      const dupFilename = await nextDuplicateFilename(sourceFilename);
       await insertInvoiceWithItems(
         {
           merchantName: inv.merchantName, merchantAddress: inv.merchantAddress,
@@ -425,7 +427,7 @@ async function persistResultWithNote(
           discountPaise: inv.discountPaise, taxPaise: inv.taxPaise, paymentMode: inv.paymentMode,
           importSource, pdfSourceType: inv.sourceType, importRecordId: null,
           status: "duplicate", category: detectCategory(inv.merchantName, inv.lineItems.map(li => li.name)),
-          docType: docTypes[0], docTypes, sourceFilename,
+          docType: docTypes[0], docTypes, sourceFilename: dupFilename,
           subject: meta?.subject, senderEmail: meta?.senderEmail, receivedAt: meta?.receivedAt, accountEmail: meta?.accountEmail,
           extractionNote: extractionNote ?? null,
           createdAt: now, updatedAt: now,
@@ -435,8 +437,8 @@ async function persistResultWithNote(
       return true;
     }
 
-    // Content duplicate — same merchant + total + date already saved; skip silently
-    if (await isDuplicateInvoice(inv.merchantName, inv.grandTotalPaise, inv.invoiceDate)) {
+    // Content duplicate — same merchant + total + date AND same (or absent) invoice number
+    if (await isDuplicateInvoice(inv.merchantName, inv.grandTotalPaise, inv.invoiceDate, undefined, inv.invoiceNumber)) {
       console.log("[Pipeline] content duplicate skipped:", inv.merchantName, inv.invoiceDate, inv.grandTotalPaise);
       return true;
     }
@@ -628,8 +630,8 @@ async function finalizeExtractedInvoice(
   enhanced: ExtractedInvoice,
   extractionNote?: string,
 ): Promise<ExtractedInvoice | null> {
-  // Content duplicate check — same merchant + total + date already saved (exclude self)
-  if (await isDuplicateInvoice(enhanced.merchantName, enhanced.grandTotalPaise, enhanced.invoiceDate, invoiceId)) {
+  // Content duplicate check — same merchant + total + date AND same (or absent) invoice number
+  if (await isDuplicateInvoice(enhanced.merchantName, enhanced.grandTotalPaise, enhanced.invoiceDate, invoiceId, enhanced.invoiceNumber)) {
     console.log("[extractInvoiceWithAI] content duplicate:", enhanced.merchantName, enhanced.invoiceDate);
     await markAsDuplicate(invoiceId);
     return enhanced;
