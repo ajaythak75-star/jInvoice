@@ -198,13 +198,13 @@ type Billing = "monthly" | "yearly";
 type ApiOption = "shared" | "own";
 
 const PLANS: Record<ApiOption, { monthlyPrice: number; yearlyPrice: number; yearlyMonthly: number; savings: number }> = {
-  shared: { monthlyPrice: 399,  yearlyPrice: 3499, yearlyMonthly: 292, savings: 1289 },
-  own:    { monthlyPrice: 249,  yearlyPrice: 1999, yearlyMonthly: 167, savings: 989  },
+  shared: { monthlyPrice: 999,  yearlyPrice: 9999, yearlyMonthly: 833, savings: 1989 },
+  own:    { monthlyPrice: 499,  yearlyPrice: 4999, yearlyMonthly: 417, savings: 989  },
 };
 
 const FREE_FEATURES = [
   "5 invoices per day",
-  "3 months of data history",
+  "1 month of data history",
   "1 email account",
   "Mobile invoice capture",
   "Cloud sync",
@@ -214,17 +214,18 @@ const FREE_FEATURES = [
 ];
 
 const SHARED_FEATURES = [
-  "Unlimited invoices/day",
-  "6+ months data history",
+  "50 invoices/day",
+  "3 months data history",
   "Up to 5 email accounts",
-  "Advanced GST reports",
-  "AI via shared Gemini quota",
+  "₹249/user for extra accounts; limit = 50 × users/day",
+  "Advanced reports",
+  "AI via shared OpenAI quota",
   "48-hour support response",
 ];
 
 const OWN_API_FEATURES = [
   "Everything in Shared plan",
-  "Your own Gemini API key",
+  "Your own OpenAI and/or Gemini API key",
   "No shared quota",
   "Lower monthly cost",
 ];
@@ -476,7 +477,7 @@ export function PricingScreen() {
               </div>
             )}
             <p style={{ fontSize: 12.5, color: "var(--color-text-secondary)", marginTop: 10, lineHeight: 1.5 }}>
-              AI via our shared Gemini quota. No API key needed.
+              AI via our shared OpenAI quota. No API key needed.
             </p>
           </div>
           <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 8, flex: 1 }}>
@@ -524,7 +525,7 @@ export function PricingScreen() {
               </div>
             )}
             <p style={{ fontSize: 12.5, color: "var(--color-text-secondary)", marginTop: 10, lineHeight: 1.5 }}>
-              Bring your own Gemini key. Lower price, your own limits.
+              Bring your own OpenAI and/or Gemini key. Lower price, your own limits.
             </p>
           </div>
           <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 8, flex: 1 }}>
@@ -621,16 +622,16 @@ export function PricingScreen() {
           </thead>
           <tbody>
             {([
-              ["Daily invoices",   "5 / day",   "Unlimited",  "Unlimited"  ],
-              ["Data history",     "3 months",  "6+ months",  "6+ months"  ],
-              ["Email accounts",   "1",         "Up to 5",    "Up to 5"    ],
-              ["Mobile capture",   "✓",         "✓",          "✓"          ],
-              ["Cloud sync",       "✓",         "✓",          "✓"          ],
-              ["Own API key",      "—",         "—",          "✓"          ],
-              ["Advanced GST",     "—",         "✓",          "✓"          ],
-              ["Project tags",     "—",         "✓",          "✓"          ],
-              ["Monthly price",    "Free",      "₹399/mo",    "₹249/mo"    ],
-              ["Yearly price",     "Free",      "₹3,499/yr",  "₹1,999/yr"  ],
+              ["Daily invoices",   "5 / day",   "50 / day",    "50 / day (own quota)" ],
+              ["Data history",     "1 month",   "3 months",    "3 months"             ],
+              ["Email accounts",   "1",         "Up to 5",     "Up to 5"              ],
+              ["Extra user",       "—",         "₹249/user",   "₹249/user"            ],
+              ["Mobile capture",   "✓",         "✓",           "✓"                    ],
+              ["Cloud sync",       "✓",         "✓",           "✓"                    ],
+              ["Own API key",      "—",         "—",           "✓"                    ],
+              ["Advanced reports", "—",         "✓",           "✓"                    ],
+              ["Monthly price",    "Free",      "₹999/mo",     "₹499/mo"              ],
+              ["Yearly price",     "Free",      "₹9,999/yr",   "₹4,999/yr"            ],
             ] as [string, string, string, string][]).map(([feature, free, shared, own], i) => (
               <tr
                 key={feature}
@@ -647,8 +648,9 @@ export function PricingScreen() {
       </div>
 
       <p style={{ marginTop: 18, fontSize: 11.5, color: "var(--color-text-tertiary)", lineHeight: 1.6 }}>
-        Pro is for 1 user. Prices in INR inclusive of all taxes. Cancel anytime.
-        Own API Key plan requires a valid Google Gemini API key set in Settings → API Keys.
+        Base plan is for 1 user. Extra accounts ₹249/user/month; daily invoice limit scales with user count.
+        Prices in INR inclusive of all taxes. Cancel anytime.
+        Own API Key plan requires a valid OpenAI and/or Gemini API key set in Settings → API Keys.
         Click a Pro card to select a variant before starting your trial.
       </p>
 
