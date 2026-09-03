@@ -239,7 +239,7 @@ export function SettingsScreen({ onSignOut }: Props) {
                 <p style={{ fontSize: 12, color: "var(--color-text-secondary)", margin: "12px 0 4px" }}>
                   Choose a professional profile to enable category auto-detection. This cannot be changed later.
                 </p>
-                {(["society", "shopkeeper", "tax_consultant", "ca", "real_estate", "advocate"] as Exclude<UserProfile, "personal">[]).map((profile) => (
+                {(["society", "shopkeeper", "tax_consultant", "ca", "real_estate", "advocate", "bookkeeper"] as Exclude<UserProfile, "personal">[]).map((profile) => (
                   <div key={profile} className="settings-row" style={{ marginTop: 8 }}>
                     <span className="settings-row-label">
                       {profile === "society" ? "Housing Society" : PROFESSIONAL_PROFILE_LABEL[profile as ProfessionalProfile]}

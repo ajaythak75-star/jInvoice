@@ -5,9 +5,10 @@ export type UserProfile =
   | "tax_consultant"
   | "ca"
   | "real_estate"
-  | "advocate";
+  | "advocate"
+  | "bookkeeper";
 
-const VALID_PROFILES: UserProfile[] = ["society", "shopkeeper", "tax_consultant", "ca", "real_estate", "advocate"];
+const VALID_PROFILES: UserProfile[] = ["society", "shopkeeper", "tax_consultant", "ca", "real_estate", "advocate", "bookkeeper"];
 
 const PREFIX = "jinvoice:";
 

@@ -20,7 +20,7 @@ import { detectSentinelCandidates } from "./WarrantyDetector";
 import { prefs } from "../data/AutoImportPreferences";
 import { detectExtractionStrategy } from "./ExtractionStrategyDetector";
 
-const PROFESSIONAL_PROFILES: ProfessionalProfile[] = ["shopkeeper", "tax_consultant", "ca", "real_estate", "advocate"];
+const PROFESSIONAL_PROFILES: ProfessionalProfile[] = ["shopkeeper", "tax_consultant", "ca", "real_estate", "advocate", "bookkeeper"];
 
 function resolveCategory(merchantName: string | null, lineItemNames: string[], extraText?: string | null): string {
   const mode = prefs.activeMode;

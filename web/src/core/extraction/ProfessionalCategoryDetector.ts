@@ -370,6 +370,84 @@ export function detectAdvocateCategory(
   return "other";
 }
 
+// ─── Bookkeeper ────────────────────────────────────────────────────────────
+
+export type BookkeeperCategory =
+  | "purchases"
+  | "sales_income"
+  | "payroll"
+  | "bank_charges"
+  | "tax_payments"
+  | "professional_fees"
+  | "office_supplies"
+  | "rent_utilities"
+  | "transport"
+  | "other";
+
+export const BOOKKEEPER_CATEGORY_LABEL: Record<BookkeeperCategory, string> = {
+  purchases:        "Purchases / Stock",
+  sales_income:     "Sales / Income",
+  payroll:          "Payroll / Salary",
+  bank_charges:     "Bank Charges & Fees",
+  tax_payments:     "Tax Payments (GST / TDS)",
+  professional_fees:"Professional Fees",
+  office_supplies:  "Office Supplies & Admin",
+  rent_utilities:   "Rent & Utilities",
+  transport:        "Transport & Logistics",
+  other:            "Other",
+};
+
+const BOOKKEEPER_KEYWORDS: Array<{ cat: BookkeeperCategory; keywords: string[] }> = [
+  { cat: "purchases", keywords: [
+    "purchase order", "po number", "stock purchase", "supplier invoice", "goods received",
+    "material purchase", "raw material", "inventory", "grn", "wholesale", "distributor",
+  ]},
+  { cat: "sales_income", keywords: [
+    "sales invoice", "tax invoice", "customer invoice", "receipt", "credit note",
+    "sales return", "debit note", "income", "revenue",
+  ]},
+  { cat: "payroll", keywords: [
+    "salary", "wages", "payroll", "staff payment", "employee", "pf", "provident fund",
+    "esic", "bonus", "labour charges", "stipend",
+  ]},
+  { cat: "bank_charges", keywords: [
+    "bank charges", "bank fee", "processing fee", "loan interest", "emi", "dd charges",
+    "cheque bounce", "atm fee", "interest debit", "neft charges", "rtgs charges",
+  ]},
+  { cat: "tax_payments", keywords: [
+    "gst", "igst", "cgst", "sgst", "tds", "tcs", "advance tax", "income tax", "gstr",
+    "tax payment", "challan", "gst filing", "tax filing", "e-way bill",
+  ]},
+  { cat: "professional_fees", keywords: [
+    "audit fee", "ca fee", "legal fee", "consultant", "advisory", "retainer",
+    "chartered accountant", "tax consultant", "professional charges",
+  ]},
+  { cat: "office_supplies", keywords: [
+    "stationery", "office supplies", "printing", "cartridge", "toner", "paper",
+    "pen", "folder", "stamp", "postage", "courier admin",
+  ]},
+  { cat: "rent_utilities", keywords: [
+    "rent", "office rent", "electricity bill", "water charges", "broadband",
+    "internet bill", "lease", "municipal charges", "maintenance charges",
+  ]},
+  { cat: "transport", keywords: [
+    "transport", "freight", "courier", "delivery charges", "logistics", "petrol",
+    "fuel", "travel", "cab", "auto", "vehicle maintenance",
+  ]},
+];
+
+export function detectBookkeeperCategory(
+  merchantName: string | null,
+  lineItemNames: string[],
+  extraText?: string | null,
+): BookkeeperCategory {
+  const haystack = buildHaystack(merchantName, lineItemNames, extraText);
+  for (const { cat, keywords } of BOOKKEEPER_KEYWORDS) {
+    if (keywords.some((kw) => haystack.includes(kw))) return cat;
+  }
+  return "other";
+}
+
 // ─── Shared ────────────────────────────────────────────────────────────────
 
 function buildHaystack(
@@ -389,7 +467,8 @@ export type ProfessionalProfile =
   | "tax_consultant"
   | "ca"
   | "real_estate"
-  | "advocate";
+  | "advocate"
+  | "bookkeeper";
 
 export const PROFESSIONAL_PROFILE_LABEL: Record<ProfessionalProfile, string> = {
   shopkeeper:     "Shopkeeper",
@@ -397,6 +476,7 @@ export const PROFESSIONAL_PROFILE_LABEL: Record<ProfessionalProfile, string> = {
   ca:             "CA / Accountant",
   real_estate:    "Real Estate Agent",
   advocate:       "Advocate / Lawyer",
+  bookkeeper:     "Bookkeeper",
 };
 
 export function detectProfessionalCategory(
@@ -411,6 +491,7 @@ export function detectProfessionalCategory(
     case "ca":             return detectCACategory(merchantName, lineItemNames, extraText);
     case "real_estate":    return detectRealEstateCategory(merchantName, lineItemNames, extraText);
     case "advocate":       return detectAdvocateCategory(merchantName, lineItemNames, extraText);
+    case "bookkeeper":     return detectBookkeeperCategory(merchantName, lineItemNames, extraText);
   }
 }
 
@@ -421,5 +502,6 @@ export function getProfessionalCategoryLabel(profile: ProfessionalProfile, categ
     case "ca":             return CA_CATEGORY_LABEL[category as CACategory] ?? category;
     case "real_estate":    return REAL_ESTATE_CATEGORY_LABEL[category as RealEstateCategory] ?? category;
     case "advocate":       return ADVOCATE_CATEGORY_LABEL[category as AdvocateCategory] ?? category;
+    case "bookkeeper":     return BOOKKEEPER_CATEGORY_LABEL[category as BookkeeperCategory] ?? category;
   }
 }

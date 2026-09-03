@@ -5,7 +5,8 @@ import { prefs } from "../../data/AutoImportPreferences";
 
 type ReportTab = "gst" | "period" | "vendor" | "tags" | "category"
                | "summary" | "personal_budget" | "personal_tax"
-               | "society_ledger" | "society_audit";
+               | "society_ledger" | "society_audit" | "society_vendor" | "society_dues"
+               | "bookkeeper_ledger";
 type PeriodView = "daily" | "monthly" | "quarterly" | "yearly" | "custom";
 
 // ── formatting ────────────────────────────────────────────────────────────────
@@ -1597,19 +1598,477 @@ function SocietyAuditTab({ records }: { records: InvoiceMeta[] }) {
   );
 }
 
+// ── Society: Vendor Payments ──────────────────────────────────────────────────
+
+function SocietyVendorTab({ records }: { records: InvoiceMeta[] }) {
+  const allFYs = useMemo(() => availableFYs(records), [records]);
+  const [fy, setFY] = useState<number | null>(currentFY);
+  const [filterCat, setFilterCat] = useState<string | null>(null);
+  const [expandedVendor, setExpandedVendor] = useState<string | null>(null);
+
+  const filtered = useMemo(() => filterByFY(records, fy), [records, fy]);
+
+  const categories = useMemo(() => {
+    const s = new Set<string>();
+    filtered.forEach(r => { if (r.docType) s.add(r.docType); });
+    return [...s].sort();
+  }, [filtered]);
+
+  const byVendor = useMemo(() => {
+    const map = new Map<string, { name: string; count: number; totalPaise: number; cat: string; recs: InvoiceMeta[] }>();
+    const catFiltered = filterCat ? filtered.filter(r => r.docType === filterCat) : filtered;
+    for (const r of catFiltered) {
+      const name = r.merchantName?.trim() || "Unknown Vendor";
+      if (!map.has(name)) map.set(name, { name, count: 0, totalPaise: 0, cat: r.docType ?? "other", recs: [] });
+      const v = map.get(name)!;
+      v.count++;
+      v.totalPaise += r.grandTotalPaise ?? 0;
+      v.recs.push(r);
+    }
+    return [...map.values()].sort((a, b) => b.totalPaise - a.totalPaise);
+  }, [filtered, filterCat]);
+
+  const grandTotal = byVendor.reduce((s, v) => s + v.totalPaise, 0);
+
+  return (
+    <div style={{ padding: "20px", maxWidth: 900, margin: "0 auto" }}>
+      <div style={{ marginBottom: 16 }}>
+        <h2 style={{ fontSize: 18, fontWeight: 700, color: "var(--color-text)", margin: 0 }}>Vendor Payments</h2>
+        <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 3 }}>All contractor and service bills grouped by vendor</p>
+      </div>
+
+      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 14 }}>
+        {allFYs.map(f => <button key={f} style={chipStyle(fy === f)} onClick={() => setFY(f)}>{fyLabel(f)}</button>)}
+        <button style={chipStyle(fy === null)} onClick={() => setFY(null)}>All Time</button>
+      </div>
+
+      {categories.length > 0 && (
+        <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 14 }}>
+          <button style={chipStyle(filterCat === null)} onClick={() => setFilterCat(null)}>All Categories</button>
+          {categories.map(c => (
+            <button key={c} style={chipStyle(filterCat === c)} onClick={() => setFilterCat(c)}>
+              {ALL_DOC_TYPE_LABELS[c] ?? c}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <SummaryCards cards={[
+        { label: "Vendors",       value: String(byVendor.length) },
+        { label: "Total Paid",    value: fmtShort(grandTotal), color: "#dc2626" },
+        { label: "Bills",         value: String(byVendor.reduce((s, v) => s + v.count, 0)) },
+        { label: "Avg per Vendor",value: byVendor.length > 0 ? fmtShort(Math.round(grandTotal / byVendor.length)) : "—" },
+      ]} />
+
+      {byVendor.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "48px 0", color: "var(--color-text-secondary)", fontSize: 13 }}>No vendor records for this period.</div>
+      ) : (
+        <>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+            <CsvButton onClick={() => downloadCSV(`society-vendors-${fy ?? "all"}.csv`, [
+              ["Vendor", "Category", "Bills", "Total Paid (₹)"],
+              ...byVendor.map(v => [v.name, ALL_DOC_TYPE_LABELS[v.cat] ?? v.cat, v.count, (v.totalPaise / 100).toFixed(2)]),
+              ["TOTAL", "", byVendor.reduce((s, v) => s + v.count, 0), (grandTotal / 100).toFixed(2)],
+            ])} />
+          </div>
+          <div style={{ overflowX: "auto", background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ borderBottom: "1.5px solid var(--color-border)" }}>
+                  {["Vendor", "Category", "Bills", "Total Paid"].map((h, i) => (
+                    <th key={h} style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase" as const, letterSpacing: "0.06em", padding: "9px 14px", textAlign: i < 2 ? "left" : "right" }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {byVendor.map((v, i) => {
+                  const isOpen = expandedVendor === v.name;
+                  return (
+                    <React.Fragment key={v.name}>
+                      <tr onClick={() => setExpandedVendor(isOpen ? null : v.name)}
+                        style={{ borderBottom: i < byVendor.length - 1 && !isOpen ? "1px solid var(--color-border)" : "none", background: isOpen ? "color-mix(in srgb, var(--color-primary) 6%, transparent)" : i % 2 === 0 ? "transparent" : "var(--color-surface-2)", cursor: "pointer" }}>
+                        <td style={{ fontSize: 12.5, color: "var(--color-text)", padding: "10px 14px" }}>
+                          <span style={{ fontSize: 10, color: "var(--color-primary)", opacity: 0.7, marginRight: 6 }}>{isOpen ? "▼" : "▶"}</span>
+                          {v.name}
+                        </td>
+                        <td style={{ fontSize: 11.5, color: "var(--color-text-secondary)", padding: "10px 14px" }}>
+                          <span style={{ background: "var(--color-surface-2)", borderRadius: 4, padding: "2px 7px", fontSize: 11 }}>
+                            {ALL_DOC_TYPE_LABELS[v.cat] ?? v.cat}
+                          </span>
+                        </td>
+                        <td style={{ fontSize: 12.5, color: "var(--color-text-secondary)", padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{v.count}</td>
+                        <td style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-text)", padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(v.totalPaise)}</td>
+                      </tr>
+                      {isOpen && <DrillDownPanel records={v.recs} onClose={() => setExpandedVendor(null)} />}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr style={{ borderTop: "1.5px solid var(--color-border)", background: "var(--color-surface-2)" }}>
+                  <td style={{ fontSize: 12, fontWeight: 700, padding: "10px 14px" }} colSpan={2}>Total</td>
+                  <td style={{ fontSize: 12.5, fontWeight: 700, padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{byVendor.reduce((s, v) => s + v.count, 0)}</td>
+                  <td style={{ fontSize: 12.5, fontWeight: 700, padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(grandTotal)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Society: Outstanding Dues ─────────────────────────────────────────────────
+
+const DUES_KEY = "jinvoice_society_expected_maintenance";
+
+function loadExpected(): Record<string, number> {
+  try { return JSON.parse(localStorage.getItem(DUES_KEY) ?? "{}"); } catch { return {}; }
+}
+function saveExpected(e: Record<string, number>): void {
+  try { localStorage.setItem(DUES_KEY, JSON.stringify(e)); } catch { /* ignore */ }
+}
+
+function SocietyDuesTab({ records }: { records: InvoiceMeta[] }) {
+  const allFYs = useMemo(() => availableFYs(records), [records]);
+  const [fy, setFY] = useState<number | null>(currentFY);
+  const [expected, setExpected] = useState<Record<string, number>>(loadExpected);
+  const [globalAmt, setGlobalAmt] = useState("");
+
+  const filtered = useMemo(() => filterByFY(records, fy), [records, fy]);
+
+  // Find all unique units from tagged records
+  const allUnits = useMemo(() => {
+    const s = new Set<string>();
+    records.forEach(r => { if (r.projectTag?.trim()) s.add(r.projectTag.trim()); });
+    return [...s].sort();
+  }, [records]);
+
+  // For each unit, get months in selected FY window that have records
+  const { from, to } = fy !== null ? fyBounds(fy) : { from: new Date(2000, 0, 1), to: new Date() };
+  const months: { key: string; label: string }[] = useMemo(() => {
+    const result: { key: string; label: string }[] = [];
+    const cur = new Date(from.getFullYear(), from.getMonth(), 1);
+    while (cur <= to) {
+      result.push({
+        key: `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}`,
+        label: cur.toLocaleDateString("en-IN", { month: "short", year: "2-digit" }),
+      });
+      cur.setMonth(cur.getMonth() + 1);
+    }
+    return result;
+  }, [fy]);
+
+  // Map: unit → set of month keys that have at least one record
+  const unitMonths = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    for (const r of filtered) {
+      const tag = r.projectTag?.trim();
+      if (!tag) continue;
+      const d = r.invoiceDate ?? r.createdAt;
+      if (!d) continue;
+      const dt = new Date(d);
+      const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
+      if (!map.has(tag)) map.set(tag, new Set());
+      map.get(tag)!.add(key);
+    }
+    return map;
+  }, [filtered]);
+
+  function applyGlobal() {
+    const amt = parseFloat(globalAmt);
+    if (isNaN(amt) || amt <= 0) return;
+    const newExpected: Record<string, number> = { ...expected };
+    allUnits.forEach(u => { newExpected[u] = Math.round(amt * 100); });
+    setExpected(newExpected);
+    saveExpected(newExpected);
+    setGlobalAmt("");
+  }
+
+  // Build dues rows: units × months, show only missing ones
+  const dueRows = useMemo(() => {
+    const rows: { unit: string; month: string; monthLabel: string; expectedPaise: number }[] = [];
+    for (const unit of allUnits) {
+      const paidMonths = unitMonths.get(unit) ?? new Set<string>();
+      for (const m of months) {
+        if (!paidMonths.has(m.key)) {
+          rows.push({ unit, month: m.key, monthLabel: m.label, expectedPaise: expected[unit] ?? 0 });
+        }
+      }
+    }
+    return rows.sort((a, b) => a.unit.localeCompare(b.unit) || a.month.localeCompare(b.month));
+  }, [allUnits, unitMonths, months, expected]);
+
+  const totalDue = dueRows.reduce((s, r) => s + r.expectedPaise, 0);
+
+  return (
+    <div style={{ padding: "20px", maxWidth: 900, margin: "0 auto" }}>
+      <div style={{ marginBottom: 16 }}>
+        <h2 style={{ fontSize: 18, fontWeight: 700, color: "var(--color-text)", margin: 0 }}>Outstanding Dues</h2>
+        <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 3 }}>Units with missing maintenance payments — based on months with no invoice tagged to that flat</p>
+      </div>
+
+      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 14 }}>
+        {allFYs.map(f => <button key={f} style={chipStyle(fy === f)} onClick={() => setFY(f)}>{fyLabel(f)}</button>)}
+        <button style={chipStyle(fy === null)} onClick={() => setFY(null)}>All Time</button>
+      </div>
+
+      {/* Expected amount setter */}
+      <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10, padding: "14px 16px", marginBottom: 16 }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: "var(--color-text)", marginBottom: 10 }}>Monthly Maintenance Amount</div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>Set for all units:</span>
+          <input
+            type="number" placeholder="e.g. 2000" value={globalAmt}
+            onChange={e => setGlobalAmt(e.target.value)}
+            style={{ width: 110, padding: "5px 8px", borderRadius: 6, border: "1px solid var(--color-border)", background: "var(--color-bg)", color: "var(--color-text)", fontSize: 13 }}
+          />
+          <button onClick={applyGlobal}
+            style={{ padding: "5px 12px", borderRadius: 6, border: "none", background: "var(--color-primary)", color: "#fff", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
+            Apply
+          </button>
+          <span style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}>or set per-unit amounts below</span>
+        </div>
+      </div>
+
+      {allUnits.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "48px 24px", color: "var(--color-text-secondary)", fontSize: 13, background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10 }}>
+          <div style={{ fontWeight: 600, marginBottom: 6 }}>No unit-tagged invoices found</div>
+          <div style={{ fontSize: 12, opacity: 0.8 }}>Tag invoices with flat numbers (Project Tag in View screen) to track dues.</div>
+        </div>
+      ) : (
+        <>
+          <SummaryCards cards={[
+            { label: "Units Tracked",  value: String(allUnits.length) },
+            { label: "Missing Months", value: String(dueRows.length), color: "#dc2626" },
+            { label: "Total Dues",     value: totalDue > 0 ? fmtShort(totalDue) : "—", color: "#dc2626" },
+            { label: "Period",         value: fy !== null ? fyLabel(fy) : "All Time" },
+          ]} />
+
+          {dueRows.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "32px", color: "#16a34a", fontSize: 14, fontWeight: 600, background: "color-mix(in srgb, #16a34a 8%, var(--color-surface))", border: "1px solid color-mix(in srgb, #16a34a 25%, transparent)", borderRadius: 10 }}>
+              All units have records for every month in this period.
+            </div>
+          ) : (
+            <>
+              <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+                <CsvButton onClick={() => downloadCSV(`society-dues-${fy ?? "all"}.csv`, [
+                  ["Unit / Flat", "Month", "Expected (₹)"],
+                  ...dueRows.map(r => [r.unit, r.monthLabel, r.expectedPaise > 0 ? (r.expectedPaise / 100).toFixed(2) : "—"]),
+                ])} />
+              </div>
+              <div style={{ overflowX: "auto", background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10 }}>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr style={{ borderBottom: "1.5px solid var(--color-border)" }}>
+                      {["Unit / Flat", "Missing Month", "Expected (₹)", "Set Amount"].map((h, i) => (
+                        <th key={h} style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase" as const, letterSpacing: "0.06em", padding: "9px 14px", textAlign: i < 2 ? "left" : "right" }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dueRows.map((r, i) => (
+                      <tr key={`${r.unit}-${r.month}`}
+                        style={{ borderBottom: i < dueRows.length - 1 ? "1px solid var(--color-border)" : "none", background: i % 2 === 0 ? "transparent" : "var(--color-surface-2)" }}>
+                        <td style={{ padding: "9px 14px" }}>
+                          <span style={{ background: "color-mix(in srgb, #dc2626 10%, transparent)", color: "#dc2626", borderRadius: 4, padding: "2px 8px", fontSize: 12, fontWeight: 600 }}>{r.unit}</span>
+                        </td>
+                        <td style={{ padding: "9px 14px", fontSize: 12.5, color: "var(--color-text-secondary)" }}>{r.monthLabel}</td>
+                        <td style={{ padding: "9px 14px", textAlign: "right", fontSize: 12.5, fontWeight: 600, fontVariantNumeric: "tabular-nums", color: r.expectedPaise > 0 ? "#dc2626" : "var(--color-text-tertiary)" }}>
+                          {r.expectedPaise > 0 ? fmtRupee(r.expectedPaise) : "—"}
+                        </td>
+                        <td style={{ padding: "9px 14px", textAlign: "right" }}>
+                          <input
+                            type="number" placeholder="₹/month"
+                            defaultValue={expected[r.unit] ? (expected[r.unit] / 100).toString() : ""}
+                            onBlur={e => {
+                              const amt = parseFloat(e.target.value);
+                              if (!isNaN(amt) && amt > 0) {
+                                const newExpected = { ...expected, [r.unit]: Math.round(amt * 100) };
+                                setExpected(newExpected);
+                                saveExpected(newExpected);
+                              }
+                            }}
+                            style={{ width: 90, padding: "4px 7px", borderRadius: 5, border: "1px solid var(--color-border)", background: "var(--color-bg)", color: "var(--color-text)", fontSize: 12, textAlign: "right" }}
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  {totalDue > 0 && (
+                    <tfoot>
+                      <tr style={{ borderTop: "1.5px solid var(--color-border)", background: "var(--color-surface-2)" }}>
+                        <td style={{ fontSize: 12, fontWeight: 700, padding: "10px 14px" }} colSpan={2}>Total Outstanding</td>
+                        <td style={{ fontSize: 12.5, fontWeight: 700, color: "#dc2626", padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(totalDue)}</td>
+                        <td />
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            </>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Bookkeeper Ledger ─────────────────────────────────────────────────────────
+
+const BOOKKEEPER_ACCOUNT_HEADS: { key: string; label: string }[] = [
+  { key: "purchases",         label: "Purchases / Stock" },
+  { key: "sales_income",      label: "Sales / Income" },
+  { key: "payroll",           label: "Payroll / Salary" },
+  { key: "bank_charges",      label: "Bank Charges & Fees" },
+  { key: "tax_payments",      label: "Tax Payments (GST / TDS)" },
+  { key: "professional_fees", label: "Professional Fees" },
+  { key: "office_supplies",   label: "Office Supplies & Admin" },
+  { key: "rent_utilities",    label: "Rent & Utilities" },
+  { key: "transport",         label: "Transport & Logistics" },
+  { key: "other",             label: "Other" },
+];
+
+function BookkeeperLedgerTab({ records }: { records: InvoiceMeta[] }) {
+  const [fyStart, setFyStart] = useState<number | null>(() => currentFY());
+  const [expandedHead, setExpandedHead] = useState<string | null>(null);
+  const fys = availableFYs(records);
+  const filtered = filterByFY(records, fyStart);
+
+  // Group by account head: use category (profCategory) if set, else docType
+  const byHead: Record<string, InvoiceMeta[]> = {};
+  for (const r of filtered) {
+    const head = r.category ?? r.docType ?? "other";
+    (byHead[head] ??= []).push(r);
+  }
+
+  const rows = BOOKKEEPER_ACCOUNT_HEADS.map(({ key, label }) => {
+    const recs = byHead[key] ?? [];
+    const total = recs.reduce((s, r) => s + (r.grandTotalPaise ?? 0), 0);
+    return { key, label, recs, total, count: recs.length };
+  }).filter(r => r.count > 0);
+
+  const grandTotal = rows.reduce((s, r) => s + r.total, 0);
+
+  function exportCSV() {
+    const lines = ["Account Head,Documents,Total (₹)"];
+    rows.forEach(r => lines.push(`"${r.label}",${r.count},${(r.total / 100).toFixed(2)}`));
+    lines.push(`"Grand Total",${rows.reduce((s, r) => s + r.count, 0)},${(grandTotal / 100).toFixed(2)}`);
+    const blob = new Blob([lines.join("\n")], { type: "text/csv" });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+    a.download = `bookkeeper-ledger-${fyStart ?? "all"}.csv`; a.click();
+  }
+
+  return (
+    <div style={{ padding: "16px 0" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
+        <strong style={{ fontSize: 15 }}>Expense by Account Head</strong>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <button onClick={() => setFyStart(null)}
+            style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid var(--color-border)",
+              background: fyStart === null ? "var(--color-primary)" : "var(--color-surface)",
+              color: fyStart === null ? "#fff" : "var(--color-text)", cursor: "pointer", fontSize: 12 }}>
+            All Time
+          </button>
+          {fys.map(fy => (
+            <button key={fy} onClick={() => setFyStart(fy)}
+              style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid var(--color-border)",
+                background: fyStart === fy ? "var(--color-primary)" : "var(--color-surface)",
+                color: fyStart === fy ? "#fff" : "var(--color-text)", cursor: "pointer", fontSize: 12 }}>
+              {fyLabel(fy)}
+            </button>
+          ))}
+        </div>
+        <button onClick={exportCSV}
+          style={{ marginLeft: "auto", padding: "6px 14px", borderRadius: 6, border: "1px solid var(--color-border)",
+            background: "var(--color-surface)", color: "var(--color-text)", cursor: "pointer", fontSize: 12 }}>
+          Export CSV
+        </button>
+      </div>
+
+      {rows.length === 0 ? (
+        <p style={{ color: "var(--color-text-secondary)", fontSize: 14 }}>
+          No records for this period. As you add bills, they'll be grouped by account head automatically.
+        </p>
+      ) : (
+        <>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+              <thead>
+                <tr style={{ borderBottom: "2px solid var(--color-border)" }}>
+                  <th style={{ textAlign: "left", padding: "8px 10px", fontWeight: 600 }}>Account Head</th>
+                  <th style={{ textAlign: "right", padding: "8px 10px", fontWeight: 600 }}>Documents</th>
+                  <th style={{ textAlign: "right", padding: "8px 10px", fontWeight: 600 }}>Total (₹)</th>
+                  <th style={{ textAlign: "right", padding: "8px 10px", fontWeight: 600 }}>% of Spend</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map(r => (
+                  <React.Fragment key={r.key}>
+                    <tr style={{ borderBottom: "1px solid var(--color-border)", cursor: "pointer" }}
+                      onClick={() => setExpandedHead(expandedHead === r.key ? null : r.key)}>
+                      <td style={{ padding: "9px 10px" }}>
+                        <span style={{ marginRight: 6, fontSize: 11, color: "var(--color-text-secondary)" }}>
+                          {expandedHead === r.key ? "▼" : "▶"}
+                        </span>
+                        {r.label}
+                      </td>
+                      <td style={{ textAlign: "right", padding: "9px 10px", fontVariantNumeric: "tabular-nums" }}>{r.count}</td>
+                      <td style={{ textAlign: "right", padding: "9px 10px", fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>
+                        ₹{(r.total / 100).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                      </td>
+                      <td style={{ textAlign: "right", padding: "9px 10px", fontVariantNumeric: "tabular-nums", color: "var(--color-text-secondary)" }}>
+                        {grandTotal > 0 ? ((r.total / grandTotal) * 100).toFixed(1) : "0"}%
+                      </td>
+                    </tr>
+                    {expandedHead === r.key && r.recs.slice(0, 10).map(inv => (
+                      <tr key={inv.id} style={{ background: "var(--color-surface)", borderBottom: "1px solid var(--color-border)" }}>
+                        <td style={{ padding: "7px 10px 7px 30px", color: "var(--color-text-secondary)", fontSize: 13 }} colSpan={2}>
+                          {inv.merchantName || inv.sourceFilename || "—"}
+                        </td>
+                        <td style={{ textAlign: "right", padding: "7px 10px", fontVariantNumeric: "tabular-nums", fontSize: 13 }} colSpan={2}>
+                          {inv.grandTotalPaise != null ? `₹${(inv.grandTotalPaise / 100).toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </React.Fragment>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr style={{ borderTop: "2px solid var(--color-border)", fontWeight: 700 }}>
+                  <td style={{ padding: "10px" }}>Grand Total</td>
+                  <td style={{ textAlign: "right", padding: "10px", fontVariantNumeric: "tabular-nums" }}>
+                    {rows.reduce((s, r) => s + r.count, 0)}
+                  </td>
+                  <td style={{ textAlign: "right", padding: "10px", fontVariantNumeric: "tabular-nums" }}>
+                    ₹{(grandTotal / 100).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                  </td>
+                  <td style={{ textAlign: "right", padding: "10px" }}>100%</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── Profile-based tab visibility ──────────────────────────────────────────────
 
-type UserProfile = "personal" | "society" | "shopkeeper" | "tax_consultant" | "ca" | "real_estate" | "advocate";
+type UserProfile = "personal" | "society" | "shopkeeper" | "tax_consultant" | "ca" | "real_estate" | "advocate" | "bookkeeper";
 
-const GST_PROFILES: UserProfile[] = ["society", "shopkeeper", "tax_consultant", "ca", "real_estate", "advocate"];
-const TAGS_PROFILES: UserProfile[] = ["tax_consultant", "ca", "real_estate", "advocate"];
+const GST_PROFILES: UserProfile[] = ["society", "shopkeeper", "tax_consultant", "ca", "real_estate", "advocate", "bookkeeper"];
+const TAGS_PROFILES: UserProfile[] = ["tax_consultant", "ca", "real_estate", "advocate", "bookkeeper"];
 
 function visibleTabs(mode: string): ReportTab[] {
   const tabs: ReportTab[] = ["summary", "period", "vendor", "category"];
   if (GST_PROFILES.includes(mode as UserProfile)) tabs.unshift("gst");
   if (TAGS_PROFILES.includes(mode as UserProfile)) tabs.push("tags");
-  if (mode === "personal") tabs.push("personal_budget", "personal_tax");
-  if (mode === "society")  { tabs.push("society_ledger"); tabs.push("society_audit"); }
+  if (mode === "personal")   tabs.push("personal_budget", "personal_tax");
+  if (mode === "society")    { tabs.push("society_ledger"); tabs.push("society_vendor"); tabs.push("society_dues"); tabs.push("society_audit"); }
+  if (mode === "bookkeeper") tabs.push("bookkeeper_ledger");
   return tabs;
 }
 
@@ -1630,8 +2089,11 @@ export function ReportScreen() {
     { id: "category",        label: "Category" },
     { id: "personal_budget", label: "Budget" },
     { id: "personal_tax",    label: "Tax Savings" },
-    { id: "society_ledger",  label: "Ledger" },
-    { id: "society_audit",   label: "Audit (I&E)" },
+    { id: "society_ledger",    label: "Ledger" },
+    { id: "society_vendor",    label: "Vendors" },
+    { id: "society_dues",      label: "Dues" },
+    { id: "society_audit",     label: "Audit (I&E)" },
+    { id: "bookkeeper_ledger", label: "Account Book" },
   ];
 
   const TABS = ALL_TABS.filter(t => tabs.includes(t.id));
@@ -1670,8 +2132,11 @@ export function ReportScreen() {
         {activeTab === "category"        && <CategoryReportTab     records={records} />}
         {activeTab === "personal_budget" && <PersonalBudgetTab     records={records} />}
         {activeTab === "personal_tax"    && <PersonalTaxSavingsTab records={records} />}
-        {activeTab === "society_ledger"  && <SocietyLedgerTab      records={records} />}
-        {activeTab === "society_audit"   && <SocietyAuditTab       records={records} />}
+        {activeTab === "society_ledger"    && <SocietyLedgerTab      records={records} />}
+        {activeTab === "society_vendor"    && <SocietyVendorTab      records={records} />}
+        {activeTab === "society_dues"      && <SocietyDuesTab        records={records} />}
+        {activeTab === "society_audit"     && <SocietyAuditTab       records={records} />}
+        {activeTab === "bookkeeper_ledger" && <BookkeeperLedgerTab   records={records} />}
       </div>
     </div>
   );
