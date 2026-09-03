@@ -176,8 +176,15 @@ function BusinessProfileModal({ onConfirm, onClose }: { onConfirm: () => void; o
           </div>
 
           <div>
-            <label style={lblStyle}>Number of Licenses <span style={{ fontSize: 10.5, color: "var(--color-text-tertiary)", fontWeight: 400, textTransform: "none" }}>(optional)</span></label>
-            <input type="number" min={1} value={profile.licenses} onChange={set("licenses")} placeholder="e.g. 1" style={inpStyle} />
+            <label style={lblStyle}>Number of Licenses <span style={{ fontSize: 10.5, color: "var(--color-text-tertiary)", fontWeight: 400, textTransform: "none" }}>(optional, max 5)</span></label>
+            <input
+              type="number" min={1} max={5} value={profile.licenses} placeholder="e.g. 1" style={inpStyle}
+              onChange={(e) => {
+                const raw = parseInt(e.target.value, 10);
+                const v = isNaN(raw) ? "" : String(Math.min(5, Math.max(1, raw)));
+                setProfile((p) => ({ ...p, licenses: v }));
+              }}
+            />
           </div>
         </div>
 
@@ -241,6 +248,7 @@ function CheckIcon({ color = "currentColor" }: { color?: string }) {
 export function PricingScreen() {
   const [billing, setBilling]         = useState<Billing>("monthly");
   const [apiOption, setApiOption]     = useState<ApiOption>(() => prefs.planApiOption);
+  const [licences, setLicences]       = useState(1);
   const [sub, setSub]                 = useState<Subscription | null>(null);
   const [loading, setLoading]         = useState(true);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
@@ -321,9 +329,12 @@ export function PricingScreen() {
     if (updated) setSub(updated);
   };
 
-  const plan = PLANS[apiOption];
-  const displayPrice  = billing === "monthly" ? plan.monthlyPrice : plan.yearlyPrice;
-  const billingLabel  = billing === "monthly" ? "/month" : "/year";
+  const plan            = PLANS[apiOption];
+  const billingLabel    = billing === "monthly" ? "/month" : "/year";
+  const extraUserFee    = (licences - 1) * 249; // ₹249/user/month for extra users
+  const displayTotal    = billing === "monthly"
+    ? plan.monthlyPrice + extraUserFee
+    : plan.yearlyPrice + extraUserFee * 12;
 
   return (
     <div style={{ padding: "32px 28px", maxWidth: 820, margin: "0 auto" }}>
@@ -543,66 +554,101 @@ export function PricingScreen() {
       <div style={{
         border: "1px solid var(--color-border)", borderRadius: 12,
         background: "var(--color-surface)", padding: "20px 22px",
-        display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16,
-        flexWrap: "wrap", marginBottom: 32,
+        marginBottom: 32,
       }}>
-        <div>
-          <div style={{ fontSize: 13, color: "var(--color-text-secondary)", marginBottom: 4 }}>
-            Selected plan
-          </div>
+        {/* Top row: plan label + CTA */}
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
           <div style={{ fontSize: 16, fontWeight: 700, color: "var(--color-text)" }}>
             Pro · {apiOption === "shared" ? "Shared API" : "Own API Key"} · {billing === "monthly" ? "Monthly" : "Yearly"}
           </div>
-          <div style={{ fontSize: 13, color: "#7c3aed", fontWeight: 600, marginTop: 3 }}>
-            ₹{displayPrice.toLocaleString("en-IN")}{billingLabel}
-            {billing === "yearly" && (
-              <span style={{ color: "var(--color-text-tertiary)", fontWeight: 400, marginLeft: 8 }}>
-                (₹{PLANS[apiOption].yearlyMonthly}/month)
-              </span>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
+            {isSubscribed ? (
+              <div style={{ fontSize: 13, color: "#7c3aed", fontWeight: 700 }}>✓ Pro active</div>
+            ) : inTrial ? (
+              <>
+                <div style={{ fontSize: 13, color: "var(--color-text-secondary)", fontStyle: "italic" }}>
+                  Trial active — {daysLeft} day{daysLeft !== 1 ? "s" : ""} left
+                </div>
+                <button
+                  onClick={handleSubscribe}
+                  disabled={checkoutLoading}
+                  style={{ padding: "8px 18px", borderRadius: 8, border: "1px solid #7c3aed", background: "transparent", color: "#7c3aed", fontSize: 13, fontWeight: 700, cursor: "pointer" }}
+                >
+                  {checkoutLoading ? "Redirecting…" : "Subscribe now →"}
+                </button>
+              </>
+            ) : !trialUsed ? (
+              <>
+                <button
+                  onClick={() => setShowProfileModal(true)}
+                  style={{ padding: "10px 24px", borderRadius: 8, border: "none", background: "#7c3aed", color: "#fff", fontSize: 13.5, fontWeight: 700, cursor: "pointer" }}
+                >
+                  Start 14-day free trial
+                </button>
+                <span style={{ fontSize: 11.5, color: "var(--color-text-tertiary)" }}>No credit card required</span>
+              </>
+            ) : (
+              <button
+                onClick={handleSubscribe}
+                disabled={checkoutLoading}
+                style={{ padding: "10px 24px", borderRadius: 8, border: "none", background: "#7c3aed", color: "#fff", fontSize: 13.5, fontWeight: 700, cursor: "pointer" }}
+              >
+                {checkoutLoading ? "Redirecting…" : "Continue with Pro →"}
+              </button>
+            )}
+            {checkoutError && (
+              <div style={{ marginTop: 4, padding: "10px 14px", borderRadius: 8, background: "#fef2f2", border: "1px solid #fca5a5", color: "#b91c1c", fontSize: 12.5, lineHeight: 1.5 }}>
+                {checkoutError}
+              </div>
             )}
           </div>
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
-          {isSubscribed ? (
-            <div style={{ fontSize: 13, color: "#7c3aed", fontWeight: 700 }}>✓ Pro active</div>
-          ) : inTrial ? (
-            <>
-              <div style={{ fontSize: 13, color: "var(--color-text-secondary)", fontStyle: "italic" }}>
-                Trial active — {daysLeft} day{daysLeft !== 1 ? "s" : ""} left
-              </div>
+        {/* Licences picker */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 16 }}>
+          <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-text-secondary)" }}>Licences:</span>
+          <div style={{ display: "flex", gap: 5 }}>
+            {[1, 2, 3, 4, 5].map((n) => (
               <button
-                onClick={handleSubscribe}
-                disabled={checkoutLoading}
-                style={{ padding: "8px 18px", borderRadius: 8, border: "1px solid #7c3aed", background: "transparent", color: "#7c3aed", fontSize: 13, fontWeight: 700, cursor: "pointer" }}
+                key={n}
+                onClick={() => setLicences(n)}
+                style={{
+                  width: 32, height: 32, borderRadius: 7,
+                  border: licences === n ? "none" : "1px solid var(--color-border)",
+                  background: licences === n ? "#7c3aed" : "var(--color-surface-2)",
+                  color: licences === n ? "#fff" : "var(--color-text)",
+                  fontSize: 13, fontWeight: 700, cursor: "pointer",
+                }}
               >
-                {checkoutLoading ? "Redirecting…" : "Subscribe now →"}
+                {n}
               </button>
-            </>
-          ) : !trialUsed ? (
-            <>
-              <button
-                onClick={() => setShowProfileModal(true)}
-                style={{ padding: "10px 24px", borderRadius: 8, border: "none", background: "#7c3aed", color: "#fff", fontSize: 13.5, fontWeight: 700, cursor: "pointer" }}
-              >
-                Start 14-day free trial
-              </button>
-              <span style={{ fontSize: 11.5, color: "var(--color-text-tertiary)" }}>No credit card required</span>
-            </>
-          ) : (
-            <button
-              onClick={handleSubscribe}
-              disabled={checkoutLoading}
-              style={{ padding: "10px 24px", borderRadius: 8, border: "none", background: "#7c3aed", color: "#fff", fontSize: 13.5, fontWeight: 700, cursor: "pointer" }}
-            >
-              {checkoutLoading ? "Redirecting…" : "Subscribe now →"}
-            </button>
-          )}
-          {checkoutError && (
-            <div style={{ marginTop: 10, padding: "10px 14px", borderRadius: 8, background: "#fef2f2", border: "1px solid #fca5a5", color: "#b91c1c", fontSize: 12.5, lineHeight: 1.5 }}>
-              {checkoutError}
-            </div>
-          )}
+            ))}
+          </div>
+          <span style={{ fontSize: 11.5, color: "var(--color-text-tertiary)" }}>max 5</span>
+        </div>
+
+        {/* Price breakdown */}
+        <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--color-border)" }}>
+          <div style={{ fontSize: 12.5, color: "var(--color-text-secondary)", lineHeight: 1.8 }}>
+            <span>₹{(billing === "monthly" ? plan.monthlyPrice : plan.yearlyPrice).toLocaleString("en-IN")}{billingLabel} base (1 user)</span>
+            {licences > 1 && (
+              <>
+                <br />
+                <span>
+                  + ₹{((licences - 1) * 249 * (billing === "yearly" ? 12 : 1)).toLocaleString("en-IN")}{billingLabel}
+                  {" "}({licences - 1} extra user{licences > 2 ? "s" : ""} × ₹249{billing === "yearly" ? " × 12" : ""})
+                </span>
+              </>
+            )}
+          </div>
+          <div style={{ fontSize: 17, fontWeight: 800, color: "#7c3aed", marginTop: 6 }}>
+            Total: ₹{displayTotal.toLocaleString("en-IN")}{billingLabel}
+            {billing === "yearly" && (
+              <span style={{ fontSize: 12.5, fontWeight: 400, color: "var(--color-text-tertiary)", marginLeft: 10 }}>
+                (₹{Math.round(displayTotal / 12).toLocaleString("en-IN")}/month)
+              </span>
+            )}
+          </div>
         </div>
       </div>
 
