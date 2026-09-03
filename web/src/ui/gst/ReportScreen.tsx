@@ -6,7 +6,12 @@ import { prefs } from "../../data/AutoImportPreferences";
 type ReportTab = "gst" | "period" | "vendor" | "tags" | "category"
                | "summary" | "personal_budget" | "personal_tax"
                | "society_ledger" | "society_audit" | "society_vendor" | "society_dues"
-               | "bookkeeper_ledger";
+               | "bookkeeper_ledger"
+               | "shop_purchase_register" | "shop_expense_head" | "shop_gst_summary"
+               | "tc_client_summary" | "tc_tds_tracker" | "tc_fy_comparison" | "tc_gstr2a"
+               | "ca_client_ledger" | "ca_tds_summary" | "ca_fy_comparison" | "ca_audit_trail"
+               | "re_property_expense" | "re_rental_income" | "re_acquisition"
+               | "adv_matter_billing" | "adv_client_ledger" | "adv_court_fees";
 type PeriodView = "daily" | "monthly" | "quarterly" | "yearly" | "custom";
 
 // ── formatting ────────────────────────────────────────────────────────────────
@@ -2055,6 +2060,1063 @@ function BookkeeperLedgerTab({ records }: { records: InvoiceMeta[] }) {
   );
 }
 
+// ── Shopkeeper: Purchase Register ─────────────────────────────────────────────
+
+function ShopkeeperPurchaseRegisterTab({ records }: { records: InvoiceMeta[] }) {
+  const allFYs = useMemo(() => availableFYs(records), [records]);
+  const [fy, setFY] = useState<number | null>(currentFY);
+  const [search, setSearch] = useState("");
+
+  const filtered = useMemo(() => {
+    const byFY = filterByFY(records, fy);
+    if (!search.trim()) return byFY;
+    const q = search.toLowerCase();
+    return byFY.filter(r => (r.merchantName ?? "").toLowerCase().includes(q) || (r.invoiceNumber ?? "").toLowerCase().includes(q));
+  }, [records, fy, search]);
+
+  const sorted = useMemo(() => [...filtered].sort((a, b) => (b.invoiceDate ?? b.createdAt ?? "").localeCompare(a.invoiceDate ?? a.createdAt ?? "")), [filtered]);
+
+  const totals = useMemo(() => ({
+    count: sorted.length,
+    taxable: sorted.reduce((s, r) => s + ((r.grandTotalPaise ?? 0) - (r.taxPaise ?? 0)), 0),
+    tax: sorted.reduce((s, r) => s + (r.taxPaise ?? 0), 0),
+    total: sorted.reduce((s, r) => s + (r.grandTotalPaise ?? 0), 0),
+  }), [sorted]);
+
+  return (
+    <div style={{ padding: "20px", maxWidth: 1000, margin: "0 auto" }}>
+      <div style={{ marginBottom: 16 }}>
+        <h2 style={{ fontSize: 18, fontWeight: 700, color: "var(--color-text)", margin: 0 }}>Purchase Register</h2>
+        <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 3 }}>All purchase invoices by date — GSTR-2 style ledger for ITC reconciliation</p>
+      </div>
+      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 14 }}>
+        {allFYs.map(f => <button key={f} style={chipStyle(fy === f)} onClick={() => setFY(f)}>{fyLabel(f)}</button>)}
+        <button style={chipStyle(fy === null)} onClick={() => setFY(null)}>All Time</button>
+      </div>
+      <div style={{ display: "flex", gap: 10, marginBottom: 14, alignItems: "center", flexWrap: "wrap" }}>
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search supplier or invoice #..."
+          style={{ flex: 1, maxWidth: 280, fontSize: 13, padding: "6px 10px", borderRadius: 8, border: "1px solid var(--color-border)", background: "var(--color-bg)", color: "var(--color-text)" }} />
+        <CsvButton onClick={() => downloadCSV(`purchase-register-${fy ?? "all"}.csv`, [
+          ["Date", "Supplier", "Invoice #", "Taxable (₹)", "GST (₹)", "Total (₹)"],
+          ...sorted.map(r => [r.invoiceDate?.slice(0, 10) ?? "—", r.merchantName ?? "Unknown", r.invoiceNumber ?? "—",
+            (((r.grandTotalPaise ?? 0) - (r.taxPaise ?? 0)) / 100).toFixed(2),
+            ((r.taxPaise ?? 0) / 100).toFixed(2), ((r.grandTotalPaise ?? 0) / 100).toFixed(2)]),
+        ])} />
+      </div>
+      <SummaryCards cards={[
+        { label: "Invoices",      value: String(totals.count) },
+        { label: "Taxable Value", value: fmtShort(totals.taxable) },
+        { label: "GST (ITC)",     value: fmtShort(totals.tax), color: "#16a34a" },
+        { label: "Total",         value: fmtShort(totals.total), color: "var(--color-primary)" },
+      ]} />
+      {sorted.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "48px 0", color: "var(--color-text-secondary)", fontSize: 13 }}>No invoices for this period.</div>
+      ) : (
+        <div style={{ overflowX: "auto", background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr style={{ borderBottom: "1.5px solid var(--color-border)" }}>
+                {["Date", "Supplier", "Invoice #", "Taxable", "GST", "Total"].map((h, i) => (
+                  <th key={h} style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase" as const, letterSpacing: "0.06em", padding: "9px 12px", textAlign: i < 3 ? "left" : "right" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map((r, i) => {
+                const taxable = (r.grandTotalPaise ?? 0) - (r.taxPaise ?? 0);
+                return (
+                  <tr key={r.id ?? i} style={{ borderBottom: i < sorted.length - 1 ? "1px solid var(--color-border)" : "none", background: i % 2 === 0 ? "transparent" : "var(--color-surface-2)" }}>
+                    <td style={{ fontSize: 11.5, color: "var(--color-text-secondary)", padding: "9px 12px", whiteSpace: "nowrap" }}>
+                      {r.invoiceDate ? new Date(r.invoiceDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "2-digit" }) : "—"}
+                    </td>
+                    <td style={{ fontSize: 12.5, color: "var(--color-text)", padding: "9px 12px", maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.merchantName ?? "Unknown"}</td>
+                    <td style={{ fontSize: 11, color: "var(--color-text-secondary)", padding: "9px 12px" }}>{r.invoiceNumber ?? "—"}</td>
+                    <td style={{ fontSize: 12.5, color: "var(--color-text)", padding: "9px 12px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(taxable)}</td>
+                    <td style={{ fontSize: 12.5, color: "#16a34a", padding: "9px 12px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{r.taxPaise ? fmtRupee(r.taxPaise) : "—"}</td>
+                    <td style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-text)", padding: "9px 12px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(r.grandTotalPaise ?? 0)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr style={{ borderTop: "1.5px solid var(--color-border)", background: "var(--color-surface-2)" }}>
+                <td colSpan={3} style={{ fontSize: 12, fontWeight: 700, padding: "10px 12px" }}>Total ({totals.count} invoices)</td>
+                <td style={{ fontSize: 12.5, fontWeight: 700, padding: "10px 12px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(totals.taxable)}</td>
+                <td style={{ fontSize: 12.5, fontWeight: 700, color: "#16a34a", padding: "10px 12px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(totals.tax)}</td>
+                <td style={{ fontSize: 12.5, fontWeight: 700, padding: "10px 12px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(totals.total)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Shopkeeper: Expense by Head (P&L) ─────────────────────────────────────────
+
+const SHOPKEEPER_PL_HEADS: { key: string; label: string; docTypes: string[] }[] = [
+  { key: "purchases",  label: "Purchases / Stock",  docTypes: ["invoice"] },
+  { key: "rent",       label: "Rent",               docTypes: ["rent"] },
+  { key: "utility",    label: "Utilities",           docTypes: ["utility"] },
+  { key: "payroll",    label: "Staff / Payroll",     docTypes: ["payroll"] },
+  { key: "travel",     label: "Travel & Logistics",  docTypes: ["travel"] },
+  { key: "tax",        label: "Tax / GST Payments",  docTypes: ["tax"] },
+  { key: "insurance",  label: "Insurance",           docTypes: ["insurance"] },
+  { key: "other",      label: "Other",               docTypes: ["other", "coupon", "shopping", "medical", "education"] },
+];
+
+function ShopkeeperExpenseHeadTab({ records }: { records: InvoiceMeta[] }) {
+  const allFYs = useMemo(() => availableFYs(records), [records]);
+  const [fy, setFY] = useState<number | null>(currentFY);
+  const [drillHead, setDrillHead] = useState<string | null>(null);
+  const filtered = useMemo(() => filterByFY(records, fy), [records, fy]);
+
+  const headRows = useMemo(() => SHOPKEEPER_PL_HEADS.map(h => {
+    const recs = filtered.filter(r => {
+      const types = r.docTypes?.length ? r.docTypes : (r.docType ? [r.docType] : ["other"]);
+      return types.some(t => h.docTypes.includes(t));
+    });
+    return { ...h, recs, count: recs.length, totalPaise: recs.reduce((s, r) => s + (r.grandTotalPaise ?? 0), 0) };
+  }).filter(h => h.count > 0), [filtered]);
+
+  const grandTotal = headRows.reduce((s, h) => s + h.totalPaise, 0);
+  const maxPaise = Math.max(...headRows.map(h => h.totalPaise), 1);
+
+  return (
+    <div style={{ padding: "20px", maxWidth: 900, margin: "0 auto" }}>
+      <div style={{ marginBottom: 16 }}>
+        <h2 style={{ fontSize: 18, fontWeight: 700, color: "var(--color-text)", margin: 0 }}>Expense by Head</h2>
+        <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 3 }}>Rent, utilities, staff, purchases — P&L breakdown for the shop</p>
+      </div>
+      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 14 }}>
+        {allFYs.map(f => <button key={f} style={chipStyle(fy === f)} onClick={() => setFY(f)}>{fyLabel(f)}</button>)}
+        <button style={chipStyle(fy === null)} onClick={() => setFY(null)}>All Time</button>
+      </div>
+      <SummaryCards cards={[
+        { label: "Total Expenses", value: fmtShort(grandTotal), color: "var(--color-primary)" },
+        { label: "Expense Heads",  value: String(headRows.length) },
+        { label: "Invoices",       value: String(filtered.length) },
+      ]} />
+      {headRows.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "48px 0", color: "var(--color-text-secondary)", fontSize: 13 }}>No data for this period.</div>
+      ) : (
+        <>
+          <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10, padding: "16px", marginBottom: 16 }}>
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 12 }}>P&L Breakdown</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {headRows.map(h => <BarRow key={h.key} label={h.label} value={h.totalPaise} max={maxPaise} />)}
+            </div>
+          </div>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+            <CsvButton onClick={() => downloadCSV(`expense-by-head-${fy ?? "all"}.csv`, [
+              ["Expense Head", "Invoices", "Total (₹)", "% of Spend"],
+              ...headRows.map(h => [h.label, h.count, (h.totalPaise / 100).toFixed(2), pct(h.totalPaise, grandTotal)]),
+            ])} />
+          </div>
+          <div style={{ overflowX: "auto", background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ borderBottom: "1.5px solid var(--color-border)" }}>
+                  {["Expense Head", "Invoices", "Total", "% of Spend"].map((h, i) => (
+                    <th key={h} style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase" as const, letterSpacing: "0.06em", padding: "9px 14px", textAlign: i === 0 ? "left" : "right" }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {headRows.map((h, i) => {
+                  const isOpen = drillHead === h.key;
+                  return (
+                    <React.Fragment key={h.key}>
+                      <tr onClick={() => setDrillHead(isOpen ? null : h.key)}
+                        style={{ borderBottom: !isOpen ? "1px solid var(--color-border)" : "none", background: isOpen ? "color-mix(in srgb, var(--color-primary) 6%, transparent)" : i % 2 === 0 ? "transparent" : "var(--color-surface-2)", cursor: "pointer" }}>
+                        <td style={{ fontSize: 12.5, color: "var(--color-text)", padding: "10px 14px" }}>
+                          <span style={{ fontSize: 10, color: "var(--color-primary)", opacity: 0.7, marginRight: 6 }}>{isOpen ? "▼" : "▶"}</span>{h.label}
+                        </td>
+                        <td style={{ fontSize: 12.5, color: "var(--color-text-secondary)", padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{h.count}</td>
+                        <td style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-text)", padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(h.totalPaise)}</td>
+                        <td style={{ fontSize: 12, color: "var(--color-text-secondary)", padding: "10px 14px", textAlign: "right" }}>{pct(h.totalPaise, grandTotal)}</td>
+                      </tr>
+                      {isOpen && <DrillDownPanel records={h.recs} onClose={() => setDrillHead(null)} />}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Shopkeeper: GST Input Summary ─────────────────────────────────────────────
+
+function ShopkeeperGSTSummaryTab({ records }: { records: InvoiceMeta[] }) {
+  const allFYs = useMemo(() => availableFYs(records), [records]);
+  const [fy, setFY] = useState<number | null>(currentFY);
+  const [view, setView] = useState<"quarterly" | "monthly">("quarterly");
+
+  const filtered = useMemo(() => filterByFY(records, fy).filter(r => (r.taxPaise ?? 0) > 0), [records, fy]);
+
+  const GST_RATES = [5, 12, 18, 28];
+
+  const byRate = useMemo(() => GST_RATES.map(rate => {
+    const recs = filtered.filter(r => {
+      const taxable = (r.grandTotalPaise ?? 0) - (r.taxPaise ?? 0);
+      if (taxable <= 0) return false;
+      const effectiveRate = Math.round(((r.taxPaise ?? 0) / taxable) * 100);
+      return effectiveRate >= rate - 1 && effectiveRate <= rate + 1;
+    });
+    return { rate, count: recs.length, taxable: recs.reduce((s, r) => s + ((r.grandTotalPaise ?? 0) - (r.taxPaise ?? 0)), 0), itc: recs.reduce((s, r) => s + (r.taxPaise ?? 0), 0) };
+  }).filter(r => r.count > 0), [filtered]);
+
+  const totalITC = byRate.reduce((s, r) => s + r.itc, 0);
+  const totalTaxable = byRate.reduce((s, r) => s + r.taxable, 0);
+
+  const periods = useMemo(() => {
+    const map = new Map<string, { label: string; itc: number }>();
+    for (const r of filtered) {
+      const d = recDate(r); if (!d) continue;
+      const key = view === "quarterly" ? quarterKey(d) : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      const label = view === "quarterly" ? key : d.toLocaleDateString("en-IN", { month: "short", year: "2-digit" });
+      if (!map.has(key)) map.set(key, { label, itc: 0 });
+      map.get(key)!.itc += r.taxPaise ?? 0;
+    }
+    return [...map.entries()].sort().map(([, v]) => v);
+  }, [filtered, view]);
+
+  return (
+    <div style={{ padding: "20px", maxWidth: 900, margin: "0 auto" }}>
+      <div style={{ marginBottom: 16 }}>
+        <h2 style={{ fontSize: 18, fontWeight: 700, color: "var(--color-text)", margin: 0 }}>GST Input Summary</h2>
+        <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 3 }}>Input Tax Credit (ITC) available — grouped by GST rate, for GSTR-3B filing</p>
+      </div>
+      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 14 }}>
+        {allFYs.map(f => <button key={f} style={chipStyle(fy === f)} onClick={() => setFY(f)}>{fyLabel(f)}</button>)}
+        <button style={chipStyle(fy === null)} onClick={() => setFY(null)}>All Time</button>
+      </div>
+      <div style={{ display: "flex", gap: 5, marginBottom: 14 }}>
+        <button style={chipStyle(view === "quarterly")} onClick={() => setView("quarterly")}>Quarterly</button>
+        <button style={chipStyle(view === "monthly")}   onClick={() => setView("monthly")}>Monthly</button>
+      </div>
+      <SummaryCards cards={[
+        { label: "GST Invoices",       value: String(filtered.length) },
+        { label: "Total Taxable",       value: fmtShort(totalTaxable) },
+        { label: "Total ITC Available", value: fmtShort(totalITC), color: "#16a34a" },
+      ]} />
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10, marginBottom: 20 }}>
+        {byRate.map(r => (
+          <div key={r.rate} style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10, padding: "12px 14px" }}>
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 5 }}>{r.rate}% GST</div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#16a34a", fontVariantNumeric: "tabular-nums" }}>{fmtShort(r.itc)}</div>
+            <div style={{ fontSize: 11, color: "var(--color-text-tertiary)", marginTop: 2 }}>{r.count} inv · taxable {fmtShort(r.taxable)}</div>
+          </div>
+        ))}
+        {byRate.length === 0 && <div style={{ gridColumn: "1/-1", textAlign: "center", padding: "32px 0", color: "var(--color-text-secondary)", fontSize: 13 }}>No GST data for this period.</div>}
+      </div>
+      {periods.length > 0 && (
+        <div style={{ overflowX: "auto", background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10 }}>
+          <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase" as const, letterSpacing: "0.06em", padding: "12px 14px 8px" }}>ITC by {view === "quarterly" ? "Quarter" : "Month"}</div>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr style={{ borderBottom: "1.5px solid var(--color-border)" }}>
+                {["Period", "ITC Available"].map((h, i) => (
+                  <th key={h} style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase" as const, letterSpacing: "0.06em", padding: "9px 14px", textAlign: i === 0 ? "left" : "right" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {periods.map((p, i) => (
+                <tr key={p.label} style={{ borderBottom: i < periods.length - 1 ? "1px solid var(--color-border)" : "none", background: i % 2 === 0 ? "transparent" : "var(--color-surface-2)" }}>
+                  <td style={{ fontSize: 12.5, color: "var(--color-text)", padding: "9px 14px" }}>{p.label}</td>
+                  <td style={{ fontSize: 12.5, fontWeight: 600, color: "#16a34a", padding: "9px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(p.itc)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
+        <CsvButton onClick={() => downloadCSV(`gst-input-${fy ?? "all"}.csv`, [
+          ["GST Rate", "Invoices", "Taxable (₹)", "ITC (₹)"],
+          ...byRate.map(r => [`${r.rate}%`, r.count, (r.taxable / 100).toFixed(2), (r.itc / 100).toFixed(2)]),
+          ["Total", filtered.length, (totalTaxable / 100).toFixed(2), (totalITC / 100).toFixed(2)],
+        ])} />
+      </div>
+    </div>
+  );
+}
+
+// ── Shared: Client Summary (used by TC, CA, Advocate) ─────────────────────────
+
+function ClientSummaryTab({ records, title, subtitle }: { records: InvoiceMeta[]; title: string; subtitle: string }) {
+  const allFYs = useMemo(() => availableFYs(records), [records]);
+  const [fy, setFY] = useState<number | null>(currentFY);
+  const [drillTag, setDrillTag] = useState<string | null>(null);
+  const filtered = useMemo(() => filterByFY(records, fy), [records, fy]);
+
+  const { clients, grandTotal } = useMemo(() => {
+    const map = new Map<string, { tag: string; count: number; taxable: number; gst: number; total: number; recs: InvoiceMeta[] }>();
+    let grandTotal = 0;
+    for (const r of filtered) {
+      const tags = r.clientTags?.length ? r.clientTags : ["(Untagged)"];
+      for (const tag of tags) {
+        if (!map.has(tag)) map.set(tag, { tag, count: 0, taxable: 0, gst: 0, total: 0, recs: [] });
+        const c = map.get(tag)!;
+        c.count++; c.gst += r.taxPaise ?? 0; c.total += r.grandTotalPaise ?? 0;
+        c.taxable += (r.grandTotalPaise ?? 0) - (r.taxPaise ?? 0); c.recs.push(r);
+      }
+      grandTotal += r.grandTotalPaise ?? 0;
+    }
+    return { clients: [...map.values()].sort((a, b) => b.total - a.total), grandTotal };
+  }, [filtered]);
+
+  return (
+    <div style={{ padding: "20px", maxWidth: 900, margin: "0 auto" }}>
+      <div style={{ marginBottom: 16 }}>
+        <h2 style={{ fontSize: 18, fontWeight: 700, color: "var(--color-text)", margin: 0 }}>{title}</h2>
+        <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 3 }}>{subtitle}</p>
+      </div>
+      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 14 }}>
+        {allFYs.map(f => <button key={f} style={chipStyle(fy === f)} onClick={() => setFY(f)}>{fyLabel(f)}</button>)}
+        <button style={chipStyle(fy === null)} onClick={() => setFY(null)}>All Time</button>
+      </div>
+      <SummaryCards cards={[
+        { label: "Clients",     value: String(clients.filter(c => c.tag !== "(Untagged)").length) },
+        { label: "Total Spend", value: fmtShort(grandTotal), color: "var(--color-primary)" },
+        { label: "Invoices",    value: String(filtered.length) },
+      ]} />
+      {clients.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "48px 0", color: "var(--color-text-secondary)", fontSize: 13 }}>No client-tagged invoices. Tag invoices with client names in the View screen.</div>
+      ) : (
+        <>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+            <CsvButton onClick={() => downloadCSV(`client-summary-${fy ?? "all"}.csv`, [
+              ["Client", "Invoices", "Taxable (₹)", "GST (₹)", "Total (₹)"],
+              ...clients.map(c => [c.tag, c.count, (c.taxable / 100).toFixed(2), (c.gst / 100).toFixed(2), (c.total / 100).toFixed(2)]),
+            ])} />
+          </div>
+          <div style={{ overflowX: "auto", background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ borderBottom: "1.5px solid var(--color-border)" }}>
+                  {["Client", "Invoices", "Taxable Value", "GST", "Total"].map((h, i) => (
+                    <th key={h} style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase" as const, letterSpacing: "0.06em", padding: "9px 14px", textAlign: i === 0 ? "left" : "right" }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {clients.map((c, i) => {
+                  const isOpen = drillTag === c.tag;
+                  return (
+                    <React.Fragment key={c.tag}>
+                      <tr onClick={() => setDrillTag(isOpen ? null : c.tag)}
+                        style={{ borderBottom: !isOpen ? "1px solid var(--color-border)" : "none", background: isOpen ? "color-mix(in srgb, var(--color-primary) 6%, transparent)" : i % 2 === 0 ? "transparent" : "var(--color-surface-2)", cursor: "pointer" }}>
+                        <td style={{ fontSize: 12.5, color: "var(--color-text)", padding: "10px 14px" }}>
+                          <span style={{ fontSize: 10, color: "var(--color-primary)", opacity: 0.7, marginRight: 6 }}>{isOpen ? "▼" : "▶"}</span>
+                          <span style={{ background: "color-mix(in srgb, var(--color-primary) 12%, transparent)", color: "var(--color-primary)", borderRadius: 4, padding: "2px 8px", fontSize: 12, fontWeight: 600 }}>{c.tag}</span>
+                        </td>
+                        <td style={{ fontSize: 12.5, color: "var(--color-text-secondary)", padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{c.count}</td>
+                        <td style={{ fontSize: 12.5, color: "var(--color-text)", padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(c.taxable)}</td>
+                        <td style={{ fontSize: 12.5, color: "#16a34a", padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{c.gst ? fmtRupee(c.gst) : "—"}</td>
+                        <td style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-text)", padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(c.total)}</td>
+                      </tr>
+                      {isOpen && <DrillDownPanel records={c.recs} onClose={() => setDrillTag(null)} />}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Shared: TDS Tracker ────────────────────────────────────────────────────────
+
+const TDS_THRESHOLD_PAISE = 30_000 * 100;
+const TDS_DOC_TYPES = ["legal", "payroll", "rent", "professional", "invoice"];
+
+function TDSTrackerTab({ records, title, subtitle }: { records: InvoiceMeta[]; title: string; subtitle: string }) {
+  const allFYs = useMemo(() => availableFYs(records), [records]);
+  const [fy, setFY] = useState<number | null>(currentFY);
+  const [drillVendor, setDrillVendor] = useState<string | null>(null);
+
+  const filtered = useMemo(() => filterByFY(records, fy).filter(r => {
+    if ((r.grandTotalPaise ?? 0) < TDS_THRESHOLD_PAISE) return false;
+    const types = r.docTypes?.length ? r.docTypes : (r.docType ? [r.docType] : ["other"]);
+    return types.some(t => TDS_DOC_TYPES.includes(t));
+  }), [records, fy]);
+
+  const byVendor = useMemo(() => {
+    const map = new Map<string, { name: string; count: number; totalPaise: number; recs: InvoiceMeta[] }>();
+    for (const r of filtered) {
+      const name = r.merchantName?.trim() || "Unknown";
+      if (!map.has(name)) map.set(name, { name, count: 0, totalPaise: 0, recs: [] });
+      const v = map.get(name)!; v.count++; v.totalPaise += r.grandTotalPaise ?? 0; v.recs.push(r);
+    }
+    return [...map.values()].sort((a, b) => b.totalPaise - a.totalPaise);
+  }, [filtered]);
+
+  const tdsEstimate = byVendor.reduce((s, v) => s + Math.round(v.totalPaise * 0.1), 0);
+
+  return (
+    <div style={{ padding: "20px", maxWidth: 900, margin: "0 auto" }}>
+      <div style={{ marginBottom: 16 }}>
+        <h2 style={{ fontSize: 18, fontWeight: 700, color: "var(--color-text)", margin: 0 }}>{title}</h2>
+        <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 3 }}>{subtitle}</p>
+      </div>
+      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 14 }}>
+        {allFYs.map(f => <button key={f} style={chipStyle(fy === f)} onClick={() => setFY(f)}>{fyLabel(f)}</button>)}
+        <button style={chipStyle(fy === null)} onClick={() => setFY(null)}>All Time</button>
+      </div>
+      <div style={{ background: "color-mix(in srgb, #d97706 10%, var(--color-surface))", border: "1px solid color-mix(in srgb, #d97706 30%, transparent)", borderRadius: 10, padding: "10px 14px", marginBottom: 14, fontSize: 12, color: "#92400e" }}>
+        ⚠ Invoices ≥ ₹30,000 for professional/legal/payroll/rent services. TDS deductible under Sec 194C/194J/194I.
+      </div>
+      <SummaryCards cards={[
+        { label: "High-Value Bills",  value: String(filtered.length) },
+        { label: "Total Value",       value: fmtShort(filtered.reduce((s, r) => s + (r.grandTotalPaise ?? 0), 0)), color: "var(--color-primary)" },
+        { label: "Est. TDS (~10%)",   value: fmtShort(tdsEstimate), color: "#d97706" },
+        { label: "Vendors Affected",  value: String(byVendor.length) },
+      ]} />
+      {byVendor.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "48px 0", color: "var(--color-text-secondary)", fontSize: 13 }}>No invoices above ₹30,000 threshold for this period.</div>
+      ) : (
+        <>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+            <CsvButton onClick={() => downloadCSV(`tds-tracker-${fy ?? "all"}.csv`, [
+              ["Vendor", "Bills", "Total (₹)", "Est. TDS 10% (₹)"],
+              ...byVendor.map(v => [v.name, v.count, (v.totalPaise / 100).toFixed(2), (v.totalPaise * 0.1 / 100).toFixed(2)]),
+            ])} />
+          </div>
+          <div style={{ overflowX: "auto", background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ borderBottom: "1.5px solid var(--color-border)" }}>
+                  {["Vendor / Payee", "Bills", "Total Paid", "Est. TDS (10%)"].map((h, i) => (
+                    <th key={h} style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase" as const, letterSpacing: "0.06em", padding: "9px 14px", textAlign: i === 0 ? "left" : "right" }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {byVendor.map((v, i) => {
+                  const isOpen = drillVendor === v.name;
+                  return (
+                    <React.Fragment key={v.name}>
+                      <tr onClick={() => setDrillVendor(isOpen ? null : v.name)}
+                        style={{ borderBottom: !isOpen ? "1px solid var(--color-border)" : "none", background: isOpen ? "color-mix(in srgb, var(--color-primary) 6%, transparent)" : i % 2 === 0 ? "transparent" : "var(--color-surface-2)", cursor: "pointer" }}>
+                        <td style={{ fontSize: 12.5, color: "var(--color-text)", padding: "10px 14px" }}>
+                          <span style={{ fontSize: 10, color: "var(--color-primary)", opacity: 0.7, marginRight: 6 }}>{isOpen ? "▼" : "▶"}</span>{v.name}
+                        </td>
+                        <td style={{ fontSize: 12.5, color: "var(--color-text-secondary)", padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{v.count}</td>
+                        <td style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-text)", padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(v.totalPaise)}</td>
+                        <td style={{ fontSize: 12.5, fontWeight: 600, color: "#d97706", padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(Math.round(v.totalPaise * 0.1))}</td>
+                      </tr>
+                      {isOpen && <DrillDownPanel records={v.recs} onClose={() => setDrillVendor(null)} />}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Shared: FY Comparison ──────────────────────────────────────────────────────
+
+function FYComparisonTab({ records, title, subtitle }: { records: InvoiceMeta[]; title: string; subtitle: string }) {
+  const allFYs = useMemo(() => availableFYs(records), [records]);
+  const [fyA, setFyA] = useState<number | null>(() => currentFY());
+  const [fyB, setFyB] = useState<number | null>(() => currentFY() - 1);
+
+  const rA = useMemo(() => fyA !== null ? filterByFY(records, fyA) : records, [records, fyA]);
+  const rB = useMemo(() => fyB !== null ? filterByFY(records, fyB) : records, [records, fyB]);
+  const totA = useMemo(() => ({ count: rA.length, total: rA.reduce((s, r) => s + (r.grandTotalPaise ?? 0), 0), tax: rA.reduce((s, r) => s + (r.taxPaise ?? 0), 0) }), [rA]);
+  const totB = useMemo(() => ({ count: rB.length, total: rB.reduce((s, r) => s + (r.grandTotalPaise ?? 0), 0), tax: rB.reduce((s, r) => s + (r.taxPaise ?? 0), 0) }), [rB]);
+
+  function chgPct(a: number, b: number) { return b === 0 ? null : Math.round(((a - b) / b) * 100); }
+
+  const rows = [
+    { label: "Documents",   a: totA.count,  b: totB.count,  isAmount: false },
+    { label: "Total Spend", a: totA.total,  b: totB.total,  isAmount: true  },
+    { label: "GST Paid",    a: totA.tax,    b: totB.tax,    isAmount: true  },
+    { label: "Avg Invoice", a: totA.count ? Math.round(totA.total / totA.count) : 0, b: totB.count ? Math.round(totB.total / totB.count) : 0, isAmount: true },
+  ] as const;
+
+  return (
+    <div style={{ padding: "20px", maxWidth: 900, margin: "0 auto" }}>
+      <div style={{ marginBottom: 16 }}>
+        <h2 style={{ fontSize: 18, fontWeight: 700, color: "var(--color-text)", margin: 0 }}>{title}</h2>
+        <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 3 }}>{subtitle}</p>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: 12, alignItems: "center", marginBottom: 20 }}>
+        <div>
+          <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-primary)", textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 6 }}>Period A</div>
+          <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+            {allFYs.map(f => <button key={f} style={chipStyle(fyA === f)} onClick={() => setFyA(f)}>{fyLabel(f)}</button>)}
+          </div>
+        </div>
+        <div style={{ fontSize: 20, color: "var(--color-text-tertiary)", fontWeight: 300 }}>vs</div>
+        <div>
+          <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 6 }}>Period B</div>
+          <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+            {allFYs.map(f => <button key={f} style={chipStyle(fyB === f)} onClick={() => setFyB(f)}>{fyLabel(f)}</button>)}
+          </div>
+        </div>
+      </div>
+      <div style={{ overflowX: "auto", background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10, marginBottom: 10 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr style={{ borderBottom: "1.5px solid var(--color-border)" }}>
+              {["Metric", fyA !== null ? fyLabel(fyA) : "All Time", fyB !== null ? fyLabel(fyB) : "All Time", "Change"].map((h, i) => (
+                <th key={i} style={{ fontSize: 10.5, fontWeight: 700, color: i === 1 ? "var(--color-primary)" : "var(--color-text-tertiary)", textTransform: "uppercase" as const, letterSpacing: "0.06em", padding: "9px 14px", textAlign: i === 0 ? "left" : "right" }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, i) => {
+              const chg = chgPct(row.a, row.b);
+              return (
+                <tr key={row.label} style={{ borderBottom: i < rows.length - 1 ? "1px solid var(--color-border)" : "none", background: i % 2 === 0 ? "transparent" : "var(--color-surface-2)" }}>
+                  <td style={{ fontSize: 12.5, color: "var(--color-text)", padding: "10px 14px" }}>{row.label}</td>
+                  <td style={{ fontSize: 12.5, fontWeight: 700, color: "var(--color-primary)", padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{row.isAmount ? fmtRupee(row.a) : row.a}</td>
+                  <td style={{ fontSize: 12.5, color: "var(--color-text-secondary)", padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{row.isAmount ? fmtRupee(row.b) : row.b}</td>
+                  <td style={{ fontSize: 12, fontWeight: 600, padding: "10px 14px", textAlign: "right", color: chg === null ? "var(--color-text-tertiary)" : chg > 0 ? "#dc2626" : "#16a34a" }}>
+                    {chg === null ? "—" : `${chg > 0 ? "+" : ""}${chg}%`}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+        <CsvButton onClick={() => downloadCSV("fy-comparison.csv", [
+          ["Metric", fyA !== null ? fyLabel(fyA) : "All Time", fyB !== null ? fyLabel(fyB) : "All Time", "Change"],
+          ...rows.map(row => {
+            const chg = chgPct(row.a, row.b);
+            return [row.label, row.isAmount ? (row.a / 100).toFixed(2) : row.a, row.isAmount ? (row.b / 100).toFixed(2) : row.b, chg !== null ? `${chg > 0 ? "+" : ""}${chg}%` : "—"];
+          }),
+        ])} />
+      </div>
+    </div>
+  );
+}
+
+// ── Tax Consultant: GSTR-2A Summary ───────────────────────────────────────────
+
+function GSTR2ASummaryTab({ records }: { records: InvoiceMeta[] }) {
+  const allFYs = useMemo(() => availableFYs(records), [records]);
+  const [fy, setFY] = useState<number | null>(currentFY);
+  const filtered = useMemo(() => filterByFY(records, fy).filter(r => (r.taxPaise ?? 0) > 0), [records, fy]);
+
+  const byQuarter = useMemo(() => {
+    const map = new Map<string, { label: string; count: number; taxable: number; cgst: number; sgst: number }>();
+    for (const r of filtered) {
+      const d = recDate(r); if (!d) continue;
+      const q = Math.floor(d.getMonth() / 3) + 1;
+      const key = `${d.getFullYear()}-Q${q}`;
+      if (!map.has(key)) map.set(key, { label: `Q${q} ${d.getFullYear()}`, count: 0, taxable: 0, cgst: 0, sgst: 0 });
+      const b = map.get(key)!;
+      b.count++;
+      const tax = r.taxPaise ?? 0;
+      b.taxable += (r.grandTotalPaise ?? 0) - tax;
+      b.cgst += Math.round(tax / 2); b.sgst += Math.round(tax / 2);
+    }
+    return [...map.entries()].sort().map(([, v]) => v);
+  }, [filtered]);
+
+  const totals = byQuarter.reduce((s, q) => ({ count: s.count + q.count, taxable: s.taxable + q.taxable, cgst: s.cgst + q.cgst, sgst: s.sgst + q.sgst }), { count: 0, taxable: 0, cgst: 0, sgst: 0 });
+
+  return (
+    <div style={{ padding: "20px", maxWidth: 900, margin: "0 auto" }}>
+      <div style={{ marginBottom: 16 }}>
+        <h2 style={{ fontSize: 18, fontWeight: 700, color: "var(--color-text)", margin: 0 }}>GSTR-2A Summary</h2>
+        <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 3 }}>Input tax credit by quarter — for reconciliation with GSTR-2A / GSTR-2B</p>
+      </div>
+      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 14 }}>
+        {allFYs.map(f => <button key={f} style={chipStyle(fy === f)} onClick={() => setFY(f)}>{fyLabel(f)}</button>)}
+        <button style={chipStyle(fy === null)} onClick={() => setFY(null)}>All Time</button>
+      </div>
+      <div style={{ background: "color-mix(in srgb, #3b82f6 8%, var(--color-surface))", border: "1px solid color-mix(in srgb, #3b82f6 25%, transparent)", borderRadius: 10, padding: "10px 14px", marginBottom: 14, fontSize: 12, color: "#1e40af" }}>
+        ℹ CGST+SGST split shown as 50/50 estimate. Verify IGST (cross-state) amounts against portal GSTR-2A data.
+      </div>
+      <SummaryCards cards={[
+        { label: "Invoices",     value: String(totals.count) },
+        { label: "Taxable",      value: fmtShort(totals.taxable) },
+        { label: "CGST",         value: fmtShort(totals.cgst), color: "#16a34a" },
+        { label: "SGST",         value: fmtShort(totals.sgst), color: "#16a34a" },
+      ]} />
+      {byQuarter.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "48px 0", color: "var(--color-text-secondary)", fontSize: 13 }}>No GST data for this period.</div>
+      ) : (
+        <>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+            <CsvButton onClick={() => downloadCSV(`gstr2a-${fy ?? "all"}.csv`, [
+              ["Quarter", "Invoices", "Taxable (₹)", "CGST (₹)", "SGST (₹)", "Total ITC (₹)"],
+              ...byQuarter.map(q => [q.label, q.count, (q.taxable / 100).toFixed(2), (q.cgst / 100).toFixed(2), (q.sgst / 100).toFixed(2), ((q.cgst + q.sgst) / 100).toFixed(2)]),
+              ["Total", totals.count, (totals.taxable / 100).toFixed(2), (totals.cgst / 100).toFixed(2), (totals.sgst / 100).toFixed(2), ((totals.cgst + totals.sgst) / 100).toFixed(2)],
+            ])} />
+          </div>
+          <div style={{ overflowX: "auto", background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ borderBottom: "1.5px solid var(--color-border)" }}>
+                  {["Quarter", "Invoices", "Taxable", "CGST", "SGST", "Total ITC"].map((h, i) => (
+                    <th key={h} style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase" as const, letterSpacing: "0.06em", padding: "9px 14px", textAlign: i === 0 ? "left" : "right" }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {byQuarter.map((q, i) => (
+                  <tr key={q.label} style={{ borderBottom: i < byQuarter.length - 1 ? "1px solid var(--color-border)" : "none", background: i % 2 === 0 ? "transparent" : "var(--color-surface-2)" }}>
+                    <td style={{ fontSize: 12.5, color: "var(--color-text)", padding: "9px 14px" }}>{q.label}</td>
+                    <td style={{ fontSize: 12.5, color: "var(--color-text-secondary)", padding: "9px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{q.count}</td>
+                    <td style={{ fontSize: 12.5, color: "var(--color-text)", padding: "9px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(q.taxable)}</td>
+                    <td style={{ fontSize: 12.5, color: "#16a34a", padding: "9px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(q.cgst)}</td>
+                    <td style={{ fontSize: 12.5, color: "#16a34a", padding: "9px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(q.sgst)}</td>
+                    <td style={{ fontSize: 12.5, fontWeight: 600, color: "#16a34a", padding: "9px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(q.cgst + q.sgst)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr style={{ borderTop: "1.5px solid var(--color-border)", background: "var(--color-surface-2)" }}>
+                  <td colSpan={2} style={{ fontSize: 12, fontWeight: 700, padding: "10px 14px" }}>Total</td>
+                  <td style={{ fontSize: 12.5, fontWeight: 700, padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(totals.taxable)}</td>
+                  <td style={{ fontSize: 12.5, fontWeight: 700, color: "#16a34a", padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(totals.cgst)}</td>
+                  <td style={{ fontSize: 12.5, fontWeight: 700, color: "#16a34a", padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(totals.sgst)}</td>
+                  <td style={{ fontSize: 12.5, fontWeight: 700, color: "#16a34a", padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(totals.cgst + totals.sgst)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── CA: Audit Trail ────────────────────────────────────────────────────────────
+
+function AuditTrailTab({ records }: { records: InvoiceMeta[] }) {
+  const allFYs = useMemo(() => availableFYs(records), [records]);
+  const [fy, setFY] = useState<number | null>(currentFY);
+  const [search, setSearch] = useState("");
+
+  const filtered = useMemo(() => {
+    const byFY = filterByFY(records, fy);
+    if (!search.trim()) return byFY;
+    const q = search.toLowerCase();
+    return byFY.filter(r => (r.merchantName ?? "").toLowerCase().includes(q) || (r.docType ?? "").toLowerCase().includes(q) || (r.invoiceNumber ?? "").toLowerCase().includes(q));
+  }, [records, fy, search]);
+
+  const sorted = useMemo(() => [...filtered].sort((a, b) => (b.invoiceDate ?? b.createdAt ?? "").localeCompare(a.invoiceDate ?? a.createdAt ?? "")), [filtered]);
+
+  return (
+    <div style={{ padding: "20px", maxWidth: 1000, margin: "0 auto" }}>
+      <div style={{ marginBottom: 16 }}>
+        <h2 style={{ fontSize: 18, fontWeight: 700, color: "var(--color-text)", margin: 0 }}>Audit Trail</h2>
+        <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 3 }}>Complete date-ordered invoice list with doc type, source, and extraction status</p>
+      </div>
+      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 14 }}>
+        {allFYs.map(f => <button key={f} style={chipStyle(fy === f)} onClick={() => setFY(f)}>{fyLabel(f)}</button>)}
+        <button style={chipStyle(fy === null)} onClick={() => setFY(null)}>All Time</button>
+      </div>
+      <div style={{ display: "flex", gap: 10, marginBottom: 14, alignItems: "center", flexWrap: "wrap" }}>
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search vendor, type, invoice #..."
+          style={{ flex: 1, maxWidth: 280, fontSize: 13, padding: "6px 10px", borderRadius: 8, border: "1px solid var(--color-border)", background: "var(--color-bg)", color: "var(--color-text)" }} />
+        <CsvButton onClick={() => downloadCSV(`audit-trail-${fy ?? "all"}.csv`, [
+          ["Date", "Vendor", "Invoice #", "Doc Type", "Amount (₹)", "GST (₹)", "Source", "Status"],
+          ...sorted.map(r => [r.invoiceDate?.slice(0, 10) ?? "—", r.merchantName ?? "Unknown", r.invoiceNumber ?? "—",
+            r.docType ?? "other", ((r.grandTotalPaise ?? 0) / 100).toFixed(2), ((r.taxPaise ?? 0) / 100).toFixed(2),
+            r.sourceFilename ?? "email", r.status ?? "processed"]),
+        ])} />
+      </div>
+      <SummaryCards cards={[
+        { label: "Documents", value: String(sorted.length) },
+        { label: "Total",     value: fmtShort(sorted.reduce((s, r) => s + (r.grandTotalPaise ?? 0), 0)), color: "var(--color-primary)" },
+      ]} />
+      {sorted.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "48px 0", color: "var(--color-text-secondary)", fontSize: 13 }}>No records for this period.</div>
+      ) : (
+        <div style={{ overflowX: "auto", background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr style={{ borderBottom: "1.5px solid var(--color-border)" }}>
+                {["Date", "Vendor", "Invoice #", "Type", "Amount", "GST", "Source", "Status"].map((h, i) => (
+                  <th key={h} style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase" as const, letterSpacing: "0.06em", padding: "9px 12px", textAlign: i >= 4 && i <= 5 ? "right" : "left", whiteSpace: "nowrap" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map((r, i) => (
+                <tr key={r.id ?? i} style={{ borderBottom: i < sorted.length - 1 ? "1px solid var(--color-border)" : "none", background: i % 2 === 0 ? "transparent" : "var(--color-surface-2)" }}>
+                  <td style={{ fontSize: 11.5, color: "var(--color-text-secondary)", padding: "8px 12px", whiteSpace: "nowrap" }}>
+                    {r.invoiceDate ? new Date(r.invoiceDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "2-digit" }) : "—"}
+                  </td>
+                  <td style={{ fontSize: 12.5, color: "var(--color-text)", padding: "8px 12px", maxWidth: 150, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.merchantName ?? "Unknown"}</td>
+                  <td style={{ fontSize: 11, color: "var(--color-text-secondary)", padding: "8px 12px", maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.invoiceNumber ?? "—"}</td>
+                  <td style={{ padding: "8px 12px" }}>
+                    <span style={{ background: "var(--color-surface-2)", borderRadius: 4, padding: "2px 6px", fontSize: 11 }}>{r.docType ?? "other"}</span>
+                  </td>
+                  <td style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-text)", padding: "8px 12px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(r.grandTotalPaise ?? 0)}</td>
+                  <td style={{ fontSize: 12, color: "#16a34a", padding: "8px 12px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{r.taxPaise ? fmtRupee(r.taxPaise) : "—"}</td>
+                  <td style={{ fontSize: 11, color: "var(--color-text-tertiary)", padding: "8px 12px", maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.sourceFilename ?? "email"}</td>
+                  <td style={{ padding: "8px 12px" }}>
+                    <span style={{ fontSize: 10.5, padding: "2px 7px", borderRadius: 4, fontWeight: 600,
+                      background: r.status === "imported" || r.status === "downloaded" || r.status === "pending_review" ? "color-mix(in srgb, #16a34a 12%, transparent)" : "color-mix(in srgb, #dc2626 12%, transparent)",
+                      color: r.status === "imported" || r.status === "downloaded" || r.status === "pending_review" ? "#16a34a" : "#dc2626" }}>
+                      {r.status ?? "imported"}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Real Estate: Property-wise Expense ────────────────────────────────────────
+
+function REPropertyExpenseTab({ records }: { records: InvoiceMeta[] }) {
+  const allFYs = useMemo(() => availableFYs(records), [records]);
+  const [fy, setFY] = useState<number | null>(currentFY);
+  const [drillProp, setDrillProp] = useState<string | null>(null);
+  const filtered = useMemo(() => filterByFY(records, fy), [records, fy]);
+
+  const { properties, grandTotal, untagged } = useMemo(() => {
+    const map = new Map<string, { name: string; count: number; totalPaise: number; recs: InvoiceMeta[] }>();
+    let untagged = 0;
+    for (const r of filtered) {
+      const tag = r.projectTag?.trim() || r.clientTags?.[0]?.trim();
+      if (!tag) { untagged++; continue; }
+      if (!map.has(tag)) map.set(tag, { name: tag, count: 0, totalPaise: 0, recs: [] });
+      const p = map.get(tag)!; p.count++; p.totalPaise += r.grandTotalPaise ?? 0; p.recs.push(r);
+    }
+    const properties = [...map.values()].sort((a, b) => b.totalPaise - a.totalPaise);
+    return { properties, grandTotal: properties.reduce((s, p) => s + p.totalPaise, 0), untagged };
+  }, [filtered]);
+
+  return (
+    <div style={{ padding: "20px", maxWidth: 900, margin: "0 auto" }}>
+      <div style={{ marginBottom: 16 }}>
+        <h2 style={{ fontSize: 18, fontWeight: 700, color: "var(--color-text)", margin: 0 }}>Property-wise Expense</h2>
+        <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 3 }}>All expenses per property — stamp duty, legal, maintenance, repairs. Tag invoices with property name as Project Tag.</p>
+      </div>
+      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 14 }}>
+        {allFYs.map(f => <button key={f} style={chipStyle(fy === f)} onClick={() => setFY(f)}>{fyLabel(f)}</button>)}
+        <button style={chipStyle(fy === null)} onClick={() => setFY(null)}>All Time</button>
+      </div>
+      <SummaryCards cards={[
+        { label: "Properties",    value: String(properties.length) },
+        { label: "Total Expenses",value: fmtShort(grandTotal), color: "var(--color-primary)" },
+        { label: "Untagged",      value: `${untagged} inv.` },
+      ]} />
+      {properties.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "48px 24px", color: "var(--color-text-secondary)", fontSize: 13, background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10 }}>
+          <div style={{ fontWeight: 600, marginBottom: 6 }}>No property-tagged invoices</div>
+          <div style={{ fontSize: 12, opacity: 0.8 }}>Set Project Tag to property name (e.g. "Bandra Flat", "Plot-42") in the View screen.</div>
+        </div>
+      ) : (
+        <>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+            <CsvButton onClick={() => downloadCSV(`property-expenses-${fy ?? "all"}.csv`, [
+              ["Property", "Invoices", "Total (₹)", "% of Total"],
+              ...properties.map(p => [p.name, p.count, (p.totalPaise / 100).toFixed(2), pct(p.totalPaise, grandTotal)]),
+            ])} />
+          </div>
+          <div style={{ overflowX: "auto", background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ borderBottom: "1.5px solid var(--color-border)" }}>
+                  {["Property", "Invoices", "Total Expenses", "% of Total"].map((h, i) => (
+                    <th key={h} style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase" as const, letterSpacing: "0.06em", padding: "9px 14px", textAlign: i === 0 ? "left" : "right" }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {properties.map((p, i) => {
+                  const isOpen = drillProp === p.name;
+                  return (
+                    <React.Fragment key={p.name}>
+                      <tr onClick={() => setDrillProp(isOpen ? null : p.name)}
+                        style={{ borderBottom: !isOpen ? "1px solid var(--color-border)" : "none", background: isOpen ? "color-mix(in srgb, var(--color-primary) 6%, transparent)" : i % 2 === 0 ? "transparent" : "var(--color-surface-2)", cursor: "pointer" }}>
+                        <td style={{ fontSize: 12.5, color: "var(--color-text)", padding: "10px 14px" }}>
+                          <span style={{ fontSize: 10, color: "var(--color-primary)", opacity: 0.7, marginRight: 6 }}>{isOpen ? "▼" : "▶"}</span>{p.name}
+                        </td>
+                        <td style={{ fontSize: 12.5, color: "var(--color-text-secondary)", padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{p.count}</td>
+                        <td style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-text)", padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(p.totalPaise)}</td>
+                        <td style={{ fontSize: 12, color: "var(--color-text-secondary)", padding: "10px 14px", textAlign: "right" }}>{pct(p.totalPaise, grandTotal)}</td>
+                      </tr>
+                      {isOpen && <DrillDownPanel records={p.recs} onClose={() => setDrillProp(null)} />}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Real Estate: Rental Income Tracker ────────────────────────────────────────
+
+function RERentalIncomeTab({ records }: { records: InvoiceMeta[] }) {
+  const allFYs = useMemo(() => availableFYs(records), [records]);
+  const [fy, setFY] = useState<number | null>(currentFY);
+  const filtered = useMemo(() => filterByFY(records, fy).filter(r => {
+    const types = r.docTypes?.length ? r.docTypes : (r.docType ? [r.docType] : []);
+    return types.includes("rent");
+  }), [records, fy]);
+  const sorted = useMemo(() => [...filtered].sort((a, b) => (b.invoiceDate ?? b.createdAt ?? "").localeCompare(a.invoiceDate ?? a.createdAt ?? "")), [filtered]);
+  const totalRent = sorted.reduce((s, r) => s + (r.grandTotalPaise ?? 0), 0);
+
+  return (
+    <div style={{ padding: "20px", maxWidth: 900, margin: "0 auto" }}>
+      <div style={{ marginBottom: 16 }}>
+        <h2 style={{ fontSize: 18, fontWeight: 700, color: "var(--color-text)", margin: 0 }}>Rental Income Tracker</h2>
+        <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 3 }}>Rent receipt invoices — tenant, property, amount, month. Invoices detected as doc type "rent" appear here.</p>
+      </div>
+      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 14 }}>
+        {allFYs.map(f => <button key={f} style={chipStyle(fy === f)} onClick={() => setFY(f)}>{fyLabel(f)}</button>)}
+        <button style={chipStyle(fy === null)} onClick={() => setFY(null)}>All Time</button>
+      </div>
+      <SummaryCards cards={[
+        { label: "Rent Receipts", value: String(sorted.length) },
+        { label: "Total Rent",    value: fmtShort(totalRent), color: "#16a34a" },
+        { label: "Avg / Receipt", value: sorted.length > 0 ? fmtShort(Math.round(totalRent / sorted.length)) : "—" },
+      ]} />
+      {sorted.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "48px 0", color: "var(--color-text-secondary)", fontSize: 13 }}>No rent invoices for this period. Invoices with doc type "rent" will appear here.</div>
+      ) : (
+        <>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+            <CsvButton onClick={() => downloadCSV(`rental-income-${fy ?? "all"}.csv`, [
+              ["Date", "Tenant / Vendor", "Property (Project Tag)", "Month", "Amount (₹)"],
+              ...sorted.map(r => [r.invoiceDate?.slice(0, 10) ?? "—", r.merchantName ?? r.clientTags?.[0] ?? "Unknown", r.projectTag ?? "—",
+                r.invoiceDate ? new Date(r.invoiceDate).toLocaleDateString("en-IN", { month: "short", year: "2-digit" }) : "—",
+                ((r.grandTotalPaise ?? 0) / 100).toFixed(2)]),
+            ])} />
+          </div>
+          <div style={{ overflowX: "auto", background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ borderBottom: "1.5px solid var(--color-border)" }}>
+                  {["Date", "Tenant / Vendor", "Property", "Month", "Amount"].map((h, i) => (
+                    <th key={h} style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase" as const, letterSpacing: "0.06em", padding: "9px 12px", textAlign: i === 4 ? "right" : "left" }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.map((r, i) => (
+                  <tr key={r.id ?? i} style={{ borderBottom: i < sorted.length - 1 ? "1px solid var(--color-border)" : "none", background: i % 2 === 0 ? "transparent" : "var(--color-surface-2)" }}>
+                    <td style={{ fontSize: 11.5, color: "var(--color-text-secondary)", padding: "9px 12px", whiteSpace: "nowrap" }}>
+                      {r.invoiceDate ? new Date(r.invoiceDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "2-digit" }) : "—"}
+                    </td>
+                    <td style={{ fontSize: 12.5, color: "var(--color-text)", padding: "9px 12px", maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.merchantName ?? r.clientTags?.[0] ?? "Unknown"}</td>
+                    <td style={{ fontSize: 12, color: "var(--color-text-secondary)", padding: "9px 12px", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.projectTag ?? "—"}</td>
+                    <td style={{ fontSize: 12, color: "var(--color-text-secondary)", padding: "9px 12px", whiteSpace: "nowrap" }}>
+                      {r.invoiceDate ? new Date(r.invoiceDate).toLocaleDateString("en-IN", { month: "short", year: "2-digit" }) : "—"}
+                    </td>
+                    <td style={{ fontSize: 12.5, fontWeight: 600, color: "#16a34a", padding: "9px 12px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(r.grandTotalPaise ?? 0)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr style={{ borderTop: "1.5px solid var(--color-border)", background: "var(--color-surface-2)" }}>
+                  <td colSpan={4} style={{ fontSize: 12, fontWeight: 700, padding: "10px 12px" }}>Total Rent Received</td>
+                  <td style={{ fontSize: 12.5, fontWeight: 700, color: "#16a34a", padding: "10px 12px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(totalRent)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Real Estate: Acquisition Cost Sheet ───────────────────────────────────────
+
+function REAcquisitionCostTab({ records }: { records: InvoiceMeta[] }) {
+  const allFYs = useMemo(() => availableFYs(records), [records]);
+  const [fy, setFY] = useState<number | null>(null);
+  const ACQ_TYPES = ["legal", "financial", "tax", "other"];
+
+  const filtered = useMemo(() => filterByFY(records, fy).filter(r => {
+    const types = r.docTypes?.length ? r.docTypes : (r.docType ? [r.docType] : ["other"]);
+    return types.some(t => ACQ_TYPES.includes(t));
+  }), [records, fy]);
+
+  const byProperty = useMemo(() => {
+    const map = new Map<string, { name: string; count: number; totalPaise: number; byType: Record<string, number> }>();
+    for (const r of filtered) {
+      const tag = r.projectTag?.trim() || r.clientTags?.[0]?.trim() || "(Unassigned)";
+      if (!map.has(tag)) map.set(tag, { name: tag, count: 0, totalPaise: 0, byType: {} });
+      const p = map.get(tag)!; p.count++; p.totalPaise += r.grandTotalPaise ?? 0;
+      const t = r.docType ?? "other";
+      p.byType[t] = (p.byType[t] ?? 0) + (r.grandTotalPaise ?? 0);
+    }
+    return [...map.values()].sort((a, b) => b.totalPaise - a.totalPaise);
+  }, [filtered]);
+
+  const grandTotal = byProperty.reduce((s, p) => s + p.totalPaise, 0);
+
+  return (
+    <div style={{ padding: "20px", maxWidth: 900, margin: "0 auto" }}>
+      <div style={{ marginBottom: 16 }}>
+        <h2 style={{ fontSize: 18, fontWeight: 700, color: "var(--color-text)", margin: 0 }}>Acquisition Cost Sheet</h2>
+        <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 3 }}>One-time costs per property: registration, stamp duty, brokerage, legal fees</p>
+      </div>
+      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 14 }}>
+        {allFYs.map(f => <button key={f} style={chipStyle(fy === f)} onClick={() => setFY(f)}>{fyLabel(f)}</button>)}
+        <button style={chipStyle(fy === null)} onClick={() => setFY(null)}>All Time</button>
+      </div>
+      <SummaryCards cards={[
+        { label: "Properties",        value: String(byProperty.filter(p => p.name !== "(Unassigned)").length) },
+        { label: "Total Acquisition", value: fmtShort(grandTotal), color: "var(--color-primary)" },
+        { label: "Documents",         value: String(filtered.length) },
+      ]} />
+      {byProperty.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "48px 0", color: "var(--color-text-secondary)", fontSize: 13 }}>No acquisition documents. Legal, financial, and tax invoices tagged to a property will appear here.</div>
+      ) : (
+        <>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+            <CsvButton onClick={() => downloadCSV(`acquisition-costs-${fy ?? "all"}.csv`, [
+              ["Property", "Documents", "Legal (₹)", "Financial (₹)", "Tax (₹)", "Other (₹)", "Total (₹)"],
+              ...byProperty.map(p => [p.name, p.count, ((p.byType["legal"] ?? 0) / 100).toFixed(2), ((p.byType["financial"] ?? 0) / 100).toFixed(2), ((p.byType["tax"] ?? 0) / 100).toFixed(2), ((p.byType["other"] ?? 0) / 100).toFixed(2), (p.totalPaise / 100).toFixed(2)]),
+            ])} />
+          </div>
+          <div style={{ overflowX: "auto", background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ borderBottom: "1.5px solid var(--color-border)" }}>
+                  {["Property", "Legal", "Financial", "Tax", "Other", "Total"].map((h, i) => (
+                    <th key={h} style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase" as const, letterSpacing: "0.06em", padding: "9px 14px", textAlign: i === 0 ? "left" : "right" }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {byProperty.map((p, i) => (
+                  <tr key={p.name} style={{ borderBottom: i < byProperty.length - 1 ? "1px solid var(--color-border)" : "none", background: i % 2 === 0 ? "transparent" : "var(--color-surface-2)" }}>
+                    <td style={{ fontSize: 12.5, color: "var(--color-text)", padding: "10px 14px", maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</td>
+                    {["legal", "financial", "tax", "other"].map(t => (
+                      <td key={t} style={{ fontSize: 12.5, color: "var(--color-text-secondary)", padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{p.byType[t] ? fmtRupee(p.byType[t]) : "—"}</td>
+                    ))}
+                    <td style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-text)", padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(p.totalPaise)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr style={{ borderTop: "1.5px solid var(--color-border)", background: "var(--color-surface-2)" }}>
+                  <td style={{ fontSize: 12, fontWeight: 700, padding: "10px 14px" }}>Total</td>
+                  <td colSpan={4} />
+                  <td style={{ fontSize: 12.5, fontWeight: 700, padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(grandTotal)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Advocate: Court Fees Tracker ──────────────────────────────────────────────
+
+function AdvCourtFeesTab({ records }: { records: InvoiceMeta[] }) {
+  const allFYs = useMemo(() => availableFYs(records), [records]);
+  const [fy, setFY] = useState<number | null>(currentFY);
+  const [drillMatter, setDrillMatter] = useState<string | null>(null);
+
+  const filtered = useMemo(() => filterByFY(records, fy).filter(r => {
+    const types = r.docTypes?.length ? r.docTypes : (r.docType ? [r.docType] : []);
+    return types.includes("legal") || types.includes("tax");
+  }), [records, fy]);
+
+  const byMatter = useMemo(() => {
+    const map = new Map<string, { matter: string; count: number; totalPaise: number; recs: InvoiceMeta[] }>();
+    for (const r of filtered) {
+      const matter = r.clientTags?.[0]?.trim() || r.projectTag?.trim() || "(No Matter Tagged)";
+      if (!map.has(matter)) map.set(matter, { matter, count: 0, totalPaise: 0, recs: [] });
+      const m = map.get(matter)!; m.count++; m.totalPaise += r.grandTotalPaise ?? 0; m.recs.push(r);
+    }
+    return [...map.values()].sort((a, b) => b.totalPaise - a.totalPaise);
+  }, [filtered]);
+
+  const totalFees = byMatter.reduce((s, m) => s + m.totalPaise, 0);
+
+  return (
+    <div style={{ padding: "20px", maxWidth: 900, margin: "0 auto" }}>
+      <div style={{ marginBottom: 16 }}>
+        <h2 style={{ fontSize: 18, fontWeight: 700, color: "var(--color-text)", margin: 0 }}>Court Fees Tracker</h2>
+        <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 3 }}>Legal/tax invoices grouped by matter — set client tag or project tag to the matter name</p>
+      </div>
+      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 14 }}>
+        {allFYs.map(f => <button key={f} style={chipStyle(fy === f)} onClick={() => setFY(f)}>{fyLabel(f)}</button>)}
+        <button style={chipStyle(fy === null)} onClick={() => setFY(null)}>All Time</button>
+      </div>
+      <SummaryCards cards={[
+        { label: "Court Fee Bills", value: String(filtered.length) },
+        { label: "Total Fees",      value: fmtShort(totalFees), color: "var(--color-primary)" },
+        { label: "Matters",         value: String(byMatter.filter(m => m.matter !== "(No Matter Tagged)").length) },
+      ]} />
+      {byMatter.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "48px 0", color: "var(--color-text-secondary)", fontSize: 13 }}>No legal/court fee invoices for this period.</div>
+      ) : (
+        <>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+            <CsvButton onClick={() => downloadCSV(`court-fees-${fy ?? "all"}.csv`, [
+              ["Matter", "Bills", "Total Fees (₹)"],
+              ...byMatter.map(m => [m.matter, m.count, (m.totalPaise / 100).toFixed(2)]),
+            ])} />
+          </div>
+          <div style={{ overflowX: "auto", background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ borderBottom: "1.5px solid var(--color-border)" }}>
+                  {["Matter / Client", "Bills", "Total Fees"].map((h, i) => (
+                    <th key={h} style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase" as const, letterSpacing: "0.06em", padding: "9px 14px", textAlign: i === 0 ? "left" : "right" }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {byMatter.map((m, i) => {
+                  const isOpen = drillMatter === m.matter;
+                  return (
+                    <React.Fragment key={m.matter}>
+                      <tr onClick={() => setDrillMatter(isOpen ? null : m.matter)}
+                        style={{ borderBottom: !isOpen ? "1px solid var(--color-border)" : "none", background: isOpen ? "color-mix(in srgb, var(--color-primary) 6%, transparent)" : i % 2 === 0 ? "transparent" : "var(--color-surface-2)", cursor: "pointer" }}>
+                        <td style={{ fontSize: 12.5, color: "var(--color-text)", padding: "10px 14px" }}>
+                          <span style={{ fontSize: 10, color: "var(--color-primary)", opacity: 0.7, marginRight: 6 }}>{isOpen ? "▼" : "▶"}</span>{m.matter}
+                        </td>
+                        <td style={{ fontSize: 12.5, color: "var(--color-text-secondary)", padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{m.count}</td>
+                        <td style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-text)", padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(m.totalPaise)}</td>
+                      </tr>
+                      {isOpen && <DrillDownPanel records={m.recs} onClose={() => setDrillMatter(null)} />}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── Profile-based tab visibility ──────────────────────────────────────────────
 
 type UserProfile = "personal" | "society" | "shopkeeper" | "tax_consultant" | "ca" | "real_estate" | "advocate" | "bookkeeper";
@@ -2066,9 +3128,14 @@ function visibleTabs(mode: string): ReportTab[] {
   const tabs: ReportTab[] = ["summary", "period", "vendor", "category"];
   if (GST_PROFILES.includes(mode as UserProfile)) tabs.unshift("gst");
   if (TAGS_PROFILES.includes(mode as UserProfile)) tabs.push("tags");
-  if (mode === "personal")   tabs.push("personal_budget", "personal_tax");
-  if (mode === "society")    { tabs.push("society_ledger"); tabs.push("society_vendor"); tabs.push("society_dues"); tabs.push("society_audit"); }
-  if (mode === "bookkeeper") tabs.push("bookkeeper_ledger");
+  if (mode === "personal")      tabs.push("personal_budget", "personal_tax");
+  if (mode === "society")       { tabs.push("society_ledger"); tabs.push("society_vendor"); tabs.push("society_dues"); tabs.push("society_audit"); }
+  if (mode === "bookkeeper")    tabs.push("bookkeeper_ledger");
+  if (mode === "shopkeeper")    tabs.push("shop_purchase_register", "shop_expense_head", "shop_gst_summary");
+  if (mode === "tax_consultant") tabs.push("tc_client_summary", "tc_tds_tracker", "tc_fy_comparison", "tc_gstr2a");
+  if (mode === "ca")            tabs.push("ca_client_ledger", "ca_tds_summary", "ca_fy_comparison", "ca_audit_trail");
+  if (mode === "real_estate")   tabs.push("re_property_expense", "re_rental_income", "re_acquisition");
+  if (mode === "advocate")      tabs.push("adv_matter_billing", "adv_client_ledger", "adv_court_fees");
   return tabs;
 }
 
@@ -2094,6 +3161,23 @@ export function ReportScreen() {
     { id: "society_dues",      label: "Dues" },
     { id: "society_audit",     label: "Audit (I&E)" },
     { id: "bookkeeper_ledger", label: "Account Book" },
+    { id: "shop_purchase_register", label: "Purchase Register" },
+    { id: "shop_expense_head",      label: "Expense Head" },
+    { id: "shop_gst_summary",       label: "GST Input" },
+    { id: "tc_client_summary",  label: "Client Summary" },
+    { id: "tc_tds_tracker",     label: "TDS Tracker" },
+    { id: "tc_fy_comparison",   label: "FY Comparison" },
+    { id: "tc_gstr2a",          label: "GSTR-2A" },
+    { id: "ca_client_ledger",   label: "Client Ledger" },
+    { id: "ca_tds_summary",     label: "TDS Summary" },
+    { id: "ca_fy_comparison",   label: "FY Comparison" },
+    { id: "ca_audit_trail",     label: "Audit Trail" },
+    { id: "re_property_expense", label: "By Property" },
+    { id: "re_rental_income",    label: "Rental Income" },
+    { id: "re_acquisition",      label: "Acquisition" },
+    { id: "adv_matter_billing",  label: "Matter Billing" },
+    { id: "adv_client_ledger",   label: "Client Ledger" },
+    { id: "adv_court_fees",      label: "Court Fees" },
   ];
 
   const TABS = ALL_TABS.filter(t => tabs.includes(t.id));
@@ -2137,6 +3221,23 @@ export function ReportScreen() {
         {activeTab === "society_dues"      && <SocietyDuesTab        records={records} />}
         {activeTab === "society_audit"     && <SocietyAuditTab       records={records} />}
         {activeTab === "bookkeeper_ledger" && <BookkeeperLedgerTab   records={records} />}
+        {activeTab === "shop_purchase_register" && <ShopkeeperPurchaseRegisterTab records={records} />}
+        {activeTab === "shop_expense_head"      && <ShopkeeperExpenseHeadTab      records={records} />}
+        {activeTab === "shop_gst_summary"       && <ShopkeeperGSTSummaryTab       records={records} />}
+        {activeTab === "tc_client_summary"  && <ClientSummaryTab  records={records} title="Client-wise Summary" subtitle="Per client tag — total invoices, taxable value, GST, and total (for billing/retainer tracking)" />}
+        {activeTab === "tc_tds_tracker"     && <TDSTrackerTab     records={records} title="TDS Tracker" subtitle="Invoices where professional/contractor fees cross the TDS threshold (>₹30K)" />}
+        {activeTab === "tc_fy_comparison"   && <FYComparisonTab   records={records} title="FY Comparison" subtitle="Current FY vs last FY — total spend, GST paid, document count" />}
+        {activeTab === "tc_gstr2a"          && <GSTR2ASummaryTab  records={records} />}
+        {activeTab === "ca_client_ledger"   && <ClientSummaryTab  records={records} title="Client Ledger" subtitle="Per client tag — all invoices with dates, amounts, and GST (for audit trail)" />}
+        {activeTab === "ca_tds_summary"     && <TDSTrackerTab     records={records} title="TDS Summary" subtitle="High-value invoices by type (legal, professional, rent) eligible for TDS deduction" />}
+        {activeTab === "ca_fy_comparison"   && <FYComparisonTab   records={records} title="FY Comparison" subtitle="Cross-year spend and GST comparison for client reporting" />}
+        {activeTab === "ca_audit_trail"     && <AuditTrailTab     records={records} />}
+        {activeTab === "re_property_expense" && <REPropertyExpenseTab records={records} />}
+        {activeTab === "re_rental_income"    && <RERentalIncomeTab   records={records} />}
+        {activeTab === "re_acquisition"      && <REAcquisitionCostTab records={records} />}
+        {activeTab === "adv_matter_billing"  && <ClientSummaryTab  records={records} title="Matter-wise Billing" subtitle="Per client tag — court fees, filing charges, professional fees per matter" />}
+        {activeTab === "adv_client_ledger"   && <ClientSummaryTab  records={records} title="Client Ledger" subtitle="All invoices per client with running total — for billing statement" />}
+        {activeTab === "adv_court_fees"      && <AdvCourtFeesTab   records={records} />}
       </div>
     </div>
   );
