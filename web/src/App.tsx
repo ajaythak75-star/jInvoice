@@ -158,7 +158,11 @@ export function App() {
 
     const onSync = () => { checkAndNotify(); refreshAlertCount(); };
     window.addEventListener("jinvoice:sync-complete", onSync);
-    return () => window.removeEventListener("jinvoice:sync-complete", onSync);
+    window.addEventListener("jinvoice:alerts-changed", refreshAlertCount);
+    return () => {
+      window.removeEventListener("jinvoice:sync-complete", onSync);
+      window.removeEventListener("jinvoice:alerts-changed", refreshAlertCount);
+    };
   }, [loggedIn]);
 
   if (!loggedIn) {

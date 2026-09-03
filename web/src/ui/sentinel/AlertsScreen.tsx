@@ -367,11 +367,13 @@ export function AlertsScreen() {
   const handleDismiss = async (id: number) => {
     await dismissSentinel(id);
     setRecords((prev) => prev.filter((r) => r.id !== id));
+    window.dispatchEvent(new Event("jinvoice:alerts-changed"));
   };
 
   const handleClearAll = async () => {
     await dismissAllSentinels();
     setRecords([]);
+    window.dispatchEvent(new Event("jinvoice:alerts-changed"));
   };
 
   if (!loaded) return null;
