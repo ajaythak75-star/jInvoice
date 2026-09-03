@@ -17,6 +17,7 @@ import { prefs } from "./data/AutoImportPreferences";
 import { schedulePolling } from "./service/AutoImportService";
 import { checkAndNotify } from "./service/NotificationService";
 import { startMobileSync } from "./service/MobileSyncService";
+import { syncPlanFromServer } from "./service/UserPlanService";
 import { getActiveSentinels } from "./service/ExpirySentinel";
 import { getActiveSecurityAlerts } from "./data/InvoiceDatabase";
 
@@ -81,6 +82,12 @@ export function App() {
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
+
+  // Sync subscription plan from Supabase on every login/startup
+  useEffect(() => {
+    if (!loggedIn) return;
+    syncPlanFromServer().catch(() => {});
+  }, [loggedIn]);
 
   // Push the stored jInvoice secret to the server on every startup so the
   // server's in-memory JINVOICE_SECRET stays in sync with localStorage even

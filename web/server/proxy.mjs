@@ -52,6 +52,46 @@ const GMAIL_SCOPE        = "https://www.googleapis.com/auth/gmail.readonly email
 const GOOGLE_LOGIN_SCOPE = "openid email profile";
 const OUTLOOK_SCOPE      = "openid email Mail.Read offline_access";
 
+// ── Session token helpers (email-keyed, no Supabase auth required) ────────────
+const SESSION_SECRET = process.env.SESSION_SECRET || (SUPABASE_SERVICE_KEY ? SUPABASE_SERVICE_KEY.slice(-32) : "jinvoice-dev-secret");
+
+function _signToken(email) {
+  const ts  = Date.now().toString(36);
+  const b64 = Buffer.from(email).toString("base64url");
+  const sig  = crypto.createHmac("sha256", SESSION_SECRET).update(`${b64}:${ts}`).digest("hex");
+  return `${b64}.${ts}.${sig}`;
+}
+
+function _verifyToken(token) {
+  if (!token || typeof token !== "string") return null;
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  const [b64, ts, sig] = parts;
+  const expected = crypto.createHmac("sha256", SESSION_SECRET).update(`${b64}:${ts}`).digest("hex");
+  if (sig !== expected) return null;
+  if (Date.now() - parseInt(ts, 36) > 90 * 24 * 60 * 60 * 1000) return null;
+  try { return Buffer.from(b64, "base64url").toString("utf8"); } catch { return null; }
+}
+
+// Service-key Supabase fetch — bypasses RLS, server use only
+async function _sbService(path, opts = {}) {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) return { ok: false, data: null };
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1${path}`, {
+      ...opts,
+      headers: {
+        apikey: SUPABASE_SERVICE_KEY,
+        Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`,
+        "Content-Type": "application/json",
+        Prefer: "return=representation",
+        ...opts.headers,
+      },
+    });
+    const text = await r.text();
+    return { ok: r.ok, status: r.status, data: text ? JSON.parse(text) : null };
+  } catch (e) { return { ok: false, data: null, error: String(e) }; }
+}
+
 const app = express();
 
 // ── Stripe webhook (must be before express.json) ──────────────────────────────
@@ -652,7 +692,64 @@ app.post("/api/auth/verify-otp", async (req, res) => {
   // } catch (e) {
   //   res.status(500).json({ error: String(e) });
   // }
-  res.json({ ok: true });
+
+  // Issue a signed session token
+  const sessionToken = _signToken(email.toLowerCase());
+
+  // Upsert user_plans — create free row on first login, ignore if already exists
+  _sbService("/user_plans", {
+    method: "POST",
+    headers: { Prefer: "resolution=ignore-duplicates,return=representation" },
+    body: JSON.stringify({ email: email.toLowerCase(), plan: "free", status: "active", trial_used: false, updated_at: new Date().toISOString() }),
+  }).catch((e) => console.error("[auth] user_plans upsert:", e));
+
+  res.json({ ok: true, token: sessionToken });
+});
+
+// ── Subscription / plan endpoints ─────────────────────────────────────────────
+
+function _planToken(req) {
+  return ((req.headers.authorization ?? "").replace(/^Bearer\s+/i, "").trim() || "");
+}
+
+const _FREE_PLAN = { plan: "free", status: "active", trial_used: false, trial_started_at: null, trial_ends_at: null, paid_from: null, paid_until: null, cancelled_at: null, refund_requested_at: null };
+
+app.get("/api/subscription", async (req, res) => {
+  const email = _verifyToken(_planToken(req));
+  if (!email) return res.status(401).json({ error: "unauthorized" });
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) return res.json(_FREE_PLAN);
+  const { data } = await _sbService(`/user_plans?email=eq.${encodeURIComponent(email)}&limit=1`);
+  const row = Array.isArray(data) ? data[0] : null;
+  if (!row) {
+    // First login via old path — create row now
+    await _sbService("/user_plans", { method: "POST", headers: { Prefer: "resolution=ignore-duplicates,return=representation" }, body: JSON.stringify({ email, ...Object.fromEntries(Object.entries(_FREE_PLAN)), updated_at: new Date().toISOString() }) });
+    return res.json(_FREE_PLAN);
+  }
+  res.json(row);
+});
+
+app.post("/api/subscription/start-trial", async (req, res) => {
+  const email = _verifyToken(_planToken(req));
+  if (!email) return res.status(401).json({ error: "unauthorized" });
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) return res.status(503).json({ error: "Supabase not configured" });
+  const { data: rows } = await _sbService(`/user_plans?email=eq.${encodeURIComponent(email)}&limit=1`);
+  const row = Array.isArray(rows) ? rows[0] : null;
+  if (row?.trial_used) return res.status(400).json({ error: "Trial already used for this account." });
+  const now = new Date();
+  const trialEnds = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
+  const patch = { plan: "pro_trial", status: "active", trial_used: true, trial_started_at: now.toISOString(), trial_ends_at: trialEnds.toISOString(), updated_at: now.toISOString() };
+  const { data: updated } = await _sbService(`/user_plans?email=eq.${encodeURIComponent(email)}`, { method: "PATCH", body: JSON.stringify(patch) });
+  res.json(Array.isArray(updated) ? updated[0] : (updated ?? { ...row, ...patch }));
+});
+
+app.post("/api/subscription/cancel", async (req, res) => {
+  const email = _verifyToken(_planToken(req));
+  if (!email) return res.status(401).json({ error: "unauthorized" });
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) return res.status(503).json({ error: "Supabase not configured" });
+  const now = new Date().toISOString();
+  const patch = { plan: "free", status: "cancelled", cancelled_at: now, updated_at: now };
+  const { data: updated } = await _sbService(`/user_plans?email=eq.${encodeURIComponent(email)}`, { method: "PATCH", body: JSON.stringify(patch) });
+  res.json(Array.isArray(updated) ? updated[0] : (updated ?? { ..._FREE_PLAN, ...patch }));
 });
 
 // ── IMAP — credentials passed in request body, stored in client localStorage ──

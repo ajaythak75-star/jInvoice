@@ -6,6 +6,7 @@ import { useAutoImportViewModel } from "../autoimport/useAutoImportViewModel";
 import { DesktopFolderSettings } from "../autoimport/DesktopFolderSettings";
 import { desktopConnector } from "../../service/AutoImportService";
 import { startMobileSync, stopMobileSync, syncMobileNow } from "../../service/MobileSyncService";
+import { cancelPlan } from "../../service/UserPlanService";
 import { processFile } from "../../extraction/ExtractionPipeline";
 import { DOC_TYPE_SUBFOLDER, detectDocType } from "../../extraction/DocTypeDetector";
 import { isFsAccessSupported } from "../../autoimport/DesktopFolderConnector";
@@ -36,19 +37,13 @@ export function SettingsScreen({ onSignOut }: Props) {
 
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
-  const [showProModal, setShowProModal]   = useState(false);
-  const [proName,     setProName]     = useState(() => prefs.customerName);
-  const [proEmail,    setProEmail]    = useState(() => prefs.customerEmail);
-  const [proLocation, setProLocation] = useState(() => prefs.customerLocation);
-  const [proPin,      setProPin]      = useState(() => prefs.customerPin);
-  const [proCountry,  setProCountry]  = useState(() => prefs.customerCountry);
-  const [proFormErr,  setProFormErr]  = useState<string | null>(null);
-
   const [notificationsEnabled, setNotificationsEnabled] = useState(() => prefs.notificationsEnabled);
   const [allowedSenders, setAllowedSenders] = useState<string[]>(() => prefs.allowedSenders);
   const [newSender, setNewSender] = useState("");
 
   const [fsSupported, setFsSupported] = useState(false);
+
+  const [isProActive, setIsProActive] = useState<boolean>(() => prefs.isProActive);
 
   const [geminiApiKey, setGeminiApiKey] = useState(() => prefs.geminiApiKey);
   const [geminiKeySaved, setGeminiKeySaved] = useState(false);
@@ -81,35 +76,6 @@ export function SettingsScreen({ onSignOut }: Props) {
   const handleSignOut = () => {
     auth.signOut();
     onSignOut();
-  };
-
-  const openProModal = () => {
-    setProName(prefs.customerName);
-    setProEmail(prefs.customerEmail);
-    setProLocation(prefs.customerLocation);
-    setProPin(prefs.customerPin);
-    setProCountry(prefs.customerCountry);
-    setProFormErr(null);
-    setShowProModal(true);
-  };
-
-  const submitProUpgrade = () => {
-    if (!proName.trim())  { setProFormErr("Name is required."); return; }
-    if (!proEmail.trim()) { setProFormErr("Email is required."); return; }
-    prefs.customerName     = proName.trim();
-    prefs.customerEmail    = proEmail.trim();
-    prefs.customerLocation = proLocation.trim();
-    prefs.customerPin      = proPin.trim();
-    prefs.customerCountry  = proCountry.trim();
-    const startDate = new Date();
-    const endDate = new Date(startDate);
-    endDate.setFullYear(endDate.getFullYear() + 1);
-    prefs.customerAccountCreatedAt = startDate.toISOString();
-    prefs.proEndDate = endDate.toISOString();
-    prefs.customerPlan   = "Pro";
-    prefs.customerStatus = "Active";
-    prefs.isSubscribed   = true;
-    setShowProModal(false);
   };
 
   const handleFolderScan = async (files: File[]): Promise<string> => {
@@ -147,10 +113,16 @@ export function SettingsScreen({ onSignOut }: Props) {
     return candidates.reduce((a, b) => (a < b ? a : b));
   }
 
-  const handleCancelSubscription = () => {
-    prefs.isSubscribed = false;
-    prefs.customerStatus = "Cancelled";
-    prefs.trialStartedAt = null;
+  const handleCancelSubscription = async () => {
+    try {
+      await cancelPlan();
+    } catch {
+      // Still update UI even if server fails
+      prefs.isSubscribed = false;
+      prefs.customerStatus = "Cancelled";
+      prefs.trialStartedAt = null;
+    }
+    setIsProActive(false);
     setShowCancelConfirm(false);
   };
 
@@ -256,32 +228,36 @@ export function SettingsScreen({ onSignOut }: Props) {
         {/* Profile upgrade options — personal users only, all Pro-gated */}
         {userType === "personal" && (
           <>
-            <p style={{ fontSize: 12, color: "var(--color-text-secondary)", margin: "12px 0 4px" }}>
-              {prefs.isProActive
-                ? "Choose a professional profile to enable category auto-detection. This cannot be changed later."
-                : "Available on Pro. Upgrade to unlock professional profiles."}
-            </p>
-            {(["society", "shopkeeper", "tax_consultant", "ca", "real_estate", "advocate"] as Exclude<UserProfile, "personal">[]).map((profile) => (
-              <div key={profile} className="settings-row" style={{ marginTop: 8 }}>
-                <span className="settings-row-label">
-                  {profile === "society" ? "Housing Society" : PROFESSIONAL_PROFILE_LABEL[profile as ProfessionalProfile]}
-                </span>
-                <button
-                  disabled={!prefs.isProActive}
-                  onClick={() => setShowProfileConfirm(profile)}
-                  style={{
-                    padding: "5px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600, flexShrink: 0,
-                    cursor: prefs.isProActive ? "pointer" : "not-allowed",
-                    border: "1px solid var(--color-border)",
-                    background: prefs.isProActive ? "var(--color-surface)" : "var(--color-surface-2)",
-                    color: prefs.isProActive ? "var(--color-text)" : "var(--color-text-secondary)",
-                    opacity: prefs.isProActive ? 1 : 0.6,
-                  }}
-                >
-                  {prefs.isProActive ? "Set up" : "Pro only"}
-                </button>
-              </div>
-            ))}
+            {isProActive ? (
+              <>
+                <p style={{ fontSize: 12, color: "var(--color-text-secondary)", margin: "12px 0 4px" }}>
+                  Choose a professional profile to enable category auto-detection. This cannot be changed later.
+                </p>
+                {(["society", "shopkeeper", "tax_consultant", "ca", "real_estate", "advocate"] as Exclude<UserProfile, "personal">[]).map((profile) => (
+                  <div key={profile} className="settings-row" style={{ marginTop: 8 }}>
+                    <span className="settings-row-label">
+                      {profile === "society" ? "Housing Society" : PROFESSIONAL_PROFILE_LABEL[profile as ProfessionalProfile]}
+                    </span>
+                    <button
+                      onClick={() => setShowProfileConfirm(profile)}
+                      style={{
+                        padding: "5px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600, flexShrink: 0,
+                        cursor: "pointer",
+                        border: "1px solid var(--color-border)",
+                        background: "var(--color-surface)",
+                        color: "var(--color-text)",
+                      }}
+                    >
+                      Set up
+                    </button>
+                  </div>
+                ))}
+              </>
+            ) : (
+              <p style={{ fontSize: 12.5, color: "var(--color-text-secondary)", marginTop: 12 }}>
+                Upgrade to Pro from the <strong>Pricing</strong> tab to unlock professional profiles.
+              </p>
+            )}
           </>
         )}
       </section>
@@ -415,7 +391,7 @@ export function SettingsScreen({ onSignOut }: Props) {
       </section>
 
       {/* Subscription management — Pro users only */}
-      {prefs.isProActive && (
+      {isProActive && (
         <section className="settings-section">
           <div className="settings-section-title">Subscription</div>
           {(() => {
@@ -519,7 +495,7 @@ export function SettingsScreen({ onSignOut }: Props) {
       <section className="settings-section">
         <div className="settings-section-title">
           API Keys
-          {!prefs.isProActive && (
+          {!isProActive && (
             <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 600, color: "var(--color-primary)", background: "color-mix(in srgb, var(--color-primary) 12%, transparent)", padding: "2px 7px", borderRadius: 10 }}>
               Pro
             </span>
@@ -528,11 +504,11 @@ export function SettingsScreen({ onSignOut }: Props) {
         <div className="settings-field">
           <label className="settings-field-label">Gemini API Key</label>
           <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginBottom: 6 }}>
-            {prefs.isProActive
-              ? "Use your own Gemini API key instead of the shared server key."
+            {isProActive
+              ? <>Use your own Gemini API key instead of the shared server key. <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" style={{ color: "var(--color-primary)", textDecoration: "none" }}>Get key →</a></>
               : "Upgrade to Pro to use your own Gemini API key and avoid shared quota limits."}
           </p>
-          {prefs.isProActive ? (
+          {isProActive ? (
             <div style={{ display: "flex", gap: 8 }}>
               <input
                 type="password"
@@ -563,18 +539,20 @@ export function SettingsScreen({ onSignOut }: Props) {
               )}
             </div>
           ) : (
-            <button className="settings-pro-cta" onClick={openProModal}>Upgrade to Pro</button>
+            <p style={{ fontSize: 12.5, color: "var(--color-text-secondary)", fontStyle: "italic" }}>
+              Activate Pro from the <strong>Pricing</strong> tab to use your own API keys.
+            </p>
           )}
         </div>
 
         <div className="settings-field" style={{ marginTop: 16 }}>
           <label className="settings-field-label">OpenAI API Key</label>
           <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginBottom: 6 }}>
-            {prefs.isProActive
-              ? "Use your own OpenAI API key for GPT-4o-mini invoice extraction."
+            {isProActive
+              ? <>Use your own OpenAI API key for GPT-4o-mini invoice extraction. <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" style={{ color: "var(--color-primary)", textDecoration: "none" }}>Get key →</a></>
               : "Upgrade to Pro to use your own OpenAI API key."}
           </p>
-          {prefs.isProActive ? (
+          {isProActive ? (
             <div style={{ display: "flex", gap: 8 }}>
               <input
                 type="password"
@@ -604,9 +582,7 @@ export function SettingsScreen({ onSignOut }: Props) {
                 </button>
               )}
             </div>
-          ) : (
-            <button className="settings-pro-cta" onClick={openProModal}>Upgrade to Pro</button>
-          )}
+          ) : null}
         </div>
 
         <div className="settings-field" style={{ marginTop: 16 }}>
@@ -790,99 +766,6 @@ export function SettingsScreen({ onSignOut }: Props) {
 
     </div>
 
-    {/* Pro upgrade modal */}
-
-    {showProModal && (
-      <div
-        className="modal-overlay"
-        onClick={() => setShowProModal(false)}
-        style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}
-      >
-        <div
-          className="modal"
-          onClick={(e) => e.stopPropagation()}
-          style={{ maxWidth: 420, width: "90%", padding: 28, borderRadius: 12, background: "var(--color-surface)", boxShadow: "0 8px 32px rgba(0,0,0,0.2)" }}
-        >
-          <h2 style={{ marginBottom: 4, fontSize: 18 }}>Upgrade to Pro</h2>
-          <p style={{ fontSize: 12.5, color: "var(--color-text-secondary)", marginBottom: 18 }}>
-            Enter your details to activate your Pro subscription.
-          </p>
-
-          {/* Auto-filled read-only info */}
-          <div style={{ display: "flex", gap: 10, marginBottom: 16, fontSize: 12, color: "var(--color-text-secondary)" }}>
-            <span style={{ background: "var(--color-primary)", color: "#fff", borderRadius: 4, padding: "2px 8px", fontWeight: 600 }}>Pro</span>
-            <span>Active</span>
-            <span style={{ marginLeft: "auto" }}>Since {new Date().toLocaleDateString()}</span>
-          </div>
-
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <div>
-              <label style={{ fontSize: 12, color: "var(--color-text-secondary)", display: "block", marginBottom: 4 }}>Full Name *</label>
-              <input
-                className="settings-input"
-                style={{ width: "100%" }}
-                placeholder="Your name"
-                value={proName}
-                onChange={(e) => setProName(e.target.value)}
-                autoFocus
-              />
-            </div>
-            <div>
-              <label style={{ fontSize: 12, color: "var(--color-text-secondary)", display: "block", marginBottom: 4 }}>Email *</label>
-              <input
-                className="settings-input"
-                style={{ width: "100%" }}
-                placeholder="you@example.com"
-                type="email"
-                value={proEmail}
-                onChange={(e) => setProEmail(e.target.value)}
-              />
-            </div>
-            <div>
-              <label style={{ fontSize: 12, color: "var(--color-text-secondary)", display: "block", marginBottom: 4 }}>Location / City</label>
-              <input
-                className="settings-input"
-                style={{ width: "100%" }}
-                placeholder="City or area"
-                value={proLocation}
-                onChange={(e) => setProLocation(e.target.value)}
-              />
-            </div>
-            <div style={{ display: "flex", gap: 10 }}>
-              <div style={{ flex: 1 }}>
-                <label style={{ fontSize: 12, color: "var(--color-text-secondary)", display: "block", marginBottom: 4 }}>PIN / ZIP</label>
-                <input
-                  className="settings-input"
-                  style={{ width: "100%" }}
-                  placeholder="PIN code"
-                  value={proPin}
-                  onChange={(e) => setProPin(e.target.value)}
-                />
-              </div>
-              <div style={{ flex: 1 }}>
-                <label style={{ fontSize: 12, color: "var(--color-text-secondary)", display: "block", marginBottom: 4 }}>Country</label>
-                <input
-                  className="settings-input"
-                  style={{ width: "100%" }}
-                  placeholder="Country"
-                  value={proCountry}
-                  onChange={(e) => setProCountry(e.target.value)}
-                />
-              </div>
-            </div>
-          </div>
-
-          {proFormErr && (
-            <p style={{ fontSize: 12, color: "#ef4444", marginTop: 10 }}>{proFormErr}</p>
-          )}
-
-          <div style={{ display: "flex", gap: 10, marginTop: 20, justifyContent: "flex-end" }}>
-            <button className="btn-sm" onClick={() => setShowProModal(false)}>Cancel</button>
-            <button className="settings-pro-cta" onClick={submitProUpgrade}>Activate Pro</button>
-          </div>
-        </div>
-      </div>
-    )}
     </>
   );
 }
