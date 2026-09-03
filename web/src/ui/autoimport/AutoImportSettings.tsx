@@ -1107,8 +1107,8 @@ export function AutoImportSettings() {
                 AI extraction runs separately so you can process in bulk without blocking the regular sync.
               </p>
 
-              {/* Pro gate overlay */}
-              {!prefs.isProActive && (
+              {/* Pro gate overlay — requires paid subscription (trial not included) */}
+              {!prefs.isSubscribed && (
                 <div style={{
                   position: "absolute", inset: 0, borderRadius: "inherit",
                   background: "color-mix(in srgb, var(--color-surface) 88%, transparent)",
@@ -1118,7 +1118,7 @@ export function AutoImportSettings() {
                 }}>
                   <span style={{ fontSize: 22 }}>🔒</span>
                   <p style={{ fontSize: 13.5, fontWeight: 600, color: "var(--color-text)", margin: 0 }}>
-                    Import History is a Pro feature
+                    Import History requires a paid Pro plan
                   </p>
                   <p style={{ fontSize: 12.5, color: "var(--color-text-secondary)", margin: 0, maxWidth: 280 }}>
                     Upgrade to Pro to bulk-import months of email history and extract invoices in one go.
@@ -1127,7 +1127,7 @@ export function AutoImportSettings() {
                 </div>
               )}
 
-              <div style={{ opacity: prefs.isProActive ? 1 : 0.25, pointerEvents: prefs.isProActive ? "auto" : "none" }}>
+              <div style={{ opacity: prefs.isSubscribed ? 1 : 0.25, pointerEvents: prefs.isSubscribed ? "auto" : "none" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
                   <span style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>Look back</span>
                   <select

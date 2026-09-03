@@ -993,6 +993,7 @@ export function ViewScreen() {
   const hasLoadedRef = useRef(false);
   const [refreshing, setRefreshing] = useState(false);
   const [showAddAlertModal, setShowAddAlertModal] = useState(false);
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
 
   const load = useCallback(() => {
     // Only show the full-page loading screen on the very first load.
@@ -1173,6 +1174,7 @@ export function ViewScreen() {
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = "";
+    setUploadedFile(file);
     setPreviewLoading(true);
     try {
       const result = await extractFilePreview(file);
@@ -1234,6 +1236,7 @@ export function ViewScreen() {
     setIsPreviewMode(false);
     setPreviewExtracted(null);
     setShowAddAlertModal(false);
+    setUploadedFile(null);
   };
 
   const openBulkTagging = (e: React.MouseEvent<HTMLButtonElement>) => {
@@ -1397,17 +1400,22 @@ export function ViewScreen() {
               <button className="btn-sm" onClick={() => uploadInputRef.current?.click()} disabled={previewLoading}>
                 {previewLoading ? "Extracting…" : "+ Upload PDF"}
               </button>
-              {!prefs.isProActive && (
+              {isFinite(prefs.effectiveManualUploadLimit) && (
                 <span style={{
-                  fontSize: 11.5, color: prefs.isManualUploadLimitReached ? "#b91c1c" : prefs.todayManualUploadCount >= 7 ? "#92400e" : "var(--color-text-tertiary)",
-                  background: prefs.isManualUploadLimitReached ? "#fee2e2" : prefs.todayManualUploadCount >= 7 ? "#fff7ed" : "transparent",
+                  fontSize: 11.5,
+                  color: prefs.isManualUploadLimitReached ? "#b91c1c"
+                    : prefs.todayManualUploadCount >= prefs.effectiveManualUploadLimit * 0.7 ? "#92400e"
+                    : "var(--color-text-tertiary)",
+                  background: prefs.isManualUploadLimitReached ? "#fee2e2"
+                    : prefs.todayManualUploadCount >= prefs.effectiveManualUploadLimit * 0.7 ? "#fff7ed"
+                    : "transparent",
                   borderRadius: 5, padding: prefs.todayManualUploadCount > 0 ? "2px 7px" : "0",
                   fontWeight: prefs.isManualUploadLimitReached ? 700 : 500, whiteSpace: "nowrap",
                 }}>
                   {prefs.isManualUploadLimitReached
-                    ? "Daily limit reached (10/10)"
+                    ? `Daily limit reached (${prefs.effectiveManualUploadLimit}/${prefs.effectiveManualUploadLimit})`
                     : prefs.todayManualUploadCount > 0
-                      ? `${prefs.todayManualUploadCount}/10 uploads today`
+                      ? `${prefs.todayManualUploadCount}/${prefs.effectiveManualUploadLimit} uploads today`
                       : null}
                 </span>
               )}
@@ -1532,8 +1540,6 @@ export function ViewScreen() {
           let lastFolder: string | null = null;
           return sorted.map((rec) => {
           const isSelected = rec.id != null && selected.has(rec.id);
-          const metaStyle: React.CSSProperties = { fontSize: 11.5, color: "var(--color-text-secondary)" };
-          const labelStyle: React.CSSProperties = { fontSize: 10.5, fontWeight: 600, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.04em", marginRight: 3 };
           const isFolderSort = sortBy === "folder" || sortBy === "folder_desc";
           const currentFolderKey = folderGroupKey(rec);
           const showFolderHeader = isFolderSort && currentFolderKey !== lastFolder;
@@ -1637,6 +1643,9 @@ export function ViewScreen() {
                         </span>
                       );
                     })}
+                    <span style={{ fontSize: 11, color: "var(--color-text-tertiary)", flexShrink: 0, whiteSpace: "nowrap" }}>
+                      {rec.receivedAt ? formatDate(rec.receivedAt) : formatDate(rec.createdAt)}
+                    </span>
                   </div>
                   <span className="view-card-amount">{formatAmount(rec.grandTotalPaise)}</span>
                 </div>
@@ -1652,21 +1661,6 @@ export function ViewScreen() {
                     {rec.extractionNote}
                   </div>
                 )}
-                {/* Line 3: Subject (word-wrap) + Received date */}
-                <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 2, ...metaStyle }}>
-                  <span style={{ flex: 1, minWidth: 0, wordBreak: "break-word", whiteSpace: "normal" }}>
-                    <span style={labelStyle}>Subject</span>{rec.subject ?? "—"}
-                  </span>
-                  <span style={{ flexShrink: 0 }}>
-                    <span style={labelStyle}>Received</span>{rec.receivedAt ? formatDate(rec.receivedAt) : formatDate(rec.createdAt)}
-                  </span>
-                </div>
-                {/* Line 4: Received from */}
-                <div style={{ display: "flex", alignItems: "center", gap: 12, ...metaStyle }}>
-                  <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    <span style={labelStyle}>Received</span>{rec.senderEmail ?? "—"}
-                  </span>
-                </div>
               </div>
             </label>
             </React.Fragment>
@@ -2011,7 +2005,7 @@ export function ViewScreen() {
                               onClick={async () => {
                                 if (!previewExtracted) return;
                                 if (prefs.isManualUploadLimitReached) {
-                                  alert(`Daily upload limit reached — Free plan allows ${prefs.MANUAL_UPLOAD_DAILY_LIMIT} manual uploads per day. Try again tomorrow or upgrade to Pro for unlimited uploads.`);
+                                  alert(`Daily upload limit reached — you have used ${prefs.todayManualUploadCount}/${prefs.effectiveManualUploadLimit} manual uploads today. Try again tomorrow or upgrade your plan for a higher limit.`);
                                   return;
                                 }
                                 setPreviewCloudSaving(true);
@@ -2020,6 +2014,10 @@ export function ViewScreen() {
                                   if (newId != null) {
                                     try { await syncNewInvoice(newId); rewards.recordCloudSync(); } catch {}
                                     await checkWarrantyPrompt([newId]);
+                                  }
+                                  if (uploadedFile && prefs.desktopFolderName) {
+                                    const buf = await uploadedFile.arrayBuffer();
+                                    await desktopConnector.saveInvoiceToFolder(new Uint8Array(buf), uploadedFile.name, "manual").catch(() => {});
                                   }
                                   load();
                                   closeDetailPanel();
@@ -2039,13 +2037,17 @@ export function ViewScreen() {
                             onClick={async () => {
                               if (!previewExtracted) return;
                               if (prefs.isManualUploadLimitReached) {
-                                alert(`Daily upload limit reached — Free plan allows ${prefs.MANUAL_UPLOAD_DAILY_LIMIT} manual uploads per day. Try again tomorrow or upgrade to Pro for unlimited uploads.`);
+                                alert(`Daily upload limit reached — you have used ${prefs.todayManualUploadCount}/${prefs.effectiveManualUploadLimit} manual uploads today. Try again tomorrow or upgrade your plan for a higher limit.`);
                                 return;
                               }
                               setPreviewSubmitting(true);
                               try {
                                 const newId = await doInsert(previewExtracted);
                                 if (newId != null) await checkWarrantyPrompt([newId]);
+                                if (uploadedFile && prefs.desktopFolderName) {
+                                  const buf = await uploadedFile.arrayBuffer();
+                                  await desktopConnector.saveInvoiceToFolder(new Uint8Array(buf), uploadedFile.name, "manual").catch(() => {});
+                                }
                                 load();
                                 closeDetailPanel();
                               } finally { setPreviewSubmitting(false); }

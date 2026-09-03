@@ -19,6 +19,21 @@ import { computeSentinelForInvoice, computeSentinelForProfileCategory } from "..
 import { detectSentinelCandidates } from "./WarrantyDetector";
 import { prefs } from "../data/AutoImportPreferences";
 import { detectExtractionStrategy } from "./ExtractionStrategyDetector";
+import { looksIndian, translateToEnglish } from "../service/SarvamClient";
+
+async function maybeSarvamTranslate(text: string | null): Promise<string | null> {
+  if (!text) return text;
+  const key = prefs.sarvamApiKey || (import.meta.env.VITE_SARVAM_API_KEY as string | undefined);
+  if (!key || !looksIndian(text)) return text;
+  try {
+    const translated = await translateToEnglish(text, key);
+    console.log("[Pipeline] Sarvam translated Indian-language text");
+    return translated;
+  } catch (e) {
+    console.warn("[Pipeline] Sarvam translation failed — using original:", e);
+    return text;
+  }
+}
 
 const PROFESSIONAL_PROFILES: ProfessionalProfile[] = ["shopkeeper", "tax_consultant", "ca", "real_estate", "advocate", "bookkeeper"];
 
@@ -338,7 +353,8 @@ export async function processFile(
           // Rendering returned no pages — fall back to text + Gemini text
           result = await textExtractPdf(file, classification);
           if ((result.kind === "success" || result.kind === "lowConfidence") && result.invoice.rawText) {
-            const enhanced = await enhanceWithClaude(result.invoice);
+            const translated = { ...result.invoice, rawText: await maybeSarvamTranslate(result.invoice.rawText) };
+            const enhanced = await enhanceWithClaude(translated);
             result = enhanced.confidenceScore >= 0.7 && result.kind === "lowConfidence"
               ? { kind: "success", invoice: enhanced }
               : { ...result, invoice: enhanced };
@@ -350,7 +366,8 @@ export async function processFile(
         result = await textExtractPdf(file, classification);
         if ((result.kind === "success" || result.kind === "lowConfidence") && result.invoice.rawText) {
           try {
-            const enhanced = await enhanceWithClaude(result.invoice);
+            const translated = { ...result.invoice, rawText: await maybeSarvamTranslate(result.invoice.rawText) };
+            const enhanced = await enhanceWithClaude(translated);
             result = enhanced.confidenceScore >= 0.7 && result.kind === "lowConfidence"
               ? { kind: "success", invoice: enhanced }
               : { ...result, invoice: enhanced };
@@ -555,7 +572,8 @@ export async function extractInvoiceWithAI(invoiceId: number): Promise<Extracted
   // return null and we fall through to Vision below.
   if (rawRec?.rawText && rawRec.rawText.length > 50) {
     try {
-      const textEnhanced = await enhanceWithClaude({ ...blank, rawText: rawRec.rawText });
+      const translatedRaw = await maybeSarvamTranslate(rawRec.rawText);
+      const textEnhanced = await enhanceWithClaude({ ...blank, rawText: translatedRaw });
       if (textEnhanced && (textEnhanced.grandTotalPaise != null || textEnhanced.merchantName != null)) {
         console.log("[extractInvoiceWithAI] Gemini text succeeded — skipping Vision");
         return finalizeExtractedInvoice(invoiceId, textEnhanced);

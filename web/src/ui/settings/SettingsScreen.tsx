@@ -49,6 +49,8 @@ export function SettingsScreen({ onSignOut }: Props) {
   const [geminiKeySaved, setGeminiKeySaved] = useState(false);
   const [openaiApiKey, setOpenaiApiKey] = useState(() => prefs.openaiApiKey);
   const [openaiKeySaved, setOpenaiKeySaved] = useState(false);
+  const [sarvamApiKey, setSarvamApiKey] = useState(() => prefs.sarvamApiKey);
+  const [sarvamKeySaved, setSarvamKeySaved] = useState(false);
 
   const [jInvoiceSecret, setJInvoiceSecret] = useState(() => prefs.jInvoiceSecret);
   const [jSecretSaved, setJSecretSaved] = useState(false);
@@ -584,6 +586,43 @@ export function SettingsScreen({ onSignOut }: Props) {
               )}
             </div>
           )}
+        </div>
+
+        <div className="settings-field" style={{ marginTop: 16 }}>
+          <label className="settings-field-label">Sarvam AI API Key</label>
+          <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginBottom: 6 }}>
+            Enables automatic translation of Hindi, Tamil, Telugu, Kannada, and other Indian-language invoices before AI extraction. Get a free key at{" "}
+            <a href="https://dashboard.sarvam.ai" target="_blank" rel="noreferrer" style={{ color: "var(--color-primary)" }}>dashboard.sarvam.ai</a>.
+          </p>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input
+              type="password"
+              className="settings-input"
+              style={{ flex: 1, fontFamily: "monospace", fontSize: 12 }}
+              placeholder="Paste your Sarvam API key"
+              value={sarvamApiKey}
+              onChange={(e) => setSarvamApiKey(e.target.value)}
+            />
+            <button
+              className="btn-sm"
+              onClick={() => {
+                prefs.sarvamApiKey = sarvamApiKey.trim();
+                setSarvamKeySaved(true);
+                setTimeout(() => setSarvamKeySaved(false), 2000);
+              }}
+            >
+              {sarvamKeySaved ? "✓ Saved" : "Save"}
+            </button>
+            {sarvamApiKey && (
+              <button
+                className="btn-sm"
+                style={{ color: "#ef4444", borderColor: "#ef4444" }}
+                onClick={() => { prefs.sarvamApiKey = ""; setSarvamApiKey(""); }}
+              >
+                Clear
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="settings-field" style={{ marginTop: 16 }}>

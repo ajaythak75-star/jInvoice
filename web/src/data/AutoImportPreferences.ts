@@ -106,7 +106,12 @@ export const prefs = {
   get isSubscribed(): boolean { return get("subscribed") === "true"; },
   set isSubscribed(v: boolean) { set("subscribed", String(v)); },
 
-  FREE_DAILY_LIMIT: 10,
+  FREE_DAILY_LIMIT: 10,           // email auto-import limit for free users
+  FREE_MANUAL_UPLOAD_LIMIT: 5,    // manual upload limit for free users
+  TRIAL_MANUAL_UPLOAD_LIMIT: 10,  // manual upload limit during Pro trial
+  TRIAL_EMAIL_DAILY_LIMIT: 25,    // email auto-import limit during Pro trial
+  PRO_SHARED_DAILY_LIMIT: 50,     // both manual and email limit for paid Pro Shared
+  /** @deprecated use effectiveManualUploadLimit */
   MANUAL_UPLOAD_DAILY_LIMIT: 10,
 
   get todayInvoiceCount(): number {
@@ -124,9 +129,14 @@ export const prefs = {
     set("daily_count", JSON.stringify({ date: today, count }));
   },
 
+  get effectiveDailyEmailLimit(): number {
+    if (this.isSubscribed) return this.planApiOption === "own" ? Infinity : this.PRO_SHARED_DAILY_LIMIT;
+    if (this.isInTrial) return this.TRIAL_EMAIL_DAILY_LIMIT;
+    return this.FREE_DAILY_LIMIT;
+  },
+
   get isDailyLimitReached(): boolean {
-    if (this.isProActive) return false;
-    return this.todayInvoiceCount >= this.FREE_DAILY_LIMIT;
+    return this.todayInvoiceCount >= this.effectiveDailyEmailLimit;
   },
 
   // Manual upload counter — separate from general daily count; only applies to free users
@@ -145,9 +155,16 @@ export const prefs = {
     set("manual_daily_count", JSON.stringify({ date: today, count }));
   },
 
+  get effectiveManualUploadLimit(): number {
+    if (this.isSubscribed) return this.planApiOption === "own" ? Infinity : this.PRO_SHARED_DAILY_LIMIT;
+    if (this.isInTrial) return this.TRIAL_MANUAL_UPLOAD_LIMIT;
+    return this.FREE_MANUAL_UPLOAD_LIMIT;
+  },
+
   get isManualUploadLimitReached(): boolean {
-    if (this.isProActive) return false;
-    return this.todayManualUploadCount >= this.MANUAL_UPLOAD_DAILY_LIMIT;
+    const limit = this.effectiveManualUploadLimit;
+    if (!isFinite(limit)) return false;
+    return this.todayManualUploadCount >= limit;
   },
 
   // True when the business profile form has been completed (trial start or post-payment)
@@ -224,6 +241,10 @@ export const prefs = {
   // User-configurable OpenAI API key (overrides server OPENAI_API_KEY env var)
   get openaiApiKey(): string { return get("openai_api_key") ?? ""; },
   set openaiApiKey(v: string) { v ? set("openai_api_key", v) : remove("openai_api_key"); },
+
+  // Sarvam AI API key — used for Indian-language invoice translation before extraction
+  get sarvamApiKey(): string { return get("sarvam_api_key") ?? ""; },
+  set sarvamApiKey(v: string) { v ? set("sarvam_api_key", v) : remove("sarvam_api_key"); },
 
   // jInvoice secret key — used for mobile sync authentication and API access
   get jInvoiceSecret(): string { return get("jinvoice_secret") ?? ""; },

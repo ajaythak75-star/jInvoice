@@ -211,7 +211,7 @@ const PLANS: Record<ApiOption, { monthlyPrice: number; yearlyPrice: number; year
 };
 
 const FREE_FEATURES = [
-  "10 manual uploads per day",
+  "5 manual uploads per day",
   "1 month of data history",
   "1 email account",
   "Mobile invoice capture",
@@ -736,7 +736,8 @@ export function PricingScreen() {
           </thead>
           <tbody>
             {([
-              ["Daily invoices",   "10 manual/day", "50 / day", "Unlimited (own quota)" ],
+              ["Manual uploads",   "5 / day",       "50 / day", "Unlimited"            ],
+              ["Email imports",    "10 / day",      "50 / day", "Unlimited"            ],
               ["Data history",     "1 month",   "3 months",    "3 months"             ],
               ["Email accounts",   "1",         "Up to 5",     "Up to 5"              ],
               ["Extra user",       "—",         "₹249/user",   "₹249/user"            ],
