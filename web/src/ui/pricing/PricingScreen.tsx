@@ -622,7 +622,7 @@ export function PricingScreen() {
           </thead>
           <tbody>
             {([
-              ["Daily invoices",   "5 / day",   "50 / day",    "50 / day (own quota)" ],
+              ["Daily invoices",   "5 / day",   "50 / day",    "Unlimited (own quota)" ],
               ["Data history",     "1 month",   "3 months",    "3 months"             ],
               ["Email accounts",   "1",         "Up to 5",     "Up to 5"              ],
               ["Extra user",       "—",         "₹249/user",   "₹249/user"            ],
