@@ -619,22 +619,8 @@ app.post("/api/auth/send-otp", async (req, res) => {
   const { email } = req.body ?? {};
   if (!email || !email.includes("@")) return res.status(400).json({ error: "Valid email required" });
 
-  // Allowlist check — query Supabase allowed_users table if configured
-  if (SUPABASE_URL && SUPABASE_SERVICE_KEY) {
-    try {
-      const chk = await fetch(
-        `${SUPABASE_URL}/rest/v1/allowed_users?email=eq.${encodeURIComponent(email.toLowerCase())}&select=email&limit=1`,
-        { headers: { apikey: SUPABASE_SERVICE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_KEY}` } }
-      );
-      const rows = await chk.json();
-      if (!Array.isArray(rows) || rows.length === 0) {
-        return res.status(403).json({ error: "This email is not registered for access. Contact the admin to request access." });
-      }
-    } catch {
-      // If Supabase is unreachable, fail closed (deny) to avoid bypassing the check
-      return res.status(503).json({ error: "Access check unavailable. Please try again shortly." });
-    }
-  }
+  // No login allowlist — any email can sign in (free plan).
+  // Pro access is gated separately at /api/subscription/start-trial.
 
   const code = String(Math.floor(100000 + Math.random() * 900000));
   _otpStore.set(email.toLowerCase(), { code, expiresAt: Date.now() + 600_000 });
