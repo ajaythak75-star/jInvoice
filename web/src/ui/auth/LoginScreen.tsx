@@ -101,8 +101,11 @@ export function LoginScreen({ onLogin }: Props) {
         {step === "otp" && (
           <>
             <p className="auth-tagline">Check your email</p>
-            <p style={{ fontSize: 13, color: "var(--color-text-secondary)", marginBottom: 20, textAlign: "center" }}>
+            <p style={{ fontSize: 13, color: "var(--color-text-secondary)", marginBottom: 8, textAlign: "center" }}>
               We sent a 6-digit code to <strong>{email}</strong>
+            </p>
+            <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginBottom: 20, textAlign: "center", opacity: 0.8 }}>
+              If you don't see it, check your <strong>spam or junk folder</strong>.
             </p>
             <form onSubmit={handleVerify} className="auth-form">
               <div className="auth-field">
