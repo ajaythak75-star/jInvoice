@@ -10,9 +10,6 @@ import {
   trialDaysLeft as serverTrialDaysLeft,
 } from "../../service/SubscriptionService";
 import { startTrial as startTrialServer, requestProAccess } from "../../service/UserPlanService";
-import { DesktopFolderConnector, isFsAccessSupported } from "../../autoimport/DesktopFolderConnector";
-
-const _desktopConnector = new DesktopFolderConnector();
 
 const INDIAN_STATES = [
   "Andhra Pradesh","Arunachal Pradesh","Assam","Bihar","Chhattisgarh","Goa","Gujarat",
@@ -205,65 +202,6 @@ function BusinessProfileModal({ onConfirm, onClose, ctaLabel = "Continue to Tria
   );
 }
 
-function DesktopFolderModal({ onDone }: { onDone: () => void }) {
-  const [connecting, setConnecting] = useState(false);
-  const [connected, setConnected] = useState<string | null>(null);
-  const [skipped, setSkipped] = useState(false);
-
-  const handleConnect = async () => {
-    setConnecting(true);
-    const name = await _desktopConnector.requestFolder();
-    setConnecting(false);
-    if (name) {
-      setConnected(name);
-    } else {
-      setSkipped(true);
-    }
-  };
-
-  return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.52)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
-      <div style={{ background: "var(--color-surface)", borderRadius: 14, padding: "28px 24px", maxWidth: 420, width: "100%", border: "1px solid var(--color-border)", boxShadow: "0 8px 40px rgba(0,0,0,0.3)", textAlign: "center" }}>
-        <div style={{ fontSize: 40, marginBottom: 14 }}>📁</div>
-        <h2 style={{ fontSize: 18, fontWeight: 800, color: "var(--color-text)", margin: "0 0 8px" }}>
-          {connected ? "Folder Connected!" : "Save Invoices to Your Computer"}
-        </h2>
-        <p style={{ fontSize: 13, color: "var(--color-text-secondary)", marginBottom: 22, lineHeight: 1.6 }}>
-          {connected
-            ? `Invoices will automatically be saved to "${connected}" on your computer.`
-            : skipped
-            ? "No problem — you can connect a folder any time from Auto-Import settings."
-            : "Connect a desktop folder and every invoice you import will automatically be saved there. You can change this any time from Auto-Import settings."}
-        </p>
-        {connected || skipped ? (
-          <button
-            onClick={onDone}
-            style={{ width: "100%", padding: "10px", borderRadius: 8, border: "none", background: "#7c3aed", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer" }}
-          >
-            {connected ? "Let's go →" : "Got it →"}
-          </button>
-        ) : (
-          <div style={{ display: "flex", gap: 10 }}>
-            <button
-              onClick={() => { setSkipped(true); }}
-              style={{ flex: 1, padding: "10px", borderRadius: 8, border: "1px solid var(--color-border)", background: "var(--color-surface-2)", color: "var(--color-text-secondary)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
-            >
-              Maybe Later
-            </button>
-            <button
-              onClick={handleConnect}
-              disabled={connecting}
-              style={{ flex: 2, padding: "10px", borderRadius: 8, border: "none", background: "#7c3aed", color: "#fff", fontSize: 13, fontWeight: 700, cursor: connecting ? "wait" : "pointer", opacity: connecting ? 0.7 : 1 }}
-            >
-              {connecting ? "Opening…" : "Connect Folder →"}
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 type Billing = "monthly" | "yearly";
 type ApiOption = "shared" | "own";
 
@@ -323,7 +261,6 @@ export function PricingScreen() {
   const [requestSent,      setRequestSent]      = useState(false);
   const [requestingAccess, setRequestingAccess] = useState(false);
   const [trialError,       setTrialError]       = useState<string | null>(null);
-  const [showFolderModal,  setShowFolderModal]  = useState(false);
 
   useEffect(() => {
     subscriptionService.get().then((s) => {
@@ -385,11 +322,6 @@ export function PricingScreen() {
           billing_cycle: billing,
           trial_started_at: updated.trial_started_at ?? new Date().toISOString(),
         });
-      }
-      // Offer desktop folder connection if not already set up
-      if (!prefs.desktopFolderName) {
-        const supported = await isFsAccessSupported();
-        if (supported) setShowFolderModal(true);
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -876,10 +808,6 @@ export function PricingScreen() {
           onConfirm={() => { setShowApiKeyModal(false); handleStartTrial(); }}
           onClose={() => setShowApiKeyModal(false)}
         />
-      )}
-
-      {showFolderModal && (
-        <DesktopFolderModal onDone={() => setShowFolderModal(false)} />
       )}
     </div>
   );
