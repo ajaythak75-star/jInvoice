@@ -139,7 +139,10 @@ export class DesktopFolderConnector {
   }
 
   async saveInvoiceToFolder(data: Uint8Array, filename: string, subfolder?: string): Promise<boolean> {
-    if (!this.handle) return false;
+    if (!this.handle) {
+      const restored = await this.restoreFolder();
+      if (!restored) return false;
+    }
     try {
       let targetDir: any = this.handle;
       if (subfolder) {
