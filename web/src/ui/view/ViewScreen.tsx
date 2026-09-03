@@ -1023,6 +1023,7 @@ export function ViewScreen() {
         productName,
         merchantName: inv.merchantName,
         expiresAt: sentinel.expiresAt,
+        invoiceDate: inv.invoiceDate ?? null,
       });
     }
     if (items.length > 0) setWarrantyItems(items);
