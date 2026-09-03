@@ -1100,75 +1100,97 @@ export function AutoImportSettings() {
 
           {/* ── Bulk history import ──────────────────────────────── */}
           {(vm.state.gmail.enabled || vm.state.outlook.enabled || ImapConnector.getAccounts().some((a) => a.enabled)) && (
-            <section className="card">
+            <section className="card" style={{ position: "relative" }}>
               <h3>Import History</h3>
               <p style={{ fontSize: 12.5, color: "var(--color-text-secondary)", marginBottom: 12 }}>
                 Download all email attachments from the past N months and save them locally first.
                 AI extraction runs separately so you can process in bulk without blocking the regular sync.
               </p>
 
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
-                <span style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>Look back</span>
-                <select
-                  className="settings-input"
-                  style={{ maxWidth: 130 }}
-                  value={historyMonths}
-                  disabled={historyPhase === "downloading" || historyPhase === "extracting"}
-                  onChange={(e) => setHistoryMonths(Number(e.target.value))}
-                >
-                  <option value={1}>1 month</option>
-                  <option value={3}>3 months</option>
-                  <option value={6}>6 months</option>
-                  <option value={12}>12 months</option>
-                  <option value={24}>24 months</option>
-                  <option value={0}>All time</option>
-                </select>
-              </div>
+              {/* Pro gate overlay */}
+              {!prefs.isProActive && (
+                <div style={{
+                  position: "absolute", inset: 0, borderRadius: "inherit",
+                  background: "color-mix(in srgb, var(--color-surface) 88%, transparent)",
+                  backdropFilter: "blur(3px)",
+                  display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                  gap: 10, zIndex: 2, padding: 24, textAlign: "center",
+                }}>
+                  <span style={{ fontSize: 22 }}>🔒</span>
+                  <p style={{ fontSize: 13.5, fontWeight: 600, color: "var(--color-text)", margin: 0 }}>
+                    Import History is a Pro feature
+                  </p>
+                  <p style={{ fontSize: 12.5, color: "var(--color-text-secondary)", margin: 0, maxWidth: 280 }}>
+                    Upgrade to Pro to bulk-import months of email history and extract invoices in one go.
+                  </p>
+                  <button className="settings-pro-cta" onClick={openProModal}>Upgrade to Pro</button>
+                </div>
+              )}
 
-              {historyPhase === "idle" && (
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                  <button className="btn-sync-primary" onClick={handleImportHistory}>
-                    Import History
-                  </button>
-                  {pendingAfterImport > 0 && (
-                    <button className="btn-sync-primary" onClick={handleBatchExtract}>
-                      Extract {pendingAfterImport} with AI
+              <div style={{ opacity: prefs.isProActive ? 1 : 0.25, pointerEvents: prefs.isProActive ? "auto" : "none" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>Look back</span>
+                  <select
+                    className="settings-input"
+                    style={{ maxWidth: 130 }}
+                    value={historyMonths}
+                    disabled={historyPhase === "downloading" || historyPhase === "extracting"}
+                    onChange={(e) => setHistoryMonths(Number(e.target.value))}
+                  >
+                    <option value={1}>1 month</option>
+                    <option value={3}>3 months</option>
+                    <option value={6}>6 months</option>
+                    <option value={12}>12 months</option>
+                    <option value={24}>24 months</option>
+                    <option value={0}>All time</option>
+                  </select>
+                </div>
+
+                {historyPhase === "idle" && (
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                    <button className="btn-sync-primary" onClick={handleImportHistory}>
+                      Import History
                     </button>
-                  )}
-                </div>
-              )}
-
-              {historyPhase === "downloading" && (
-                <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                  <div style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>
-                    Downloading… {historyProgress.saved}
-                    {historyProgress.found > 0 ? ` of ${historyProgress.found}` : ""} PDFs saved
+                    {pendingAfterImport > 0 && (
+                      <button className="btn-sync-primary" onClick={handleBatchExtract}>
+                        Extract {pendingAfterImport} with AI
+                      </button>
+                    )}
                   </div>
-                  <button className="btn-sync" style={{ color: "var(--color-danger)" }} onClick={handleCancelBulk}>Cancel</button>
-                </div>
-              )}
+                )}
 
-              {historyPhase === "extracting" && (
-                <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                  <div style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>
-                    Extracting… {extractProgress.done} of {extractProgress.total}
+                {historyPhase === "downloading" && (
+                  <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                    <div style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>
+                      Downloading… {historyProgress.saved}
+                      {historyProgress.found > 0 ? ` of ${historyProgress.found}` : ""} PDFs saved
+                    </div>
+                    <button className="btn-sync" style={{ color: "var(--color-danger)" }} onClick={handleCancelBulk}>Cancel</button>
                   </div>
-                  <button className="btn-sync" style={{ color: "var(--color-danger)" }} onClick={handleCancelBulk}>Cancel</button>
-                </div>
-              )}
+                )}
 
-              {historyPhase === "done" && historyResult && (
-                <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>{historyResult}</span>
-                  <button className="btn-sync" onClick={() => { setHistoryPhase("idle"); setHistoryResult(null); setPendingAfterImport(0); }}>
-                    Done
-                  </button>
-                </div>
-              )}
+                {historyPhase === "extracting" && (
+                  <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                    <div style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>
+                      Extracting… {extractProgress.done} of {extractProgress.total}
+                    </div>
+                    <button className="btn-sync" style={{ color: "var(--color-danger)" }} onClick={handleCancelBulk}>Cancel</button>
+                  </div>
+                )}
 
-              {historyPhase === "idle" && historyResult && (
-                <p style={{ fontSize: 12.5, color: "var(--color-text-secondary)", marginTop: 8 }}>{historyResult}</p>
-              )}
+                {historyPhase === "done" && historyResult && (
+                  <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>{historyResult}</span>
+                    <button className="btn-sync" onClick={() => { setHistoryPhase("idle"); setHistoryResult(null); setPendingAfterImport(0); }}>
+                      Done
+                    </button>
+                  </div>
+                )}
+
+                {historyPhase === "idle" && historyResult && (
+                  <p style={{ fontSize: 12.5, color: "var(--color-text-secondary)", marginTop: 8 }}>{historyResult}</p>
+                )}
+              </div>
             </section>
           )}
 
