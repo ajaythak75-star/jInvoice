@@ -95,17 +95,21 @@ export class DesktopFolderConnector {
   }
 
   async restoreFolder(): Promise<boolean> {
-    // Skip queryPermission — requestPermission auto-grants if already allowed
-    // (no dialog shown) and calls the permission dialog if not. Going straight
-    // to requestPermission avoids one extra IPC round-trip that could consume
-    // the browser's user-activation window before the dialog is triggered.
     const h = this.handle ?? await loadHandle();
     if (!h) return false;
     try {
+      // queryPermission doesn't require user activation — use it first so
+      // already-granted folders work even without a fresh user gesture.
+      const current = await (h as any).queryPermission({ mode: "readwrite" });
+      if (current === "granted") { this.handle = h; return true; }
+      // requestPermission requires user activation; may throw SecurityError
+      // if called outside a user gesture — catch silently in that case.
       const status = await (h as any).requestPermission({ mode: "readwrite" });
       if (status === "granted") { this.handle = h; return true; }
     } catch (err) {
-      console.error("[jInvoice] restoreFolder permission error:", err);
+      if (!(err instanceof DOMException && err.name === "SecurityError")) {
+        console.error("[jInvoice] restoreFolder permission error:", err);
+      }
     }
     return false;
   }
