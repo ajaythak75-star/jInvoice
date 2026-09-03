@@ -6,6 +6,8 @@ import { DesktopFolderConnector } from "../autoimport/DesktopFolderConnector";
 import { processFile, extractInvoiceWithAI } from "../extraction/ExtractionPipeline";
 import { db, markAsImported, deduplicateInvoices, addSecurityAlert } from "../data/InvoiceDatabase";
 import { assessEmailThreat } from "./SpamDetector";
+import { syncAll } from "./SupabaseSync";
+import { isSupabaseEnabled } from "../data/supabase";
 
 const SCHEDULE_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 const CONCURRENT_EXTRACTIONS = 3;
@@ -262,6 +264,9 @@ export async function poll(): Promise<{ found: number; processed: number; cancel
     if (processed > 0) {
       await deduplicateInvoices();
       window.dispatchEvent(new CustomEvent("jinvoice:sync-complete"));
+      if (isSupabaseEnabled() && !_syncCancelled) {
+        syncAll().catch(console.error);
+      }
     }
 
     const result = { found, processed, cancelled: _syncCancelled };

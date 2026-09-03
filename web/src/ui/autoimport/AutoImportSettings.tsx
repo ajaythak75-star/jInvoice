@@ -576,7 +576,7 @@ export function AutoImportSettings() {
         if (folderReady) {
           const bytes = new Uint8Array(await files[i].arrayBuffer());
           // Save all files to the same root folder (no per-doctype subfolders)
-          await desktopConnector.saveInvoiceToFolder(bytes, files[i].name);
+          await desktopConnector.saveInvoiceToFolder(bytes, files[i].name, "Manual");
         }
         // Get the ID of the just-inserted invoice (processFile saves it synchronously)
         const last = await db.invoices.orderBy("id").last();
