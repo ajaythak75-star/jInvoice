@@ -54,23 +54,11 @@ Rules:
 - Amounts must be numbers (not strings), in INR
 - PIN code is a 6-digit number found in the merchant address`;
 
-// Always proxy Gemini calls through the server — keeps the API key server-side,
-// avoids CORS, and works identically in Electron and web/Render.
-const GEMINI_MODEL = "gemini-3.5-flash-lite";
+const OPENAI_MODEL = "gpt-4o-mini";
 
-function geminiEndpoint(): { url: string; isProxy: boolean } {
-  return { url: "/api/gemini", isProxy: true };
-}
-
-function parseGeminiResponse(data: unknown): ClaudeInvoiceData {
-  const parts: any[] = (data as any)?.candidates?.[0]?.content?.parts ?? [];
-  // Some models prepend a thought part (thought:true) before the output part.
-  // Always use the first non-thought part as the model's actual response.
-  const outputPart = parts.find((p: any) => !p.thought) ?? parts[0] ?? {};
-  const text: string = outputPart.text ?? "{}";
-  // Strip markdown fences
+function parseOpenAIResponse(data: unknown): ClaudeInvoiceData {
+  const text: string = (data as any)?.choices?.[0]?.message?.content ?? "{}";
   let clean = text.replace(/^```json?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
-  // If still not JSON, try extracting the first {...} block
   if (!clean.startsWith("{")) {
     const m = clean.match(/\{[\s\S]*\}/);
     clean = m ? m[0] : "{}";
@@ -82,70 +70,55 @@ function parseGeminiResponse(data: unknown): ClaudeInvoiceData {
   }
 }
 
-async function geminiPost(url: string, body: Record<string, unknown>, label: string): Promise<unknown> {
+async function openaiPost(body: Record<string, unknown>): Promise<unknown> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  // TEST OVERRIDE: bypass pro check to allow own key — comment out after testing
-  const userKey = prefs.geminiApiKey.trim();
-  // const userKey = prefs.isProActive ? prefs.geminiApiKey.trim() : ""; // restore this line after testing
-  if (userKey) headers["x-gemini-key"] = userKey;
+  const userKey = prefs.geminiApiKey.trim(); // reuses the "bring your own key" field
+  if (userKey) headers["x-openai-key"] = userKey;
 
-  const attempt = async () => fetch(url, {
+  const resp = await fetch("/api/openai", {
     method: "POST",
     headers,
     body: JSON.stringify(body),
   });
 
-  let resp = await attempt();
-  if (resp.status === 429) {
-    // Check if this is a daily quota exhaustion (not a per-minute rate limit).
-    // Daily quota won't recover within minutes — fail fast with a clear message.
-    const body = await resp.text().catch(() => "");
-    if (body.includes("PerDay") || body.includes("RESOURCE_EXHAUSTED")) {
-      throw new Error(`Gemini daily quota exhausted. Try again tomorrow or add your own Gemini API key in Settings.`);
-    }
-    // Per-minute rate limit — retry with back-off.
-    for (let retry = 0; retry < 2; retry++) {
-      const wait = (retry + 1) * 60_000;
-      console.warn(`[Gemini] ${label} rate-limited — retrying in ${wait / 1000}s (attempt ${retry + 2}/3)`);
-      await new Promise((r) => setTimeout(r, wait));
-      resp = await attempt();
-      if (resp.status !== 429) break;
-    }
-  }
-
   if (!resp.ok) {
     const err = await resp.text().catch(() => resp.statusText);
-    throw new Error(`${label} ${resp.status}: ${err}`);
+    throw new Error(`OpenAI ${resp.status}: ${err}`);
   }
   return resp.json();
 }
 
-async function callGeminiText(rawText: string): Promise<ClaudeInvoiceData> {
-  const { url, isProxy } = geminiEndpoint();
-
-  const body: Record<string, unknown> = {
-    contents: [{ parts: [{ text: `${PROMPT}\n\nInvoice text:\n\n${rawText.slice(0, 6000)}` }] }],
-    generationConfig: { maxOutputTokens: 8192 },
+async function callOpenAIText(rawText: string): Promise<ClaudeInvoiceData> {
+  const body = {
+    model: OPENAI_MODEL,
+    messages: [
+      { role: "user", content: `${PROMPT}\n\nInvoice text:\n\n${rawText.slice(0, 6000)}` },
+    ],
+    max_tokens: 4096,
   };
-  if (isProxy) body.model = GEMINI_MODEL;
-
-  return parseGeminiResponse(await geminiPost(url, body, "Gemini text API"));
+  return parseOpenAIResponse(await openaiPost(body));
 }
 
-async function callGeminiVision(pages: RenderedPage[]): Promise<ClaudeInvoiceData> {
-  const { url, isProxy } = geminiEndpoint();
-
-  const imageParts = pages.map((p) => ({
-    inline_data: { mime_type: p.mimeType, data: p.data },
+async function callOpenAIVision(pages: RenderedPage[]): Promise<ClaudeInvoiceData> {
+  const imageContent = pages.map((p) => ({
+    type: "image_url",
+    image_url: { url: `data:${p.mimeType};base64,${p.data}`, detail: "high" },
   }));
 
-  const body: Record<string, unknown> = {
-    contents: [{ parts: [...imageParts, { text: PROMPT }] }],
-    generationConfig: { maxOutputTokens: 8192 },
+  const body = {
+    model: OPENAI_MODEL,
+    messages: [
+      {
+        role: "user",
+        content: [
+          ...imageContent,
+          { type: "text", text: PROMPT },
+        ],
+      },
+    ],
+    max_tokens: 4096,
   };
-  if (isProxy) body.model = GEMINI_MODEL;
-
-  return parseGeminiResponse(await geminiPost(url, body, "Gemini vision API"));
+  return parseOpenAIResponse(await openaiPost(body));
 }
 
 function mergeClaudeData(invoice: ExtractedInvoice, data: ClaudeInvoiceData): ExtractedInvoice {
@@ -180,7 +153,7 @@ function mergeClaudeData(invoice: ExtractedInvoice, data: ClaudeInvoiceData): Ex
 
 /** On-demand export used by ViewScreen */
 export async function extractWithClaude(rawText: string): Promise<ClaudeInvoiceData> {
-  return callGeminiText(rawText);
+  return callOpenAIText(rawText);
 }
 
 /** Vision-based extraction — call with rendered PDF page images */
@@ -189,13 +162,13 @@ export async function enhanceWithClaudeVision(
   pages: RenderedPage[],
 ): Promise<ExtractedInvoice> {
   if (pages.length === 0) return invoice;
-  const data = await callGeminiVision(pages);
+  const data = await callOpenAIVision(pages);
   return mergeClaudeData(invoice, data);
 }
 
 /** Text-based fallback — used when PDF rendering fails or no file is available */
 export async function enhanceWithClaude(invoice: ExtractedInvoice): Promise<ExtractedInvoice> {
   if (!invoice.rawText) return invoice;
-  const data = await callGeminiText(invoice.rawText);
+  const data = await callOpenAIText(invoice.rawText);
   return mergeClaudeData(invoice, data);
 }

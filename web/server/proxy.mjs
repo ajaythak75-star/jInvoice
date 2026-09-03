@@ -481,7 +481,8 @@ app.get("/auth/outlook/callback", async (req, res) => {
 
 // ── [DESKTOP] Gemini proxy (keeps API key server-side, avoids CORS) ──────────
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || "";
+const GEMINI_API_KEY  = process.env.GEMINI_API_KEY  || process.env.VITE_GEMINI_API_KEY  || "";
+const OPENAI_API_KEY  = process.env.OPENAI_API_KEY  || "";
 
 // Strip personal identifiers from invoice text before sending to Gemini (DPDPA compliance)
 function sanitizePII(text) {
@@ -521,6 +522,23 @@ app.post("/api/gemini", async (req, res) => {
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${effectiveKey}`,
       { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(sanitizeGeminiBody(body)) },
     );
+    const data = await upstream.json();
+    res.status(upstream.status).json(data);
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+app.post("/api/openai", async (req, res) => {
+  const userKey = (req.headers["x-openai-key"] ?? "").toString().trim();
+  const effectiveKey = userKey || OPENAI_API_KEY;
+  if (!effectiveKey) return res.status(503).json({ error: "No OpenAI API key configured on the server." });
+  try {
+    const upstream = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${effectiveKey}` },
+      body: JSON.stringify(req.body ?? {}),
+    });
     const data = await upstream.json();
     res.status(upstream.status).json(data);
   } catch (e) {
