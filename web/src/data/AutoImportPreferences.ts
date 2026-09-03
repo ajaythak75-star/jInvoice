@@ -106,7 +106,8 @@ export const prefs = {
   get isSubscribed(): boolean { return get("subscribed") === "true"; },
   set isSubscribed(v: boolean) { set("subscribed", String(v)); },
 
-  FREE_DAILY_LIMIT: 5,
+  FREE_DAILY_LIMIT: 10,
+  MANUAL_UPLOAD_DAILY_LIMIT: 10,
 
   get todayInvoiceCount(): number {
     const today = new Date().toISOString().slice(0, 10);
@@ -124,8 +125,34 @@ export const prefs = {
   },
 
   get isDailyLimitReached(): boolean {
-    return false; // TEST: limit disabled — restore: if (this.isProActive) return false; return this.todayInvoiceCount >= this.FREE_DAILY_LIMIT;
+    if (this.isProActive) return false;
+    return this.todayInvoiceCount >= this.FREE_DAILY_LIMIT;
   },
+
+  // Manual upload counter — separate from general daily count; only applies to free users
+  get todayManualUploadCount(): number {
+    const today = new Date().toISOString().slice(0, 10);
+    const stored = get("manual_daily_count");
+    try {
+      const parsed: { date: string; count: number } = JSON.parse(stored ?? "{}");
+      return parsed.date === today ? parsed.count : 0;
+    } catch { return 0; }
+  },
+
+  incrementManualUploadCount(): void {
+    const today = new Date().toISOString().slice(0, 10);
+    const count = this.todayManualUploadCount + 1;
+    set("manual_daily_count", JSON.stringify({ date: today, count }));
+  },
+
+  get isManualUploadLimitReached(): boolean {
+    if (this.isProActive) return false;
+    return this.todayManualUploadCount >= this.MANUAL_UPLOAD_DAILY_LIMIT;
+  },
+
+  // True when the business profile form has been completed (trial start or post-payment)
+  get businessProfileCompleted(): boolean { return get("business_profile_completed") === "true"; },
+  set businessProfileCompleted(v: boolean) { set("business_profile_completed", String(v)); },
 
   get trialStartedAt(): string | null { return get("trial_started_at"); },
   set trialStartedAt(v: string | null) { v ? set("trial_started_at", v) : remove("trial_started_at"); },

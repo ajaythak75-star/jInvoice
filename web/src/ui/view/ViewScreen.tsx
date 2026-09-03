@@ -1397,6 +1397,20 @@ export function ViewScreen() {
               <button className="btn-sm" onClick={() => uploadInputRef.current?.click()} disabled={previewLoading}>
                 {previewLoading ? "Extracting…" : "+ Upload PDF"}
               </button>
+              {!prefs.isProActive && (
+                <span style={{
+                  fontSize: 11.5, color: prefs.isManualUploadLimitReached ? "#b91c1c" : prefs.todayManualUploadCount >= 7 ? "#92400e" : "var(--color-text-tertiary)",
+                  background: prefs.isManualUploadLimitReached ? "#fee2e2" : prefs.todayManualUploadCount >= 7 ? "#fff7ed" : "transparent",
+                  borderRadius: 5, padding: prefs.todayManualUploadCount > 0 ? "2px 7px" : "0",
+                  fontWeight: prefs.isManualUploadLimitReached ? 700 : 500, whiteSpace: "nowrap",
+                }}>
+                  {prefs.isManualUploadLimitReached
+                    ? "Daily limit reached (10/10)"
+                    : prefs.todayManualUploadCount > 0
+                      ? `${prefs.todayManualUploadCount}/10 uploads today`
+                      : null}
+                </span>
+              )}
             {quotaError && (
               <div style={{ fontSize: 12, color: "#b45309", background: "#fef3c7", border: "1px solid #fcd34d", borderRadius: 6, padding: "4px 10px", maxWidth: 340, cursor: "pointer" }} onClick={() => setQuotaError(null)} title="Click to dismiss">
                 ⚠ {quotaError}
@@ -1974,6 +1988,7 @@ export function ViewScreen() {
                           })),
                         );
                         prefs.incrementDailyCount();
+                        prefs.incrementManualUploadCount();
                         const isComplete = !!(inv.merchantName && inv.grandTotalPaise && inv.invoiceDate && inv.lineItems.length > 0);
                         rewards.recordUpload(isComplete);
                         // Create warranty sentinel for manually submitted previews (not done by processFile for this path)
@@ -1995,8 +2010,8 @@ export function ViewScreen() {
                               }}
                               onClick={async () => {
                                 if (!previewExtracted) return;
-                                if (prefs.isDailyLimitReached) {
-                                  alert(`Daily limit reached — Free plan allows ${prefs.FREE_DAILY_LIMIT} invoices per day. Upgrade to Pro for unlimited.`);
+                                if (prefs.isManualUploadLimitReached) {
+                                  alert(`Daily upload limit reached — Free plan allows ${prefs.MANUAL_UPLOAD_DAILY_LIMIT} manual uploads per day. Try again tomorrow or upgrade to Pro for unlimited uploads.`);
                                   return;
                                 }
                                 setPreviewCloudSaving(true);
@@ -2023,8 +2038,8 @@ export function ViewScreen() {
                             }}
                             onClick={async () => {
                               if (!previewExtracted) return;
-                              if (prefs.isDailyLimitReached) {
-                                alert(`Daily limit reached — Free plan allows ${prefs.FREE_DAILY_LIMIT} invoices per day. Upgrade to Pro for unlimited.`);
+                              if (prefs.isManualUploadLimitReached) {
+                                alert(`Daily upload limit reached — Free plan allows ${prefs.MANUAL_UPLOAD_DAILY_LIMIT} manual uploads per day. Try again tomorrow or upgrade to Pro for unlimited uploads.`);
                                 return;
                               }
                               setPreviewSubmitting(true);

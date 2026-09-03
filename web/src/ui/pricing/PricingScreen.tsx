@@ -106,7 +106,7 @@ function GeminiApiKeyModal({ onConfirm, onClose }: { onConfirm: (key: string) =>
   );
 }
 
-function BusinessProfileModal({ onConfirm, onClose }: { onConfirm: () => void; onClose: () => void }) {
+function BusinessProfileModal({ onConfirm, onClose, ctaLabel = "Continue to Trial →" }: { onConfirm: () => void; onClose: () => void; ctaLabel?: string }) {
   const [profile, setProfile] = useState<BusinessProfile>(() => {
     try { return JSON.parse(localStorage.getItem("jinvoice:business_profile") ?? "null") ?? { businessType: "", address: "", pin: "", state: "", country: "India", licenses: "" }; }
     catch { return { businessType: "", address: "", pin: "", state: "", country: "India", licenses: "" }; }
@@ -194,7 +194,7 @@ function BusinessProfileModal({ onConfirm, onClose }: { onConfirm: () => void; o
             Cancel
           </button>
           <button onClick={handleSubmit} style={{ flex: 2, padding: "10px", borderRadius: 8, border: "none", background: "#7c3aed", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-            Continue to Trial →
+            {ctaLabel}
           </button>
         </div>
       </div>
@@ -211,7 +211,7 @@ const PLANS: Record<ApiOption, { monthlyPrice: number; yearlyPrice: number; year
 };
 
 const FREE_FEATURES = [
-  "5 invoices per day",
+  "10 manual uploads per day",
   "1 month of data history",
   "1 email account",
   "Mobile invoice capture",
@@ -256,18 +256,33 @@ export function PricingScreen() {
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showApiKeyModal,  setShowApiKeyModal]  = useState(false);
+  const [postPayment,      setPostPayment]      = useState(false);
   const [approvalRequired, setApprovalRequired] = useState(false);
   const [requestSent,      setRequestSent]      = useState(false);
   const [requestingAccess, setRequestingAccess] = useState(false);
   const [trialError,       setTrialError]       = useState<string | null>(null);
 
   useEffect(() => {
-    subscriptionService.get().then((s) => { setSub(s); setLoading(false); });
+    subscriptionService.get().then((s) => {
+      setSub(s);
+      setLoading(false);
+      // If the user is already Pro but hasn't filled the business profile form, show it now
+      if (s && serverIsProActive(s) && !prefs.businessProfileCompleted) {
+        setShowProfileModal(true);
+      }
+    });
     // Handle Stripe success redirect
     const params = new URLSearchParams(window.location.search);
     if (params.get("payment") === "success") {
       window.history.replaceState({}, "", "/pricing");
-      setTimeout(() => subscriptionService.get().then(setSub), 2000);
+      setPostPayment(true);
+      setTimeout(() => subscriptionService.get().then((s) => {
+        setSub(s);
+        // Show profile form on first-time Pro upgrade if not yet completed
+        if (s && serverIsProActive(s) && !prefs.businessProfileCompleted) {
+          setShowProfileModal(true);
+        }
+      }), 2000);
     }
   }, []);
 
@@ -721,7 +736,7 @@ export function PricingScreen() {
           </thead>
           <tbody>
             {([
-              ["Daily invoices",   "5 / day",   "50 / day",    "Unlimited (own quota)" ],
+              ["Daily invoices",   "10 manual/day", "50 / day", "Unlimited (own quota)" ],
               ["Data history",     "1 month",   "3 months",    "3 months"             ],
               ["Email accounts",   "1",         "Up to 5",     "Up to 5"              ],
               ["Extra user",       "—",         "₹249/user",   "₹249/user"            ],
@@ -755,8 +770,10 @@ export function PricingScreen() {
 
       {showProfileModal && (
         <BusinessProfileModal
+          ctaLabel={postPayment || proActive ? "Save & Continue →" : "Continue to Trial →"}
           onConfirm={() => {
             setShowProfileModal(false);
+            prefs.businessProfileCompleted = true;
             if (auth.email) {
               try {
                 const p = JSON.parse(localStorage.getItem("jinvoice:business_profile") ?? "null");
@@ -773,6 +790,8 @@ export function PricingScreen() {
                 }
               } catch {}
             }
+            // Post-payment or already-Pro: just close — no trial to start
+            if (postPayment || proActive) return;
             if (apiOption === "own") {
               setShowApiKeyModal(true);
             } else {
