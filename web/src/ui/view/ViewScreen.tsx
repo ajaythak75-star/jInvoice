@@ -1018,7 +1018,12 @@ export function ViewScreen() {
       const sentinel = await getWarrantySentinel(id);
       if (!sentinel) continue;
       const dbItems = await db.lineItems.where("invoiceId").equals(id).toArray();
-      const productName = dbItems[0]?.name ?? inv.merchantName ?? "Unknown product";
+      const positiveItems = dbItems.filter((i) => i.totalPricePaise > 0);
+      const primaryItem = positiveItems.reduce<typeof dbItems[number] | undefined>(
+        (best, i) => (!best || i.totalPricePaise > best.totalPricePaise ? i : best),
+        undefined,
+      );
+      const productName = primaryItem?.name ?? inv.merchantName ?? "Unknown product";
       items.push({
         sentinelId: sentinel.id ?? null,
         invoiceId: id,

@@ -402,11 +402,12 @@ export function AlertsScreen() {
       }
       const inv = invoiceMap.get(r.invoiceId);
       const items = lineItemMap.get(r.invoiceId) ?? [];
-      if (items.length === 0) {
-        rows.push({ record: r, inv, item: null });
-      } else {
-        for (const item of items) rows.push({ record: r, inv, item });
-      }
+      const positiveItems = items.filter((i) => i.totalPricePaise > 0);
+      const primaryItem = positiveItems.reduce<typeof items[number] | undefined>(
+        (best, i) => (!best || i.totalPricePaise > best.totalPricePaise ? i : best),
+        undefined,
+      );
+      rows.push({ record: r, inv, item: primaryItem ?? items[0] ?? null });
     }
     return rows;
   }
