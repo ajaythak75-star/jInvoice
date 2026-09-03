@@ -456,7 +456,7 @@ async function persistResultWithNote(
     prefs.incrementDailyCount();
 
     // Pro users get full item-wise details; free users see only summary for finance/tax docs
-    const isTaxOrFinance = docTypes.some(dt => dt === "tax" || dt === "finance");
+    const isTaxOrFinance = docTypes.some(dt => dt === "tax" || dt === "financial");
     const lineItemsToSave = (!prefs.isProActive && isTaxOrFinance) ? [] : inv.lineItems;
 
     const invoiceId = await insertInvoiceWithItems(
@@ -642,7 +642,7 @@ async function finalizeExtractedInvoice(
   const status = enhanced.confidenceScore >= 0.7 ? "imported" : "pending_review";
 
   // Pro users get full item-wise details; free users see only summary for finance/tax docs
-  const isTaxOrFinance = docTypes.some(dt => dt === "tax" || dt === "finance");
+  const isTaxOrFinance = docTypes.some(dt => dt === "tax" || dt === "financial");
   const lineItemsToSave = (!prefs.isProActive && isTaxOrFinance) ? [] : enhanced.lineItems;
 
   await db.invoices.update(invoiceId, {

@@ -3,12 +3,22 @@ import type { InvoiceMeta, LineItemRow } from "../../data/InvoiceDatabase";
 import { SOCIETY_CATEGORY_LABEL, type SocietyExpenseCategory } from "../../core/extraction/SocietyExpenseDetector";
 import { getProfessionalCategoryLabel, type ProfessionalProfile } from "../../core/extraction/ProfessionalCategoryDetector";
 
-type DocClass = "invoice" | "tax" | "financial" | "payroll" | "legal" | "society_vendor" | "other";
+type DocClass = "invoice" | "tax" | "financial" | "payroll" | "legal" | "society_vendor"
+  | "utility" | "medical" | "insurance" | "education" | "rent" | "shopping" | "other";
 type ItemLayout = "invoice" | "simple" | "financial" | "payroll" | "none";
 
 function classifyDoc(docTypes: string[], activeMode: string, category: string): DocClass {
   if (docTypes.includes("tax")) return "tax";
-  if (docTypes.includes("finance")) return "financial";
+  if (docTypes.includes("financial") || docTypes.includes("finance")) return "financial";
+  if (docTypes.includes("insurance")) return "insurance";
+  if (docTypes.includes("payroll")) return "payroll";
+  if (docTypes.includes("legal")) return "legal";
+  if (docTypes.includes("utility")) return "utility";
+  if (docTypes.includes("medical")) return "medical";
+  if (docTypes.includes("education")) return "education";
+  if (docTypes.includes("rent")) return "rent";
+  if (docTypes.includes("shopping")) return "shopping";
+  if (docTypes.includes("society")) return "society_vendor";
   if (activeMode === "society") {
     if (["legal_document", "agreement", "share_certificate", "cheque", "meeting_record"].includes(category))
       return "legal";
@@ -62,6 +72,36 @@ const DOC_CONFIGS: Record<DocClass, DocConfig> = {
     primaryLabel: "Vendor / Service", nameLabel: "Vendor Name", refLabel: "Bill / Invoice No.",
     dateLabel: "Date", totalLabel: "Total Amount", itemLayout: "simple", itemsLabel: "Charges",
     accent: "#0891b2", badge: "Society",
+  },
+  utility: {
+    primaryLabel: "Service Provider", nameLabel: "Provider", refLabel: "Consumer / Account No.",
+    dateLabel: "Bill Date", totalLabel: "Amount Due", itemLayout: "simple", itemsLabel: "Charges",
+    accent: "#f97316", badge: "Utility",
+  },
+  medical: {
+    primaryLabel: "Hospital / Clinic", nameLabel: "Provider", refLabel: "Patient / Bill No.",
+    dateLabel: "Date", totalLabel: "Total Amount", itemLayout: "simple", itemsLabel: "Services",
+    accent: "#ef4444", badge: "Medical",
+  },
+  insurance: {
+    primaryLabel: "Insurer", nameLabel: "Insurance Company", refLabel: "Policy No.",
+    dateLabel: "Due / Cover Date", totalLabel: "Premium Amount", itemLayout: "simple", itemsLabel: "Coverage",
+    accent: "#10b981", badge: "Insurance",
+  },
+  education: {
+    primaryLabel: "Institution", nameLabel: "School / College", refLabel: "Student / Receipt No.",
+    dateLabel: "Date", totalLabel: "Fees Paid", itemLayout: "simple", itemsLabel: "Fee Components",
+    accent: "#6366f1", badge: "Education",
+  },
+  rent: {
+    primaryLabel: "Landlord", nameLabel: "Landlord / Owner", refLabel: "Receipt No.",
+    dateLabel: "Rent Period", totalLabel: "Rent Amount", itemLayout: "none", itemsLabel: "Details",
+    accent: "#a855f7", badge: "Rent",
+  },
+  shopping: {
+    primaryLabel: "Store / Platform", nameLabel: "Store", refLabel: "Order / Bill No.",
+    dateLabel: "Purchase Date", totalLabel: "Total Paid", itemLayout: "invoice", itemsLabel: "Items Purchased",
+    accent: "#ec4899", badge: "Shopping",
   },
   other: {
     primaryLabel: "Entity", nameLabel: "Name", refLabel: "Reference No.",
