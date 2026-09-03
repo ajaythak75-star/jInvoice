@@ -47,6 +47,7 @@ export interface SentinelRecord {
     | "service_interval"
     | "amc_renewal"
     | "agreement_expiry"
+    | "rent_agreement_expiry"
     | "gst_due"
     | "itr_filing"
     | "membership_renewal"

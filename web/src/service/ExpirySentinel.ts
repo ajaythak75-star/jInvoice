@@ -127,9 +127,10 @@ export async function computeSentinelForProfileCategory(
   type Rule = { type: SentinelRecord["type"]; label: string; months: number };
 
   const SOCIETY_RULES: Partial<Record<string, Rule>> = {
-    lift_amc:  { type: "amc_renewal",      label: "AMC Renewal",              months: 12 },
-    insurance: { type: "insurance",         label: "Insurance Policy Renewal", months: 12 },
-    agreement: { type: "agreement_expiry",  label: "Agreement / Rent Expiry",  months: 11 },
+    lift_amc:       { type: "amc_renewal",          label: "AMC Renewal",              months: 12 },
+    insurance:      { type: "insurance",             label: "Insurance Policy Renewal", months: 12 },
+    rent_agreement: { type: "rent_agreement_expiry", label: "Rent Agreement Expiry",    months: 36 },
+    agreement:      { type: "agreement_expiry",      label: "Agreement Expiry",         months: 11 },
   };
 
   const SHOPKEEPER_RULES: Partial<Record<string, Rule>> = {

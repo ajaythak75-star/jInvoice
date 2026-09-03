@@ -7,9 +7,11 @@ export type SocietyExpenseCategory =
   | "insurance"
   | "government_dues"
   | "cheque"
+  | "rent_agreement"
   | "agreement"
   | "share_certificate"
   | "legal_document"
+  | "identity_document"
   | "financial_document"
   | "meeting_record"
   | "other";
@@ -79,10 +81,21 @@ const SOCIETY_KEYWORDS: Array<{ cat: SocietyExpenseCategory; keywords: string[] 
     ],
   },
   {
+    cat: "rent_agreement",
+    keywords: [
+      "leave and license", "leave & license", "leave and licence",
+      "licensee", "licensor", "license fee", "licence fee",
+      "lock-in period", "lock in period",
+      "rental agreement", "rent agreement", "tenancy agreement",
+      "monthly rent", "rent per month", "refundable deposit",
+    ],
+  },
+  {
     cat: "agreement",
     keywords: [
-      "agreement", "contract", "memorandum", "mou", "service agreement",
-      "maintenance contract", "amc contract", "terms and conditions",
+      "service agreement", "maintenance contract", "amc contract",
+      "terms and conditions", "memorandum of understanding", "mou",
+      "contract", "agreement",
     ],
   },
   {
@@ -98,6 +111,17 @@ const SOCIETY_KEYWORDS: Array<{ cat: SocietyExpenseCategory; keywords: string[] 
       "noc", "no objection", "occupation certificate", "oc certificate",
       "completion certificate", "transfer letter", "mutation", "conveyance deed",
       "sale deed", "possession letter", "allotment letter",
+      "allottee", "promoter", "rera", "maharera", "agreement for sale",
+      "memorandum of understanding", "mou",
+    ],
+  },
+  {
+    cat: "identity_document",
+    keywords: [
+      "pan card", "permanent account number", "pan verification",
+      "aadhaar", "aadhar", "uidai", "digilocker",
+      "passport", "voter id", "election commission",
+      "driving licence", "driving license",
     ],
   },
   {
@@ -141,9 +165,11 @@ export const SOCIETY_CATEGORY_LABEL: Record<SocietyExpenseCategory, string> = {
   insurance:          "Insurance",
   government_dues:    "Government Dues",
   cheque:             "Cheque",
+  rent_agreement:     "Rent Agreement",
   agreement:          "Agreement",
   share_certificate:  "Share Certificate",
   legal_document:     "Legal Document",
+  identity_document:  "Identity Document",
   financial_document: "Financial Document",
   meeting_record:     "Meeting Record",
   other:              "Other",

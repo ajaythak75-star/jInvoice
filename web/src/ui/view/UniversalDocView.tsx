@@ -10,7 +10,7 @@ type ItemLayout = "invoice" | "simple" | "financial" | "payroll" | "none";
 // Professional profile categories → DocClass mappings
 const CAT_TAX      = new Set(["itr_filing","gst_return","tds_tcs","advance_tax","gst_tax","tax_filing","gst_compliance"]);
 const CAT_PAYROLL  = new Set(["staff_payroll"]);
-const CAT_LEGAL    = new Set(["court_fees","stamp_duty","legal_notice","documentation_charges","roc_mca","property_registration","legal_documentation","legal_document","agreement","share_certificate"]);
+const CAT_LEGAL    = new Set(["court_fees","stamp_duty","legal_notice","documentation_charges","roc_mca","property_registration","legal_documentation","legal_document","agreement","rent_agreement","share_certificate","identity_document"]);
 const CAT_FINANCE  = new Set(["bank_charges","financial_document"]);
 const CAT_UTILITY  = new Set(["rent_utilities","office_expenses","office_software"]);
 const CAT_TRAVEL   = new Set(["site_visit"]);
