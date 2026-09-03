@@ -571,17 +571,11 @@ export function AutoImportSettings() {
       setFileQueue(q => q.map((e, idx) => idx === i ? { ...e, status: "processing" } : e));
       const r = await processFile(files[i], "manual_upload", undefined, { skipAll: true });
       let invoiceId: number | undefined;
-      if (r.kind === "pendingExtraction") {
-        // Saved without AI — get the last inserted record ID for cloud save
-        const last = await db.invoices.orderBy("id").last();
-        if (last?.id != null) invoiceId = last.id as number;
-      } else if (r.kind === "success" || r.kind === "lowConfidence") {
+      if (r.kind === "success" || r.kind === "lowConfidence" || r.kind === "pendingExtraction") {
         if (folderReady) {
           const bytes = new Uint8Array(await files[i].arrayBuffer());
-          // Save all files to the same root folder (no per-doctype subfolders)
           await desktopConnector.saveInvoiceToFolder(bytes, files[i].name, "Manual");
         }
-        // Get the ID of the just-inserted invoice (processFile saves it synchronously)
         const last = await db.invoices.orderBy("id").last();
         if (last?.id != null) invoiceId = last.id as number;
       }
