@@ -1643,11 +1643,12 @@ export function ViewScreen() {
                         </span>
                       );
                     })}
-                    <span style={{ fontSize: 11, color: "var(--color-text-tertiary)", flexShrink: 0, whiteSpace: "nowrap" }}>
-                      {rec.receivedAt ? formatDate(rec.receivedAt) : formatDate(rec.createdAt)}
-                    </span>
                   </div>
                   <span className="view-card-amount">{formatAmount(rec.grandTotalPaise)}</span>
+                </div>
+                {/* Line 3: received date */}
+                <div style={{ fontSize: 11, color: "var(--color-text-tertiary)", marginBottom: 2 }}>
+                  {rec.receivedAt ? formatDate(rec.receivedAt) : formatDate(rec.createdAt)}
                 </div>
                 {/* Extraction note (blurry image, local-only, etc.) */}
                 {rec.extractionNote && (
