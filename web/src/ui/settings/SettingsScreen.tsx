@@ -160,6 +160,12 @@ export function SettingsScreen({ onSignOut }: Props) {
           )}
         </div>
 
+        {userType === "personal" && !isProActive && (
+          <p style={{ fontSize: 12.5, color: "var(--color-text-secondary)", fontStyle: "italic", marginBottom: 14 }}>
+            Upgrade to Pro from the <strong>Pricing</strong> tab to unlock professional profiles.
+          </p>
+        )}
+
         {/* Locked type display */}
         <div className="settings-row">
           <div>
@@ -253,11 +259,7 @@ export function SettingsScreen({ onSignOut }: Props) {
                   </div>
                 ))}
               </>
-            ) : (
-              <p style={{ fontSize: 12.5, color: "var(--color-text-secondary)", marginTop: 12 }}>
-                Upgrade to Pro from the <strong>Pricing</strong> tab to unlock professional profiles.
-              </p>
-            )}
+            ) : null}
           </>
         )}
       </section>
