@@ -7,8 +7,10 @@ import { ImapConnector, isImapAvailable, type ImapAccount } from "../../autoimpo
 import { poll, cancelSync, isSyncing, desktopConnector, schedulePolling, pollHistory, batchExtractPending, cancelBulk } from "../../service/AutoImportService";
 import { clearAllData, db } from "../../data/InvoiceDatabase";
 import { processFile } from "../../extraction/ExtractionPipeline";
-import { syncNewInvoice } from "../../service/SupabaseSync";
+import { syncNewInvoice, saveCustomerPlan, saveCustomerBusinessProfile } from "../../service/SupabaseSync";
 import { isSupabaseEnabled } from "../../data/supabase";
+import { auth } from "../../data/AuthStore";
+import { BusinessProfileModal } from "../shared/BusinessProfileModal";
 import type { ExtractionResult, ExtractedInvoice } from "../../core/extraction/models";
 import { prefs } from "../../data/AutoImportPreferences";
 
@@ -298,6 +300,7 @@ export function AutoImportSettings() {
   const [proCountry,  setProCountry]  = useState(() => prefs.customerCountry);
   const [proFormErr,  setProFormErr]  = useState<string | null>(null);
   const [trialStartedAt, setTrialStartedAt] = useState(() => prefs.trialStartedAt);
+  const [showProfileModal, setShowProfileModal] = useState(false);
   const [proEndDate, setProEndDate]   = useState<string | null>(() => prefs.proEndDate);
   const isInTrial = !!trialStartedAt && Date.now() - new Date(trialStartedAt).getTime() < 14 * 86400000;
   const trialDaysLeft = trialStartedAt ? Math.max(0, Math.ceil((14 * 86400000 - (Date.now() - new Date(trialStartedAt).getTime())) / 86400000)) : 0;
@@ -713,7 +716,7 @@ export function AutoImportSettings() {
             </span>
           )}
           {!prefs.isSubscribed && !isInTrial && (
-            <button className="btn-sm" style={{ marginLeft: "auto", fontWeight: 600 }} onClick={handleStartTrial}>
+            <button className="btn-sm" style={{ marginLeft: "auto", fontWeight: 600 }} onClick={() => setShowProfileModal(true)}>
               Start free trial
             </button>
           )}
@@ -1253,6 +1256,38 @@ export function AutoImportSettings() {
 
     {/* Pro upgrade modal */}
 
+    {showProfileModal && (
+      <BusinessProfileModal
+        onConfirm={() => {
+          setShowProfileModal(false);
+          prefs.businessProfileCompleted = true;
+          if (auth.email) {
+            try {
+              const p = JSON.parse(localStorage.getItem("jinvoice:business_profile") ?? "null");
+              if (p) {
+                saveCustomerBusinessProfile(auth.email, {
+                  business_type:        p.businessType,
+                  business_address:     p.address,
+                  business_pin:         p.pin,
+                  business_state:       p.state,
+                  business_country:     p.country,
+                  license_count:        p.licenses || null,
+                  profile_completed_at: new Date().toISOString(),
+                });
+                saveCustomerPlan(auth.email, {
+                  plan: "pro_shared",
+                  plan_status: "trial",
+                  billing_cycle: "monthly",
+                  trial_started_at: new Date().toISOString(),
+                });
+              }
+            } catch {}
+          }
+          handleStartTrial();
+        }}
+        onClose={() => setShowProfileModal(false)}
+      />
+    )}
     {showProModal && (
       <div
         className="modal-overlay"
