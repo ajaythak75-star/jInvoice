@@ -4,7 +4,7 @@ import { ConsentModal } from "./ConsentModal";
 import { GmailConnector } from "../../autoimport/GmailConnector";
 import { OutlookConnector } from "../../autoimport/OutlookConnector";
 import { ImapConnector, isImapAvailable, type ImapAccount } from "../../autoimport/ImapConnector";
-import { poll, cancelSync, isSyncing, desktopConnector, schedulePolling } from "../../service/AutoImportService";
+import { poll, cancelSync, isSyncing, desktopConnector, schedulePolling, pollHistory, batchExtractPending, cancelBulk } from "../../service/AutoImportService";
 import { clearAllData, db } from "../../data/InvoiceDatabase";
 import { processFile } from "../../extraction/ExtractionPipeline";
 import { syncNewInvoice } from "../../service/SupabaseSync";
@@ -227,6 +227,14 @@ export function AutoImportSettings() {
   const [manualUploadCount, setManualUploadCount] = useState(0);
   const [uploadLimitMsg, setUploadLimitMsg] = useState<string | null>(null);
 
+  // Bulk history import state
+  const [historyMonths, setHistoryMonths] = useState(6);
+  const [historyPhase, setHistoryPhase] = useState<"idle" | "downloading" | "extracting" | "done">("idle");
+  const [historyProgress, setHistoryProgress] = useState({ saved: 0, found: 0 });
+  const [extractProgress, setExtractProgress] = useState({ done: 0, total: 0 });
+  const [historyResult, setHistoryResult] = useState<string | null>(null);
+  const [pendingAfterImport, setPendingAfterImport] = useState(0);
+
   const FREE_UPLOAD_LIMIT = 5;
 
   // Gmail label picker state
@@ -447,6 +455,67 @@ export function AutoImportSettings() {
       window.removeEventListener("jinvoice:sync-account-failed", onAccountFailed);
     };
   }, []);
+
+  // History import events
+  useEffect(() => {
+    const onHistStart  = () => { setHistoryPhase("downloading"); setHistoryResult(null); setHistoryProgress({ saved: 0, found: 0 }); };
+    const onHistProg   = (e: Event) => setHistoryProgress((e as CustomEvent).detail);
+    const onHistDone   = () => { setHistoryPhase("idle"); };
+    const onBatchStart = (e: Event) => {
+      const { total } = (e as CustomEvent).detail as { total: number };
+      setHistoryPhase("extracting");
+      setExtractProgress({ done: 0, total });
+    };
+    const onBatchProg  = (e: Event) => setExtractProgress((e as CustomEvent).detail);
+    const onBatchDone  = (e: Event) => {
+      const { extracted, errors } = (e as CustomEvent).detail as { extracted: number; errors: number };
+      setHistoryPhase("done");
+      setHistoryResult(`Done — ${extracted} extracted${errors ? `, ${errors} failed` : ""}.`);
+    };
+    window.addEventListener("jinvoice:history-start",          onHistStart);
+    window.addEventListener("jinvoice:history-progress",       onHistProg);
+    window.addEventListener("jinvoice:history-done",           onHistDone);
+    window.addEventListener("jinvoice:batch-extract-start",    onBatchStart);
+    window.addEventListener("jinvoice:batch-extract-progress", onBatchProg);
+    window.addEventListener("jinvoice:batch-extract-done",     onBatchDone);
+    return () => {
+      window.removeEventListener("jinvoice:history-start",          onHistStart);
+      window.removeEventListener("jinvoice:history-progress",       onHistProg);
+      window.removeEventListener("jinvoice:history-done",           onHistDone);
+      window.removeEventListener("jinvoice:batch-extract-start",    onBatchStart);
+      window.removeEventListener("jinvoice:batch-extract-progress", onBatchProg);
+      window.removeEventListener("jinvoice:batch-extract-done",     onBatchDone);
+    };
+  }, []);
+
+  const handleImportHistory = async () => {
+    if (!historyMonths && historyMonths !== 0) return;
+    setHistoryPhase("downloading");
+    setHistoryResult(null);
+    const { saved, cancelled } = await pollHistory(historyMonths);
+    if (cancelled) {
+      setHistoryResult("Import cancelled.");
+      setHistoryPhase("idle");
+      return;
+    }
+    const pending = await db.invoices.filter((inv) => inv.status === "pending_extraction").count();
+    setPendingAfterImport(pending);
+    if (saved === 0) {
+      setHistoryResult("No new PDFs found in that period.");
+      setHistoryPhase("idle");
+    } else {
+      setHistoryResult(`Saved ${saved} document${saved === 1 ? "" : "s"}. ${pending} pending AI extraction.`);
+      setHistoryPhase("idle");
+    }
+  };
+
+  const handleBatchExtract = async () => {
+    await batchExtractPending();
+  };
+
+  const handleCancelBulk = () => {
+    cancelBulk();
+  };
 
   // Load manual upload count for free-tier limit tracking
   const refreshManualCount = async () => {
@@ -1029,6 +1098,79 @@ export function AutoImportSettings() {
             )}
           </section>
 
+          {/* ── Bulk history import ──────────────────────────────── */}
+          {(vm.state.gmail.enabled || vm.state.outlook.enabled || ImapConnector.getAccounts().some((a) => a.enabled)) && (
+            <section className="card">
+              <h3>Import History</h3>
+              <p style={{ fontSize: 12.5, color: "var(--color-text-secondary)", marginBottom: 12 }}>
+                Download all email attachments from the past N months and save them locally first.
+                AI extraction runs separately so you can process in bulk without blocking the regular sync.
+              </p>
+
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>Look back</span>
+                <select
+                  className="settings-input"
+                  style={{ maxWidth: 130 }}
+                  value={historyMonths}
+                  disabled={historyPhase === "downloading" || historyPhase === "extracting"}
+                  onChange={(e) => setHistoryMonths(Number(e.target.value))}
+                >
+                  <option value={1}>1 month</option>
+                  <option value={3}>3 months</option>
+                  <option value={6}>6 months</option>
+                  <option value={12}>12 months</option>
+                  <option value={24}>24 months</option>
+                  <option value={0}>All time</option>
+                </select>
+              </div>
+
+              {historyPhase === "idle" && (
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                  <button className="btn-sync-primary" onClick={handleImportHistory}>
+                    Import History
+                  </button>
+                  {pendingAfterImport > 0 && (
+                    <button className="btn-sync-primary" onClick={handleBatchExtract}>
+                      Extract {pendingAfterImport} with AI
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {historyPhase === "downloading" && (
+                <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                  <div style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>
+                    Downloading… {historyProgress.saved}
+                    {historyProgress.found > 0 ? ` of ${historyProgress.found}` : ""} PDFs saved
+                  </div>
+                  <button className="btn-sync" style={{ color: "var(--color-danger)" }} onClick={handleCancelBulk}>Cancel</button>
+                </div>
+              )}
+
+              {historyPhase === "extracting" && (
+                <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                  <div style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>
+                    Extracting… {extractProgress.done} of {extractProgress.total}
+                  </div>
+                  <button className="btn-sync" style={{ color: "var(--color-danger)" }} onClick={handleCancelBulk}>Cancel</button>
+                </div>
+              )}
+
+              {historyPhase === "done" && historyResult && (
+                <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>{historyResult}</span>
+                  <button className="btn-sync" onClick={() => { setHistoryPhase("idle"); setHistoryResult(null); setPendingAfterImport(0); }}>
+                    Done
+                  </button>
+                </div>
+              )}
+
+              {historyPhase === "idle" && historyResult && (
+                <p style={{ fontSize: 12.5, color: "var(--color-text-secondary)", marginTop: 8 }}>{historyResult}</p>
+              )}
+            </section>
+          )}
 
       </div>{/* end single column */}
 

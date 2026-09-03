@@ -282,4 +282,140 @@ async function savePdfToFolder(file: File, accountEmail?: string): Promise<void>
   await desktopConnector.saveInvoiceToFolder(bytes, file.name, accountEmail ?? "imported");
 }
 
+// ── Bulk history import ───────────────────────────────────────────────────────
+
+let _bulkRunning = false;
+let _bulkCancelled = false;
+
+export function isBulkRunning(): boolean { return _bulkRunning; }
+export function cancelBulk(): void { if (_bulkRunning) _bulkCancelled = true; }
+
+/**
+ * Downloads all email attachments going back `months` months and saves them
+ * to local Dexie as `pending_extraction` — no AI extraction. Callers then run
+ * batchExtractPending() separately so the user can review before spending tokens.
+ */
+export async function pollHistory(months: number): Promise<{ found: number; saved: number; cancelled: boolean }> {
+  if (_syncRunning || _bulkRunning) return { found: 0, saved: 0, cancelled: false };
+  _bulkRunning = true;
+  _bulkCancelled = false;
+  window.dispatchEvent(new CustomEvent("jinvoice:history-start"));
+
+  const prevMonths = prefs.syncMonths;
+  prefs.syncMonths = months;
+
+  let found = 0;
+  let saved = 0;
+
+  try {
+    const gmailAccounts = [
+      ...(prefs.gmailEnabled && prefs.gmailAccessToken
+        ? [{ email: prefs.gmailEmail ?? "", accessToken: prefs.gmailAccessToken, refreshToken: prefs.gmailRefreshToken }]
+        : []),
+      ...prefs.gmailAccounts.filter((a) => a.enabled && a.email !== prefs.gmailEmail),
+    ];
+    const outlookAccounts = [
+      ...(prefs.outlookEnabled && prefs.outlookAccessToken
+        ? [{ email: prefs.outlookEmail ?? "", accessToken: prefs.outlookAccessToken }]
+        : []),
+      ...prefs.outlookAccounts.filter((a) => a.enabled && a.email !== prefs.outlookEmail),
+    ];
+    const enabledImapAccounts = isImapAvailable()
+      ? ImapConnector.getAccounts().filter((a) => a.enabled)
+      : [];
+
+    const gmailChecker   = gmailAccounts.length       > 0 ? await makeEmailChecker("gmail")   : null;
+    const outlookChecker = outlookAccounts.length     > 0 ? await makeEmailChecker("outlook") : null;
+    const imapChecker    = enabledImapAccounts.length > 0 ? await makeEmailChecker("imap")    : null;
+
+    const [gmailResults, outlookResults, imapResults] = await Promise.all([
+      gmailChecker
+        ? Promise.all(gmailAccounts.map(async (acct) => {
+            try {
+              const raw = await new GmailConnector(acct).pollAndDownload(gmailChecker!);
+              return raw.map((r): SourcedResult => ({ ...r, accountEmail: acct.email, source: "gmail" }));
+            } catch { return [] as SourcedResult[]; }
+          })).then((n) => n.flat())
+        : Promise.resolve([] as SourcedResult[]),
+
+      outlookChecker
+        ? Promise.all(outlookAccounts.map(async (acct) => {
+            try {
+              const raw = await new OutlookConnector(acct).pollAndDownload(outlookChecker!);
+              return raw.map((r): SourcedResult => ({ ...r, accountEmail: acct.email, source: "outlook" }));
+            } catch { return [] as SourcedResult[]; }
+          })).then((n) => n.flat())
+        : Promise.resolve([] as SourcedResult[]),
+
+      imapChecker
+        ? Promise.all(enabledImapAccounts.map(async (acct) => {
+            try {
+              const raw = await ImapConnector.pollAndDownload(
+                acct.email, acct.appPassword, months, imapChecker!,
+                acct.folderPaths.length ? acct.folderPaths : undefined,
+              );
+              return raw.map((r): SourcedResult => ({ ...r, accountEmail: acct.email, source: "imap" }));
+            } catch { return [] as SourcedResult[]; }
+          })).then((n) => n.flat())
+        : Promise.resolve([] as SourcedResult[]),
+    ]);
+
+    const allResults = [...gmailResults, ...outlookResults, ...imapResults];
+    found = allResults.length;
+    window.dispatchEvent(new CustomEvent("jinvoice:history-progress", { detail: { saved: 0, found } }));
+
+    await runConcurrent(allResults, CONCURRENT_EXTRACTIONS, async ({ file, messageId, subject, senderEmail, receivedAt, accountEmail, source }) => {
+      if (_bulkCancelled) return;
+      await processFile(file, source, { subject, senderEmail, receivedAt, accountEmail }, { skipGemini: true });
+      await markAsImported(messageId, source);
+      await savePdfToFolder(file, accountEmail);
+      saved++;
+      window.dispatchEvent(new CustomEvent("jinvoice:history-progress", { detail: { saved, found } }));
+    });
+
+    if (saved > 0) await deduplicateInvoices();
+
+    const result = { found, saved, cancelled: _bulkCancelled };
+    window.dispatchEvent(new CustomEvent("jinvoice:history-done", { detail: result }));
+    return result;
+  } finally {
+    prefs.syncMonths = prevMonths;
+    _bulkRunning = false;
+    _bulkCancelled = false;
+  }
+}
+
+/**
+ * Runs AI extraction on every `pending_extraction` record in local Dexie.
+ * Fires progress events so the UI can show a live counter.
+ */
+export async function batchExtractPending(): Promise<{ extracted: number; errors: number }> {
+  const pending = await db.invoices
+    .filter((inv) => inv.status === "pending_extraction")
+    .toArray();
+
+  const total = pending.length;
+  let extracted = 0;
+  let errors = 0;
+
+  _bulkCancelled = false;
+  window.dispatchEvent(new CustomEvent("jinvoice:batch-extract-start", { detail: { total } }));
+
+  for (const inv of pending) {
+    if (_bulkCancelled) break;
+    try {
+      await extractInvoiceWithAI(inv.id as number);
+      extracted++;
+    } catch {
+      errors++;
+    }
+    window.dispatchEvent(new CustomEvent("jinvoice:batch-extract-progress", {
+      detail: { done: extracted + errors, total, extracted, errors },
+    }));
+  }
+
+  window.dispatchEvent(new CustomEvent("jinvoice:batch-extract-done", { detail: { extracted, errors } }));
+  return { extracted, errors };
+}
+
 export { desktopConnector };
