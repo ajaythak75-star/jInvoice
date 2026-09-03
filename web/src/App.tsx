@@ -69,41 +69,10 @@ function applyOAuthHash(): boolean {
 applyOAuthHash();
 
 
-function isTrialExpired(): boolean {
-  return !!prefs.trialStartedAt && !prefs.isInTrial && !prefs.isSubscribed;
-}
-
-function TrialExpiredWall({ onGoToPricing }: { onGoToPricing: () => void }) {
-  return (
-    <div style={{
-      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-      height: "100%", minHeight: 320, padding: "40px 28px", textAlign: "center",
-    }}>
-      <div style={{ fontSize: 40, marginBottom: 18, lineHeight: 1 }}>🔒</div>
-      <h2 style={{ fontSize: 20, fontWeight: 800, color: "var(--color-text)", margin: "0 0 10px" }}>
-        Your trial has ended
-      </h2>
-      <p style={{ fontSize: 13.5, color: "var(--color-text-secondary)", maxWidth: 360, lineHeight: 1.6, margin: "0 0 24px" }}>
-        This feature is part of the Pro plan. Subscribe to restore access to invoices, alerts, and reports.
-      </p>
-      <button
-        onClick={onGoToPricing}
-        style={{
-          padding: "11px 28px", borderRadius: 8, border: "none",
-          background: "#7c3aed", color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer",
-        }}
-      >
-        View Pricing →
-      </button>
-    </div>
-  );
-}
-
 export function App() {
   const [loggedIn, setLoggedIn] = useState(auth.isLoggedIn);
   const [tab, setTab] = useState("import");
   const [alertCount, setAlertCount] = useState(0);
-  const [trialExpired, setTrialExpired] = useState(isTrialExpired);
 
   // Handle hash set by executeJavaScript (same-page navigation — no reload).
   useEffect(() => {
@@ -117,7 +86,7 @@ export function App() {
   // Sync subscription plan from Supabase on every login/startup
   useEffect(() => {
     if (!loggedIn) return;
-    syncPlanFromServer().then(() => setTrialExpired(isTrialExpired())).catch(() => {});
+    syncPlanFromServer().catch(() => {});
   }, [loggedIn]);
 
   // Push the stored jInvoice secret to the server on every startup so the
@@ -163,10 +132,10 @@ export function App() {
     <MainLayout active={tab} onNav={setTab} alertCount={alertCount}>
       {/* Keep AutoImportSettings mounted so in-progress uploads survive tab switches */}
       <div style={{ display: tab === "import" ? "contents" : "none" }}><AutoImportSettings /></div>
-      {tab === "view"     && (trialExpired ? <TrialExpiredWall onGoToPricing={() => setTab("pricing")} /> : <ViewScreen />)}
+      {tab === "view"     && <ViewScreen />}
       {tab === "buy"      && <BuyScreen />}
-      {tab === "gst"      && (trialExpired ? <TrialExpiredWall onGoToPricing={() => setTab("pricing")} /> : <ReportScreen />)}
-      {tab === "alerts"   && (trialExpired ? <TrialExpiredWall onGoToPricing={() => setTab("pricing")} /> : <AlertsScreen />)}
+      {tab === "gst"      && <ReportScreen />}
+      {tab === "alerts"   && <AlertsScreen />}
       {tab === "rewards"  && <RewardsScreen />}
       {tab === "security" && <SecurityScreen />}
       {tab === "pricing"  && <PricingScreen />}
