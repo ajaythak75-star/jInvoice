@@ -12,6 +12,7 @@ import {
 import { startTrial as startTrialServer, requestProAccess } from "../../service/UserPlanService";
 import { BusinessProfileModal } from "../shared/BusinessProfileModal";
 import { DummyPaymentModal } from "../payment/DummyPaymentModal";
+import { getCachedConfig, fetchAndCacheConfig, type PlanPricing } from "../../service/ConfigService";
 
 const inpStyle: React.CSSProperties = {
   width: "100%", padding: "8px 10px", borderRadius: 6,
@@ -89,10 +90,15 @@ function GeminiApiKeyModal({ onConfirm, onClose }: { onConfirm: (key: string) =>
 type Billing = "monthly" | "yearly";
 type ApiOption = "shared" | "own";
 
-const PLANS: Record<ApiOption, { monthlyPrice: number; yearlyPrice: number; yearlyMonthly: number; savings: number }> = {
-  shared: { monthlyPrice: 999,  yearlyPrice: 9999, yearlyMonthly: 833, savings: 1989 },
-  own:    { monthlyPrice: 499,  yearlyPrice: 4999, yearlyMonthly: 417, savings: 989  },
-};
+function pricingToPlans(p: PlanPricing) {
+  const mk = (tier: "shared" | "own") => ({
+    monthlyPrice:  p[tier].monthly,
+    yearlyPrice:   p[tier].yearly,
+    yearlyMonthly: Math.round(p[tier].yearly / 12),
+    savings:       p[tier].monthly * 12 - p[tier].yearly,
+  });
+  return { shared: mk("shared"), own: mk("own") };
+}
 
 const FREE_FEATURES = [
   "5 manual uploads per day",
@@ -136,6 +142,7 @@ export function PricingScreen() {
   const [licences, setLicences]       = useState(1);
   const [sub, setSub]                 = useState<Subscription | null>(null);
   const [loading, setLoading]         = useState(true);
+  const [plans, setPlans]             = useState(() => pricingToPlans(getCachedConfig("plan_pricing")));
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showApiKeyModal,  setShowApiKeyModal]  = useState(false);
   const [postPayment,      setPostPayment]      = useState(false);
@@ -146,6 +153,7 @@ export function PricingScreen() {
   const [showDummyPayment, setShowDummyPayment] = useState(false);
 
   useEffect(() => {
+    fetchAndCacheConfig("plan_pricing").then((p) => setPlans(pricingToPlans(p)));
     subscriptionService.get().then((s) => {
       setSub(s);
       setLoading(false);
@@ -247,7 +255,7 @@ export function PricingScreen() {
     if (updated) setSub(updated);
   };
 
-  const plan            = PLANS[apiOption];
+  const plan            = plans[apiOption];
   const billingLabel    = billing === "monthly" ? "/month" : "/year";
   const extraUserFee    = (licences - 1) * 249; // ₹249/user/month for extra users
   const displayTotal    = billing === "monthly"
@@ -333,7 +341,7 @@ export function PricingScreen() {
             padding: "2px 8px", borderRadius: 20,
             color: "#166534", background: "#f0fdf4",
           }}>
-            Save up to ₹{PLANS[apiOption].savings.toLocaleString("en-IN")}
+            Save up to ₹{plans[apiOption].savings.toLocaleString("en-IN")}
           </span>
         )}
       </div>
@@ -397,13 +405,13 @@ export function PricingScreen() {
             </div>
             <div style={{ display: "flex", alignItems: "flex-end", gap: 4 }}>
               <span style={{ fontSize: 28, fontWeight: 800, color: "var(--color-text)", lineHeight: 1 }}>
-                ₹{billing === "monthly" ? PLANS.shared.monthlyPrice : PLANS.shared.yearlyPrice}
+                ₹{billing === "monthly" ? plans.shared.monthlyPrice : plans.shared.yearlyPrice}
               </span>
               <span style={{ fontSize: 13, color: "var(--color-text-secondary)", marginBottom: 2 }}>{billingLabel}</span>
             </div>
             {billing === "yearly" && (
               <div style={{ fontSize: 12, color: "var(--color-text-tertiary)", marginTop: 4 }}>
-                ₹{PLANS.shared.yearlyMonthly}/month · save ₹{PLANS.shared.savings.toLocaleString("en-IN")}
+                ₹{plans.shared.yearlyMonthly}/month · save ₹{plans.shared.savings.toLocaleString("en-IN")}
               </div>
             )}
             <p style={{ fontSize: 12.5, color: "var(--color-text-secondary)", marginTop: 10, lineHeight: 1.5 }}>
@@ -445,13 +453,13 @@ export function PricingScreen() {
             </div>
             <div style={{ display: "flex", alignItems: "flex-end", gap: 4 }}>
               <span style={{ fontSize: 28, fontWeight: 800, color: "var(--color-text)", lineHeight: 1 }}>
-                ₹{billing === "monthly" ? PLANS.own.monthlyPrice : PLANS.own.yearlyPrice}
+                ₹{billing === "monthly" ? plans.own.monthlyPrice : plans.own.yearlyPrice}
               </span>
               <span style={{ fontSize: 13, color: "var(--color-text-secondary)", marginBottom: 2 }}>{billingLabel}</span>
             </div>
             {billing === "yearly" && (
               <div style={{ fontSize: 12, color: "var(--color-text-tertiary)", marginTop: 4 }}>
-                ₹{PLANS.own.yearlyMonthly}/month · save ₹{PLANS.own.savings.toLocaleString("en-IN")}
+                ₹{plans.own.yearlyMonthly}/month · save ₹{plans.own.savings.toLocaleString("en-IN")}
               </div>
             )}
             <p style={{ fontSize: 12.5, color: "var(--color-text-secondary)", marginTop: 10, lineHeight: 1.5 }}>
@@ -607,17 +615,21 @@ export function PricingScreen() {
           </thead>
           <tbody>
             {([
-              ["Manual uploads",   "5 / day",       "50 / day", "Unlimited"            ],
-              ["Email imports",    "10 / day",      "50 / day", "Unlimited"            ],
-              ["Data history",     "1 month",   "3 months",    "3 months"             ],
-              ["Email accounts",   "1",         "Up to 5",     "Up to 5"              ],
-              ["Extra user",       "—",         "₹249/user",   "₹249/user"            ],
-              ["Mobile capture",   "✓",         "✓",           "✓"                    ],
-              ["Cloud sync",       "✓",         "✓",           "✓"                    ],
-              ["Own API key",      "—",         "—",           "✓"                    ],
-              ["Advanced reports", "—",         "✓",           "✓"                    ],
-              ["Monthly price",    "Free",      "₹999/mo",     "₹499/mo"              ],
-              ["Yearly price",     "Free",      "₹9,999/yr",   "₹4,999/yr"            ],
+              ["Manual uploads",   "5 / day",   "50 / day", "Unlimited"  ],
+              ["Email imports",    "10 / day",  "50 / day", "Unlimited"  ],
+              ["Data history",     "1 month",   "3 months", "3 months"   ],
+              ["Email accounts",   "1",         "Up to 5",  "Up to 5"   ],
+              ["Extra user",       "—",         "₹249/user","₹249/user"  ],
+              ["Mobile capture",   "✓",         "✓",        "✓"          ],
+              ["Cloud sync",       "✓",         "✓",        "✓"          ],
+              ["Own API key",      "—",         "—",        "✓"          ],
+              ["Advanced reports", "—",         "✓",        "✓"          ],
+              ["Monthly price",    "Free",
+                `₹${plans.shared.monthlyPrice.toLocaleString("en-IN")}/mo`,
+                `₹${plans.own.monthlyPrice.toLocaleString("en-IN")}/mo`],
+              ["Yearly price",     "Free",
+                `₹${plans.shared.yearlyPrice.toLocaleString("en-IN")}/yr`,
+                `₹${plans.own.yearlyPrice.toLocaleString("en-IN")}/yr`],
             ] as [string, string, string, string][]).map(([feature, free, shared, own], i) => (
               <tr
                 key={feature}
