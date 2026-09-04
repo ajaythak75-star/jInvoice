@@ -1,21 +1,33 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { auth } from "../../data/AuthStore";
 
 interface Props {
   onLogin: () => void;
 }
 
-type Step = "email" | "otp";
+type Step = "email" | "sent";
 
 export function LoginScreen({ onLogin }: Props) {
   const [step, setStep]       = useState<Step>("email");
   const [email, setEmail]     = useState(auth.email ?? "");
-  const [otp, setOtp]         = useState("");
   const [error, setError]     = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [resent, setResent]   = useState(false);
 
-  const handleSendCode = async (e: React.FormEvent) => {
+  // Poll localStorage — if the user clicked the magic link in another tab or
+  // the email client navigated the same tab and React re-mounted, pick it up.
+  useEffect(() => {
+    if (step !== "sent") return;
+    const id = setInterval(() => {
+      if (auth.isLoggedIn) {
+        clearInterval(id);
+        onLogin();
+      }
+    }, 1000);
+    return () => clearInterval(id);
+  }, [step, onLogin]);
+
+  const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     if (!email.trim() || !email.includes("@")) {
@@ -24,30 +36,10 @@ export function LoginScreen({ onLogin }: Props) {
     }
     setLoading(true);
     try {
-      await auth.sendOtp(email.trim());
-      setStep("otp");
+      await auth.sendMagicLink(email.trim());
+      setStep("sent");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to send code. Try again.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleVerify = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    const token = otp.trim().replace(/\s/g, "");
-    if (token.length < 6 || token.length > 8) {
-      setError("Enter the code from your email.");
-      return;
-    }
-    setLoading(true);
-    try {
-      await auth.verifyOtp(email.trim(), token);
-      onLogin();
-    } catch {
-      setError("Invalid or expired code. Request a new one.");
-      setOtp("");
+      setError(err instanceof Error ? err.message : "Failed to send link. Try again.");
     } finally {
       setLoading(false);
     }
@@ -57,9 +49,9 @@ export function LoginScreen({ onLogin }: Props) {
     setError(null);
     setResent(false);
     try {
-      await auth.sendOtp(email.trim());
+      await auth.sendMagicLink(email.trim());
       setResent(true);
-      setTimeout(() => setResent(false), 4000);
+      setTimeout(() => setResent(false), 5000);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to resend. Try again.");
     }
@@ -76,7 +68,7 @@ export function LoginScreen({ onLogin }: Props) {
         {step === "email" && (
           <>
             <p className="auth-tagline">Your invoices, on-device.</p>
-            <form onSubmit={handleSendCode} className="auth-form">
+            <form onSubmit={handleSend} className="auth-form">
               <div className="auth-field">
                 <label className="auth-label">Email</label>
                 <input
@@ -92,44 +84,25 @@ export function LoginScreen({ onLogin }: Props) {
               </div>
               {error && <p className="auth-error">{error}</p>}
               <button className="btn-primary" type="submit" disabled={loading}>
-                {loading ? "Sending…" : "Send Code"}
+                {loading ? "Sending…" : "Send sign-in link"}
               </button>
             </form>
           </>
         )}
 
-        {step === "otp" && (
+        {step === "sent" && (
           <>
             <p className="auth-tagline">Check your email</p>
             <p style={{ fontSize: 13, color: "var(--color-text-secondary)", marginBottom: 8, textAlign: "center" }}>
-              We sent a 6-digit code to <strong>{email}</strong>
+              We sent a sign-in link to <strong>{email}</strong>
             </p>
             <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginBottom: 20, textAlign: "center", opacity: 0.8 }}>
-              If you don't see it, check your <strong>spam or junk folder</strong>.
+              Click the link in the email to sign in. If you don't see it, check your <strong>spam or junk folder</strong>.
             </p>
-            <form onSubmit={handleVerify} className="auth-form">
-              <div className="auth-field">
-                <label className="auth-label">Verification code</label>
-                <input
-                  className="auth-input"
-                  type="text"
-                  inputMode="numeric"
-                  placeholder="123456"
-                  value={otp}
-                  onChange={(e) => setOtp(e.target.value.replace(/[^0-9]/g, "").slice(0, 8))}
-                  autoComplete="one-time-code"
-                  autoFocus
-                  required
-                />
-              </div>
-              {error && <p className="auth-error">{error}</p>}
-              <button className="btn-primary" type="submit" disabled={loading}>
-                {loading ? "Verifying…" : "Verify"}
-              </button>
-            </form>
+            {error && <p className="auth-error">{error}</p>}
             <div style={{ marginTop: 14, textAlign: "center", fontSize: 13 }}>
               {resent
-                ? <span style={{ color: "var(--color-success, #22c55e)" }}>Code resent!</span>
+                ? <span style={{ color: "var(--color-success, #22c55e)" }}>Link resent!</span>
                 : (
                   <button type="button" className="auth-switch" onClick={handleResend}>
                     Didn't receive it? Resend
@@ -138,7 +111,7 @@ export function LoginScreen({ onLogin }: Props) {
               }
             </div>
             <button type="button" className="auth-switch" style={{ marginTop: 6 }}
-              onClick={() => { setStep("email"); setOtp(""); setError(null); }}>
+              onClick={() => { setStep("email"); setError(null); }}>
               ← Use a different email
             </button>
           </>

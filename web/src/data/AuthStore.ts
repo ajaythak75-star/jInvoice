@@ -43,6 +43,32 @@ export const auth = {
     localStorage.setItem("jinvoice:session", "1");
   },
 
+  async sendMagicLink(email: string): Promise<void> {
+    const res = await fetch("/api/auth/send-magic-link", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+    if (!res.ok) {
+      const { error } = await res.json().catch(() => ({ error: "Failed to send link. Try again." }));
+      throw new Error(error);
+    }
+    localStorage.setItem("jinvoice:auth_email", email);
+  },
+
+  async verifyMagicLink(token: string): Promise<void> {
+    const res = await fetch(`/api/auth/verify-magic-link?token=${encodeURIComponent(token)}`);
+    if (!res.ok) {
+      const { error } = await res.json().catch(() => ({ error: "This sign-in link has expired or already been used." }));
+      throw new Error(error);
+    }
+    const data = await res.json().catch(() => ({}));
+    if (data.token) localStorage.setItem("jinvoice:session_token", data.token);
+    if (data.email) localStorage.setItem("jinvoice:auth_email", data.email);
+    localStorage.removeItem("jinvoice:signed_out");
+    localStorage.setItem("jinvoice:session", "1");
+  },
+
   async signOut(): Promise<void> {
     const sb = await getSupabase();
     sb?.auth.signOut().catch(() => {});
