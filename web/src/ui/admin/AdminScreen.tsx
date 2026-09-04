@@ -276,8 +276,11 @@ function PricingTab() {
       .then((d) => { setCfg(d); setDraft(d); });
   }, []);
 
-  const set = (tier: "shared" | "own", period: "monthly" | "yearly", val: string) => {
-    setDraft((prev) => prev ? { ...prev, [tier]: { ...prev[tier], [period]: Number(val) || 0 } } : prev);
+  // Yearly = monthly × 10 (2 months free). Only monthly is editable.
+  const setMonthly = (tier: "shared" | "own", val: string) => {
+    const monthly = Number(val) || 0;
+    const yearly  = Math.round(monthly * 10);
+    setDraft((prev) => prev ? { ...prev, [tier]: { monthly, yearly } } : prev);
     setSaved(false);
   };
 
@@ -323,19 +326,20 @@ function PricingTab() {
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
               <div>
-                <label style={label}>Monthly (₹)</label>
+                <label style={label}>Monthly price (₹)</label>
                 <input style={inp} type="number" min={0} value={draft[tier].monthly}
-                  onChange={(e) => set(tier, "monthly", e.target.value)} />
+                  onChange={(e) => setMonthly(tier, e.target.value)} />
               </div>
               <div>
-                <label style={label}>Yearly (₹)</label>
-                <input style={inp} type="number" min={0} value={draft[tier].yearly}
-                  onChange={(e) => set(tier, "yearly", e.target.value)} />
+                <label style={{ ...label, color: "var(--color-text-secondary)" }}>
+                  Yearly price (₹) <span style={{ fontWeight: 400, textTransform: "none", fontSize: 10 }}>— auto (10 months)</span>
+                </label>
+                <input style={{ ...inp, opacity: 0.55, cursor: "not-allowed" }} type="number" value={draft[tier].yearly} disabled />
               </div>
             </div>
-            {draft[tier].yearly > 0 && draft[tier].monthly > 0 && (
+            {draft[tier].monthly > 0 && (
               <div style={{ fontSize: 11, color: "var(--color-text-secondary)", marginTop: 10 }}>
-                Effective monthly on yearly plan: ₹{Math.round(draft[tier].yearly / 12)} · saves ₹{(draft[tier].monthly * 12) - draft[tier].yearly}/yr
+                Yearly saves ₹{(draft[tier].monthly * 12) - draft[tier].yearly}/yr · effective ₹{Math.round(draft[tier].yearly / 12)}/month
               </div>
             )}
           </div>
