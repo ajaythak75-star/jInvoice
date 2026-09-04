@@ -340,7 +340,7 @@ export async function processFile(
             taxPaise: null, grandTotalPaise: null, paymentMode: null,
             sourceType: "NATIVE_PDF", rawText: null, confidenceScore: 0,
           };
-          const enhanced = await enhanceWithClaudeVision(blank, pages);
+          const enhanced = await enhanceWithClaudeVision(blank, pages, file.name);
           console.log("[Pipeline] vision merchant:", enhanced.merchantName, "total:", enhanced.grandTotalPaise);
           if (enhanced.grandTotalPaise != null || enhanced.merchantName != null) {
             result = enhanced.confidenceScore >= 0.7
@@ -354,7 +354,7 @@ export async function processFile(
           result = await textExtractPdf(file, classification);
           if ((result.kind === "success" || result.kind === "lowConfidence") && result.invoice.rawText) {
             const translated = { ...result.invoice, rawText: await maybeSarvamTranslate(result.invoice.rawText) };
-            const enhanced = await enhanceWithClaude(translated);
+            const enhanced = await enhanceWithClaude(translated, file.name);
             result = enhanced.confidenceScore >= 0.7 && result.kind === "lowConfidence"
               ? { kind: "success", invoice: enhanced }
               : { ...result, invoice: enhanced };
@@ -367,7 +367,7 @@ export async function processFile(
         if ((result.kind === "success" || result.kind === "lowConfidence") && result.invoice.rawText) {
           try {
             const translated = { ...result.invoice, rawText: await maybeSarvamTranslate(result.invoice.rawText) };
-            const enhanced = await enhanceWithClaude(translated);
+            const enhanced = await enhanceWithClaude(translated, file.name);
             result = enhanced.confidenceScore >= 0.7 && result.kind === "lowConfidence"
               ? { kind: "success", invoice: enhanced }
               : { ...result, invoice: enhanced };
@@ -551,10 +551,13 @@ export async function extractInvoiceWithAI(invoiceId: number): Promise<Extracted
     sourceType: "NATIVE_PDF", rawText: null, confidenceScore: 0,
   };
 
+  const invRec = await db.invoices.get(invoiceId);
+  const sourceFilename = invRec?.sourceFilename ?? undefined;
+
   // ── Step 1: try local extraction from stored raw text ─────────────────────
   const rawRec = await db.rawTexts.where("invoiceId").equals(invoiceId).first();
   if (rawRec?.rawText) {
-    const inv = await db.invoices.get(invoiceId);
+    const inv = invRec;
     const sourceType = (inv?.pdfSourceType ?? "NATIVE_PDF") as ExtractedInvoice["sourceType"];
     const localInv = extractLocalDoc(rawRec.rawText, sourceType);
     // Require items OR very high confidence to skip Gemini.
@@ -573,7 +576,7 @@ export async function extractInvoiceWithAI(invoiceId: number): Promise<Extracted
   if (rawRec?.rawText && rawRec.rawText.length > 50) {
     try {
       const translatedRaw = await maybeSarvamTranslate(rawRec.rawText);
-      const textEnhanced = await enhanceWithClaude({ ...blank, rawText: translatedRaw });
+      const textEnhanced = await enhanceWithClaude({ ...blank, rawText: translatedRaw }, sourceFilename);
       if (textEnhanced && (textEnhanced.grandTotalPaise != null || textEnhanced.merchantName != null)) {
         console.log("[extractInvoiceWithAI] Gemini text succeeded — skipping Vision");
         return finalizeExtractedInvoice(invoiceId, textEnhanced);
@@ -621,7 +624,7 @@ export async function extractInvoiceWithAI(invoiceId: number): Promise<Extracted
           }
         } catch {}
 
-        enhanced = await enhanceWithClaudeVision(blank, pages);
+        enhanced = await enhanceWithClaudeVision(blank, pages, sourceFilename);
       }
     } catch (e) {
       console.warn("[extractInvoiceWithAI] vision failed:", e);
@@ -753,7 +756,7 @@ export async function extractFilePreview(file: File): Promise<ExtractionResult> 
       sourceType: "HTML_EMAIL", rawText: plainText, confidenceScore: 0,
     };
     if (!hasGeminiKey()) return { kind: "lowConfidence", invoice: blank, reason: "html-no-key" };
-    const enhanced = await enhanceWithClaude(blank);
+    const enhanced = await enhanceWithClaude(blank, file.name);
     return enhanced.grandTotalPaise != null || enhanced.merchantName != null
       ? enhanced.confidenceScore >= 0.7
         ? { kind: "success", invoice: enhanced }
@@ -785,7 +788,7 @@ export async function extractFilePreview(file: File): Promise<ExtractionResult> 
           taxPaise: null, grandTotalPaise: null, paymentMode: null,
           sourceType: "NATIVE_PDF", rawText: null, confidenceScore: 0,
         };
-        const enhanced = await enhanceWithClaudeVision(blank, pages);
+        const enhanced = await enhanceWithClaudeVision(blank, pages, file.name);
         if (enhanced.grandTotalPaise != null || enhanced.merchantName != null) {
           return enhanced.confidenceScore >= 0.7
             ? { kind: "success", invoice: enhanced }
@@ -800,7 +803,7 @@ export async function extractFilePreview(file: File): Promise<ExtractionResult> 
     const result = await textExtractPdf(file, classification);
     if ((result.kind === "success" || result.kind === "lowConfidence") && result.invoice.rawText) {
       try {
-        const enhanced = await enhanceWithClaude(result.invoice);
+        const enhanced = await enhanceWithClaude(result.invoice, file.name);
         return enhanced.confidenceScore >= 0.7 && result.kind === "lowConfidence"
           ? { kind: "success", invoice: enhanced }
           : { ...result, invoice: enhanced };
