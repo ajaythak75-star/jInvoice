@@ -28,6 +28,8 @@ export interface ClaudeInvoiceData {
   resolutionNo?: string | null;
   attendeeCount?: string | null;
   meetingType?: string | null;
+  // Maintenance receipts: flat/unit number (e.g. "A-101")
+  flatUnit?: string | null;
 }
 
 const PROMPT_INVOICE = `You are an invoice data extractor for Indian businesses. Extract the following fields from the invoice and respond ONLY with a valid JSON object, no explanation or markdown.
@@ -91,7 +93,8 @@ Extract the following fields and respond ONLY with a valid JSON object, no expla
   "warrantyPeriod": <warranty or defect-liability period offered e.g. "1 year" as string, or null — for quotations>,
   "resolutionNo": <resolution number or reference from meeting minutes as string, or null — only for AGM/SGM/committee meeting records>,
   "attendeeCount": <number of members / attendees present at the meeting as string e.g. "42", or null — only for meeting records>,
-  "meetingType": <type of meeting e.g. "AGM", "SGM", "EGM", "Committee Meeting" as string, or null — only for meeting records>
+  "meetingType": <type of meeting e.g. "AGM", "SGM", "EGM", "Committee Meeting" as string, or null — only for meeting records>,
+  "flatUnit": <flat or unit number of the member who paid e.g. "A-101", "B-202", "301" — extract from "Flat / Unit" or "Received From Flat" field, or null — only for maintenance receipts>
 }
 
 Rules:
@@ -463,6 +466,7 @@ function parseOpenAIResponse(data: unknown): ClaudeInvoiceData {
     raw.resolutionNo   = (raw as any).resolutionNo   ?? null;
     raw.attendeeCount  = (raw as any).attendeeCount  != null ? String((raw as any).attendeeCount) : null;
     raw.meetingType    = (raw as any).meetingType    ?? null;
+    raw.flatUnit       = (raw as any).flatUnit        ?? null;
     return raw;
   } catch {
     return { shopName: null, address: null, pincode: null, invoiceNumber: null, gstNumber: null, gstPercent: null, gstAmountInr: null, subtotalInr: null, dateOfPurchase: null, discountInr: null, finalPaymentInr: null, items: [] };
@@ -528,6 +532,7 @@ function mergeClaudeData(invoice: ExtractedInvoice, data: ClaudeInvoiceData): Ex
   if (data.resolutionNo)   extras.resolutionNo   = data.resolutionNo;
   if (data.attendeeCount)  extras.attendeeCount  = data.attendeeCount;
   if (data.meetingType)    extras.meetingType    = data.meetingType;
+  if (data.flatUnit)       extras.flatUnit       = data.flatUnit;
   const docMetadata = Object.keys(extras).length > 0 ? extras : (invoice.docMetadata ?? null);
 
   return {

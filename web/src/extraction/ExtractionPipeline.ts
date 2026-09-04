@@ -539,6 +539,12 @@ async function persistResultWithNote(
     const isTaxOrFinance = docTypes.some(dt => dt === "tax" || dt === "financial");
     const lineItemsToSave = (!prefs.isProActive && isTaxOrFinance) ? [] : inv.lineItems;
 
+    // Auto-tag with flat/unit number extracted from society maintenance receipts
+    const autoProjectTag =
+      prefs.activeMode === "society" && inv.docMetadata?.flatUnit
+        ? inv.docMetadata.flatUnit
+        : undefined;
+
     const invoiceId = await insertInvoiceWithItems(
       {
         merchantName: inv.merchantName,
@@ -565,6 +571,7 @@ async function persistResultWithNote(
         senderEmail: meta?.senderEmail,
         receivedAt: meta?.receivedAt,
         accountEmail: meta?.accountEmail,
+        projectTag: autoProjectTag ?? null,
         docMetadata: inv.docMetadata ?? null,
         extractionNote: extractionNote ?? null,
         createdAt: now,
@@ -730,6 +737,12 @@ async function finalizeExtractedInvoice(
   const isTaxOrFinance = docTypes.some(dt => dt === "tax" || dt === "financial");
   const lineItemsToSave = (!prefs.isProActive && isTaxOrFinance) ? [] : enhanced.lineItems;
 
+  // Auto-tag with flat/unit number extracted from society maintenance receipts
+  const autoProjectTag =
+    prefs.activeMode === "society" && enhanced.docMetadata?.flatUnit
+      ? enhanced.docMetadata.flatUnit
+      : undefined;
+
   await db.invoices.update(invoiceId, {
     merchantName: enhanced.merchantName,
     merchantAddress: enhanced.merchantAddress,
@@ -748,6 +761,7 @@ async function finalizeExtractedInvoice(
     category,
     docType: docTypes[0] ?? "other",
     docTypes,
+    ...(autoProjectTag ? { projectTag: autoProjectTag } : {}),
     docMetadata: enhanced.docMetadata ?? null,
     extractionNote: extractionNote ?? null,
     updatedAt: now,
