@@ -1,3 +1,5 @@
+import { getCachedConfig } from "../service/ConfigService";
+
 export type UserProfile =
   | "personal"
   | "society"
@@ -132,9 +134,13 @@ export const prefs = {
   },
 
   get effectiveDailyEmailLimit(): number {
-    if (this.isSubscribed) return this.planApiOption === "own" ? Infinity : this.PRO_SHARED_DAILY_LIMIT;
-    if (this.isInTrial) return this.TRIAL_EMAIL_DAILY_LIMIT;
-    return this.FREE_DAILY_LIMIT;
+    const lim = getCachedConfig("upload_limits");
+    if (this.isSubscribed) {
+      if (this.planApiOption === "own") return Infinity;
+      return lim.pro_paid === -1 ? Infinity : lim.pro_paid;
+    }
+    if (this.isInTrial) return lim.pro_trial;
+    return lim.free;
   },
 
   get isDailyLimitReached(): boolean {
@@ -158,9 +164,13 @@ export const prefs = {
   },
 
   get effectiveManualUploadLimit(): number {
-    if (this.isSubscribed) return this.planApiOption === "own" ? Infinity : this.PRO_SHARED_DAILY_LIMIT;
-    if (this.isInTrial) return this.TRIAL_MANUAL_UPLOAD_LIMIT;
-    return this.FREE_MANUAL_UPLOAD_LIMIT;
+    const lim = getCachedConfig("upload_limits");
+    if (this.isSubscribed) {
+      if (this.planApiOption === "own") return Infinity;
+      return lim.pro_paid === -1 ? Infinity : lim.pro_paid;
+    }
+    if (this.isInTrial) return lim.pro_trial;
+    return lim.free;
   },
 
   get isManualUploadLimitReached(): boolean {

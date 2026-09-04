@@ -19,6 +19,7 @@ import { schedulePolling } from "./service/AutoImportService";
 import { checkAndNotify } from "./service/NotificationService";
 import { startMobileSync } from "./service/MobileSyncService";
 import { syncPlanFromServer } from "./service/UserPlanService";
+import { refreshAllConfig } from "./service/ConfigService";
 import { getActiveSentinels } from "./service/ExpirySentinel";
 import { getActiveSecurityAlerts } from "./data/InvoiceDatabase";
 
@@ -117,6 +118,12 @@ export function App() {
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
+
+  // Refresh admin-configurable settings (pricing, upload limits, profiles) on login
+  useEffect(() => {
+    if (!loggedIn) return;
+    refreshAllConfig().catch(() => {});
+  }, [loggedIn]);
 
   // Sync subscription plan from Supabase on every login/startup
   useEffect(() => {
