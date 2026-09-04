@@ -1945,19 +1945,31 @@ function SocietyVendorTab({ records }: { records: InvoiceMeta[] }) {
 
 // ── Society: Outstanding Dues ─────────────────────────────────────────────────
 
-const DUES_KEY = "jinvoice_society_expected_maintenance";
+type DueFrequency = "monthly" | "yearly";
+const DUES_KEY          = "jinvoice_society_expected_maintenance";
+const DUES_KEY_YEARLY   = "jinvoice_society_expected_maintenance_yearly";
+const DUES_FREQ_KEY     = "jinvoice_society_dues_frequency";
 
-function loadExpected(): Record<string, number> {
-  try { return JSON.parse(localStorage.getItem(DUES_KEY) ?? "{}"); } catch { return {}; }
+function loadDueFrequency(): DueFrequency {
+  try { return (localStorage.getItem(DUES_FREQ_KEY) as DueFrequency) ?? "monthly"; } catch { return "monthly"; }
 }
-function saveExpected(e: Record<string, number>): void {
-  try { localStorage.setItem(DUES_KEY, JSON.stringify(e)); } catch { /* ignore */ }
+function saveDueFrequency(f: DueFrequency): void {
+  try { localStorage.setItem(DUES_FREQ_KEY, f); } catch { /* ignore */ }
+}
+function loadExpectedForFreq(freq: DueFrequency): Record<string, number> {
+  const key = freq === "yearly" ? DUES_KEY_YEARLY : DUES_KEY;
+  try { return JSON.parse(localStorage.getItem(key) ?? "{}"); } catch { return {}; }
+}
+function saveExpectedForFreq(e: Record<string, number>, freq: DueFrequency): void {
+  const key = freq === "yearly" ? DUES_KEY_YEARLY : DUES_KEY;
+  try { localStorage.setItem(key, JSON.stringify(e)); } catch { /* ignore */ }
 }
 
 function SocietyDuesTab({ records }: { records: InvoiceMeta[] }) {
   const allFYs = useMemo(() => availableFYs(records), [records]);
   const [fy, setFY] = useState<number | null>(currentFY);
-  const [expected, setExpected] = useState<Record<string, number>>(loadExpected);
+  const [frequency, setFrequency] = useState<DueFrequency>(loadDueFrequency);
+  const [expected, setExpected] = useState<Record<string, number>>(() => loadExpectedForFreq(loadDueFrequency()));
   const [globalAmt, setGlobalAmt] = useState("");
 
   const filtered = useMemo(() => filterByFY(records, fy), [records, fy]);
@@ -1969,36 +1981,57 @@ function SocietyDuesTab({ records }: { records: InvoiceMeta[] }) {
     return [...s].sort();
   }, [records]);
 
-  // For each unit, get months in selected FY window that have records
   const { from, to } = fy !== null ? fyBounds(fy) : { from: new Date(2000, 0, 1), to: new Date() };
-  const months: { key: string; label: string }[] = useMemo(() => {
-    const result: { key: string; label: string }[] = [];
-    const cur = new Date(from.getFullYear(), from.getMonth(), 1);
-    while (cur <= to) {
-      result.push({
-        key: `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}`,
-        label: cur.toLocaleDateString("en-IN", { month: "short", year: "2-digit" }),
-      });
-      cur.setMonth(cur.getMonth() + 1);
-    }
-    return result;
-  }, [fy]);
 
-  // Map: unit → set of month keys that have at least one record
-  const unitMonths = useMemo(() => {
+  // Periods: months or years depending on frequency
+  const periods: { key: string; label: string }[] = useMemo(() => {
+    if (frequency === "monthly") {
+      const result: { key: string; label: string }[] = [];
+      const cur = new Date(from.getFullYear(), from.getMonth(), 1);
+      while (cur <= to) {
+        result.push({
+          key: `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}`,
+          label: cur.toLocaleDateString("en-IN", { month: "short", year: "2-digit" }),
+        });
+        cur.setMonth(cur.getMonth() + 1);
+      }
+      return result;
+    } else {
+      // yearly: one bucket per FY
+      if (fy !== null) return [{ key: `fy-${fy}`, label: fyLabel(fy) }];
+      return allFYs.map(f => ({ key: `fy-${f}`, label: fyLabel(f) }));
+    }
+  }, [frequency, fy, from, to, allFYs]);
+
+  // Map: unit → set of period keys that have at least one record
+  const unitPeriods = useMemo(() => {
     const map = new Map<string, Set<string>>();
-    for (const r of filtered) {
+    const src = frequency === "yearly" ? records : filtered;
+    for (const r of src) {
       const tag = r.projectTag?.trim();
       if (!tag) continue;
       const d = r.invoiceDate ?? r.createdAt;
       if (!d) continue;
       const dt = new Date(d);
-      const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
+      let key: string;
+      if (frequency === "monthly") {
+        key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
+      } else {
+        const rFY = dt.getMonth() >= 3 ? dt.getFullYear() : dt.getFullYear() - 1;
+        key = `fy-${rFY}`;
+      }
       if (!map.has(tag)) map.set(tag, new Set());
       map.get(tag)!.add(key);
     }
     return map;
-  }, [filtered]);
+  }, [records, filtered, frequency]);
+
+  function switchFrequency(f: DueFrequency) {
+    setFrequency(f);
+    saveDueFrequency(f);
+    setExpected(loadExpectedForFreq(f));
+    setGlobalAmt("");
+  }
 
   function applyGlobal() {
     const amt = parseFloat(globalAmt);
@@ -2006,23 +2039,23 @@ function SocietyDuesTab({ records }: { records: InvoiceMeta[] }) {
     const newExpected: Record<string, number> = { ...expected };
     allUnits.forEach(u => { newExpected[u] = Math.round(amt * 100); });
     setExpected(newExpected);
-    saveExpected(newExpected);
+    saveExpectedForFreq(newExpected, frequency);
     setGlobalAmt("");
   }
 
-  // Build dues rows: units × months, show only missing ones
+  // Build dues rows: units × periods, show only missing ones
   const dueRows = useMemo(() => {
-    const rows: { unit: string; month: string; monthLabel: string; expectedPaise: number }[] = [];
+    const rows: { unit: string; period: string; periodLabel: string; expectedPaise: number }[] = [];
     for (const unit of allUnits) {
-      const paidMonths = unitMonths.get(unit) ?? new Set<string>();
-      for (const m of months) {
-        if (!paidMonths.has(m.key)) {
-          rows.push({ unit, month: m.key, monthLabel: m.label, expectedPaise: expected[unit] ?? 0 });
+      const paid = unitPeriods.get(unit) ?? new Set<string>();
+      for (const p of periods) {
+        if (!paid.has(p.key)) {
+          rows.push({ unit, period: p.key, periodLabel: p.label, expectedPaise: expected[unit] ?? 0 });
         }
       }
     }
-    return rows.sort((a, b) => a.unit.localeCompare(b.unit) || a.month.localeCompare(b.month));
-  }, [allUnits, unitMonths, months, expected]);
+    return rows.sort((a, b) => a.unit.localeCompare(b.unit) || a.period.localeCompare(b.period));
+  }, [allUnits, unitPeriods, periods, expected]);
 
   const totalDue = dueRows.reduce((s, r) => s + r.expectedPaise, 0);
 
@@ -2033,18 +2066,33 @@ function SocietyDuesTab({ records }: { records: InvoiceMeta[] }) {
         <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 3 }}>Units with missing maintenance payments — based on months with no invoice tagged to that flat</p>
       </div>
 
-      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 14 }}>
+      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 8 }}>
         {allFYs.map(f => <button key={f} style={chipStyle(fy === f)} onClick={() => setFY(f)}>{fyLabel(f)}</button>)}
         <button style={chipStyle(fy === null)} onClick={() => setFY(null)}>All Time</button>
       </div>
 
+      {/* Frequency toggle */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+        {(["monthly", "yearly"] as DueFrequency[]).map(f => (
+          <button key={f} onClick={() => switchFrequency(f)}
+            style={{ fontSize: 12, padding: "3px 14px", borderRadius: 20, border: "1.5px solid", cursor: "pointer",
+              borderColor: frequency === f ? "var(--color-primary)" : "var(--color-border)",
+              background: frequency === f ? "color-mix(in srgb, var(--color-primary) 12%, transparent)" : "transparent",
+              color: frequency === f ? "var(--color-primary)" : "var(--color-text-secondary)", fontWeight: frequency === f ? 700 : 400 }}>
+            {f.charAt(0).toUpperCase() + f.slice(1)}
+          </button>
+        ))}
+      </div>
+
       {/* Expected amount setter */}
       <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10, padding: "14px 16px", marginBottom: 16 }}>
-        <div style={{ fontSize: 12, fontWeight: 600, color: "var(--color-text)", marginBottom: 10 }}>Monthly Maintenance Amount</div>
+        <div style={{ fontSize: 12, fontWeight: 600, color: "var(--color-text)", marginBottom: 10 }}>
+          {frequency === "monthly" ? "Monthly" : "Yearly"} Maintenance Amount
+        </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>Set for all units:</span>
           <input
-            type="number" placeholder="e.g. 2000" value={globalAmt}
+            type="number" placeholder={frequency === "monthly" ? "e.g. 2000" : "e.g. 24000"} value={globalAmt}
             onChange={e => setGlobalAmt(e.target.value)}
             style={{ width: 110, padding: "5px 8px", borderRadius: 6, border: "1px solid var(--color-border)", background: "var(--color-bg)", color: "var(--color-text)", fontSize: 13 }}
           />
@@ -2064,10 +2112,10 @@ function SocietyDuesTab({ records }: { records: InvoiceMeta[] }) {
       ) : (
         <>
           <SummaryCards cards={[
-            { label: "Units Tracked",  value: String(allUnits.length) },
-            { label: "Missing Months", value: String(dueRows.length), color: "#dc2626" },
-            { label: "Total Dues",     value: totalDue > 0 ? fmtShort(totalDue) : "—", color: "#dc2626" },
-            { label: "Period",         value: fy !== null ? fyLabel(fy) : "All Time" },
+            { label: "Units Tracked",   value: String(allUnits.length) },
+            { label: frequency === "monthly" ? "Missing Months" : "Missing Years", value: String(dueRows.length), color: "#dc2626" },
+            { label: "Total Dues",      value: totalDue > 0 ? fmtShort(totalDue) : "—", color: "#dc2626" },
+            { label: "Period",          value: fy !== null ? fyLabel(fy) : "All Time" },
           ]} />
 
           {dueRows.length === 0 ? (
@@ -2078,40 +2126,40 @@ function SocietyDuesTab({ records }: { records: InvoiceMeta[] }) {
             <>
               <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
                 <CsvButton onClick={() => downloadCSV(`society-dues-${fy ?? "all"}.csv`, [
-                  ["Unit / Flat", "Month", "Expected (₹)"],
-                  ...dueRows.map(r => [r.unit, r.monthLabel, r.expectedPaise > 0 ? (r.expectedPaise / 100).toFixed(2) : "—"]),
+                  ["Unit / Flat", frequency === "monthly" ? "Month" : "Year", "Expected (₹)"],
+                  ...dueRows.map(r => [r.unit, r.periodLabel, r.expectedPaise > 0 ? (r.expectedPaise / 100).toFixed(2) : "—"]),
                 ])} />
               </div>
               <div style={{ overflowX: "auto", background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10 }}>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead>
                     <tr style={{ borderBottom: "1.5px solid var(--color-border)" }}>
-                      {["Unit / Flat", "Missing Month", "Expected (₹)", "Set Amount"].map((h, i) => (
+                      {["Unit / Flat", frequency === "monthly" ? "Missing Month" : "Missing Year", "Expected (₹)", "Set Amount"].map((h, i) => (
                         <th key={h} style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase" as const, letterSpacing: "0.06em", padding: "9px 14px", textAlign: i < 2 ? "left" : "right" }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {dueRows.map((r, i) => (
-                      <tr key={`${r.unit}-${r.month}`}
+                      <tr key={`${r.unit}-${r.period}`}
                         style={{ borderBottom: i < dueRows.length - 1 ? "1px solid var(--color-border)" : "none", background: i % 2 === 0 ? "transparent" : "var(--color-surface-2)" }}>
                         <td style={{ padding: "9px 14px" }}>
                           <span style={{ background: "color-mix(in srgb, #dc2626 10%, transparent)", color: "#dc2626", borderRadius: 4, padding: "2px 8px", fontSize: 12, fontWeight: 600 }}>{r.unit}</span>
                         </td>
-                        <td style={{ padding: "9px 14px", fontSize: 12.5, color: "var(--color-text-secondary)" }}>{r.monthLabel}</td>
+                        <td style={{ padding: "9px 14px", fontSize: 12.5, color: "var(--color-text-secondary)" }}>{r.periodLabel}</td>
                         <td style={{ padding: "9px 14px", textAlign: "right", fontSize: 12.5, fontWeight: 600, fontVariantNumeric: "tabular-nums", color: r.expectedPaise > 0 ? "#dc2626" : "var(--color-text-tertiary)" }}>
                           {r.expectedPaise > 0 ? fmtRupee(r.expectedPaise) : "—"}
                         </td>
                         <td style={{ padding: "9px 14px", textAlign: "right" }}>
                           <input
-                            type="number" placeholder="₹/month"
+                            type="number" placeholder={frequency === "monthly" ? "₹/mo" : "₹/yr"}
                             defaultValue={expected[r.unit] ? (expected[r.unit] / 100).toString() : ""}
                             onBlur={e => {
                               const amt = parseFloat(e.target.value);
                               if (!isNaN(amt) && amt > 0) {
                                 const newExpected = { ...expected, [r.unit]: Math.round(amt * 100) };
                                 setExpected(newExpected);
-                                saveExpected(newExpected);
+                                saveExpectedForFreq(newExpected, frequency);
                               }
                             }}
                             style={{ width: 90, padding: "4px 7px", borderRadius: 5, border: "1px solid var(--color-border)", background: "var(--color-bg)", color: "var(--color-text)", fontSize: 12, textAlign: "right" }}
