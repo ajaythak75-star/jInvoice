@@ -11,6 +11,7 @@ export interface ServerPlan {
   status: "active" | "cancelled" | "refund_pending";
   cancelled_at: string | null;
   refund_requested_at: string | null;
+  cloud_upload_enabled?: boolean;
 }
 
 function authHeaders(): Record<string, string> {
@@ -43,6 +44,8 @@ function applyPlanToPrefs(plan: ServerPlan): void {
     prefs.customerPlan = "Free";
     prefs.trialStartedAt = null;
   }
+  // Sync per-user feature flags (default true when not set by admin)
+  prefs.cloudUploadEnabled = plan.cloud_upload_enabled !== false;
 }
 
 export async function syncPlanFromServer(): Promise<ServerPlan | null> {

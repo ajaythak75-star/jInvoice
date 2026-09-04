@@ -10,6 +10,7 @@ interface UserPlan {
   paid_until: string | null;
   cancelled_at: string | null;
   updated_at: string;
+  cloud_upload_enabled?: boolean;
 }
 
 interface PlanEvent {
@@ -152,6 +153,17 @@ function UsersTab() {
     } finally { setActionLoading(null); }
   };
 
+  const handleToggleCloudUpload = async (email: string, enabled: boolean) => {
+    setActionLoading(`${email}:cloud`);
+    try {
+      await fetch(`/api/admin/users/${encodeURIComponent(email)}/features`, {
+        method: "PATCH", headers: authHeaders(),
+        body: JSON.stringify({ cloud_upload_enabled: enabled }),
+      });
+      await loadUsers();
+    } finally { setActionLoading(null); }
+  };
+
   const fmtDate     = (d: string | null) => d ? new Date(d).toLocaleDateString("en-IN") : "—";
   const fmtDateTime = (d: string) => new Date(d).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
 
@@ -181,7 +193,7 @@ function UsersTab() {
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
                 <tr style={{ borderBottom: "2px solid var(--color-border)" }}>
-                  {["Email", "Plan", "Trial ends / Paid until", "Last updated", "Actions"].map((h) => (
+                  {["Email", "Plan", "Trial ends / Paid until", "Last updated", "Cloud Upload", "Actions"].map((h) => (
                     <th key={h} style={{ padding: "8px 10px", textAlign: "left", fontWeight: 600, color: "var(--color-text-secondary)", whiteSpace: "nowrap" }}>{h}</th>
                   ))}
                 </tr>
@@ -200,6 +212,26 @@ function UsersTab() {
                         {u.plan === "pro_trial" ? fmtDate(u.trial_ends_at) : u.plan === "pro_paid" ? fmtDate(u.paid_until) : "—"}
                       </td>
                       <td style={{ padding: "10px 10px", color: "var(--color-text-secondary)" }}>{fmtDate(u.updated_at)}</td>
+                      <td style={{ padding: "10px 10px" }} onClick={(e) => e.stopPropagation()}>
+                        {(() => {
+                          const enabled = u.cloud_upload_enabled !== false;
+                          const loading = actionLoading === `${u.email}:cloud`;
+                          return (
+                            <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: loading ? "wait" : "pointer" }}>
+                              <input
+                                type="checkbox"
+                                checked={enabled}
+                                disabled={loading}
+                                onChange={() => handleToggleCloudUpload(u.email, !enabled)}
+                                style={{ width: 14, height: 14, accentColor: "#4f46e5", cursor: "pointer" }}
+                              />
+                              <span style={{ fontSize: 11, color: enabled ? "#16a34a" : "#ef4444", fontWeight: 600 }}>
+                                {loading ? "…" : enabled ? "On" : "Off"}
+                              </span>
+                            </label>
+                          );
+                        })()}
+                      </td>
                       <td style={{ padding: "10px 10px" }} onClick={(e) => e.stopPropagation()}>
                         <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
                           {u.plan !== "pro_trial" && <ActionBtn label={actionLoading === `${u.email}:pro_trial` ? "…" : "Trial"} color="#d97706" onClick={() => handleSetPlan(u.email, "pro_trial")} />}

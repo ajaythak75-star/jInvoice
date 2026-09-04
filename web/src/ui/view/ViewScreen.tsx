@@ -1780,6 +1780,7 @@ export function ViewScreen() {
             );
           })()}
           {(() => {
+            if (!prefs.cloudUploadEnabled) return null;
             const hasSelectedInvoices = records.some(
               (r) => r.id != null && selected.has(r.id) &&
               ((r.docTypes ?? (r.docType ? [r.docType] : [])).some((t) => t === "invoice") || r.docType === "invoice")
@@ -2092,7 +2093,7 @@ export function ViewScreen() {
                       };
                       return (
                         <>
-                          {isSupabaseEnabled() && (
+                          {isSupabaseEnabled() && prefs.cloudUploadEnabled && (
                             <button
                               disabled={previewCloudSaving || previewSubmitting}
                               style={{
@@ -2159,7 +2160,7 @@ export function ViewScreen() {
                         </>
                       );
                     })()}
-                    {!isPreviewMode && isSupabaseEnabled() && r.id != null && (() => {
+                    {!isPreviewMode && isSupabaseEnabled() && prefs.cloudUploadEnabled && r.id != null && (() => {
                       const sensitivity = detectSensitiveData(r);
                       if (sensitivity.sensitive) {
                         return (
@@ -2199,7 +2200,7 @@ export function ViewScreen() {
                         </button>
                       );
                     })()}
-                    {!isPreviewMode && (() => {
+                    {!isPreviewMode && prefs.cloudUploadEnabled && (() => {
                       const isInv = (r.docTypes ?? (r.docType ? [r.docType] : [])).some((t) => t === "invoice") || r.docType === "invoice";
                       if (!isInv) return null;
                       return (

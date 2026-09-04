@@ -1297,7 +1297,9 @@ app.patch("/api/admin/users/:email/plan", async (req, res) => {
   const now = new Date();
   const patch = { plan, status: "active", updated_at: now.toISOString() };
   if (plan === "pro_trial") {
-    const trialEnds = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
+    const settings = await _getConfig("plan_settings");
+    const trialDays = settings?.trial_days ?? 14;
+    const trialEnds = new Date(now.getTime() + trialDays * 24 * 60 * 60 * 1000);
     patch.trial_used = true;
     patch.trial_started_at = now.toISOString();
     patch.trial_ends_at = trialEnds.toISOString();
@@ -1315,6 +1317,22 @@ app.patch("/api/admin/users/:email/plan", async (req, res) => {
   const eventName = plan === "pro_paid" ? "pro_activated" : plan === "pro_trial" ? "trial_started" : "cancelled";
   _logPlanEvent(email, eventName, { by: "admin", plan });
   res.json(saved ?? patch);
+});
+
+// PATCH /api/admin/users/:email/features — toggle per-user feature flags (cloud_upload_enabled, etc.)
+app.patch("/api/admin/users/:email/features", async (req, res) => {
+  if (!_requireAdmin(req, res)) return;
+  const email = decodeURIComponent(req.params.email).toLowerCase();
+  const allowed = ["cloud_upload_enabled"];
+  const patch = {};
+  for (const key of allowed) {
+    if (key in (req.body ?? {})) patch[key] = Boolean(req.body[key]);
+  }
+  if (Object.keys(patch).length === 0) return res.status(400).json({ error: "No valid feature flags provided" });
+  patch.updated_at = new Date().toISOString();
+  const { ok, data } = await _upsertPlan(email, patch);
+  if (!ok) return res.status(500).json({ error: "DB update failed" });
+  res.json(data ?? patch);
 });
 
 // DELETE /api/admin/users/:email/access — remove from allowed_users

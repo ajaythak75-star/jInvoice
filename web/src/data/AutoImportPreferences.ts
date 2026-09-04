@@ -343,6 +343,9 @@ export const prefs = {
   },
   set customSocietyCategories(v: string[]) { set("custom_society_categories", JSON.stringify(v)); },
 
+  get cloudUploadEnabled(): boolean { return get("cloud_upload_enabled") !== "false"; },
+  set cloudUploadEnabled(v: boolean) { set("cloud_upload_enabled", String(v)); },
+
   revokeGmail(): void {
     this.gmailEnabled = false;
     this.gmailConsentGiven = false;
