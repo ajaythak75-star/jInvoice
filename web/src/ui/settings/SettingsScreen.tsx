@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { auth } from "../../data/AuthStore";
 import { prefs, type UserProfile } from "../../data/AutoImportPreferences";
 import { PROFESSIONAL_PROFILE_LABEL, type ProfessionalProfile } from "../../core/extraction/ProfessionalCategoryDetector";
+import { getCachedConfig, fetchAndCacheConfig, type ProfileEnabled } from "../../service/ConfigService";
 import { useAutoImportViewModel } from "../autoimport/useAutoImportViewModel";
 import { DesktopFolderSettings } from "../autoimport/DesktopFolderSettings";
 import { desktopConnector } from "../../service/AutoImportService";
@@ -45,6 +46,7 @@ export function SettingsScreen({ onSignOut }: Props) {
   const [fsSupported, setFsSupported] = useState(false);
 
   const [isProActive, setIsProActive] = useState<boolean>(() => prefs.isProActive);
+  const [profileEnabled, setProfileEnabled] = useState<ProfileEnabled>(() => getCachedConfig("profile_enabled"));
 
   const [geminiApiKey, setGeminiApiKey] = useState(() => prefs.geminiApiKey);
   const [geminiKeySaved, setGeminiKeySaved] = useState(false);
@@ -73,6 +75,7 @@ export function SettingsScreen({ onSignOut }: Props) {
   useEffect(() => { loadMobileInfo(); }, [loadMobileInfo]);
 
   useEffect(() => { isFsAccessSupported().then(setFsSupported); }, []);
+  useEffect(() => { fetchAndCacheConfig("profile_enabled").then(setProfileEnabled); }, []);
 
   const handleSignOut = () => {
     auth.signOut();
@@ -251,7 +254,9 @@ export function SettingsScreen({ onSignOut }: Props) {
                       outline: "none", cursor: "pointer",
                     }}
                   >
-                    {(["society", "shopkeeper", "tax_consultant", "ca", "real_estate", "advocate", "bookkeeper", "freelancer", "ngo"] as Exclude<UserProfile, "personal">[]).map((profile) => (
+                    {(["society", "shopkeeper", "tax_consultant", "ca", "real_estate", "advocate", "bookkeeper", "freelancer", "ngo"] as Exclude<UserProfile, "personal">[])
+                    .filter((p) => profileEnabled[p as keyof ProfileEnabled] !== false)
+                    .map((profile) => (
                       <option key={profile} value={profile}>
                         {profile === "society" ? "Housing Society" : PROFESSIONAL_PROFILE_LABEL[profile as ProfessionalProfile]}
                       </option>
