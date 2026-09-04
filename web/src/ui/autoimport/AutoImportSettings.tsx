@@ -13,6 +13,7 @@ import { auth } from "../../data/AuthStore";
 import { BusinessProfileModal } from "../shared/BusinessProfileModal";
 import type { ExtractionResult, ExtractedInvoice } from "../../core/extraction/models";
 import { prefs } from "../../data/AutoImportPreferences";
+import { PROFESSIONAL_PROFILE_LABEL, type ProfessionalProfile } from "../../core/extraction/ProfessionalCategoryDetector";
 
 
 function fmt(paise: number | null | undefined): string {
@@ -709,6 +710,20 @@ export function AutoImportSettings() {
           ) : (
             <span style={{ fontSize: 12, fontWeight: 700, background: "var(--color-border)", color: "var(--color-text-secondary)", borderRadius: 5, padding: "2px 10px" }}>Free</span>
           )}
+          {/* Current profile chip */}
+          {(() => {
+            const mode = prefs.activeMode;
+            const label = mode === "personal"
+              ? "Personal"
+              : mode === "society"
+                ? "Housing Society"
+                : (PROFESSIONAL_PROFILE_LABEL[mode as ProfessionalProfile] ?? mode);
+            return (
+              <span style={{ fontSize: 12, fontWeight: 600, background: "color-mix(in srgb, var(--color-primary) 12%, transparent)", color: "var(--color-primary)", borderRadius: 5, padding: "2px 10px" }}>
+                {label}
+              </span>
+            );
+          })()}
           {isInTrial && trialStartedAt && trialEndDate && (
             <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
               {new Date(trialStartedAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
