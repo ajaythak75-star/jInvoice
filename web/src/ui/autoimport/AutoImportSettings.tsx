@@ -16,8 +16,6 @@ import { prefs } from "../../data/AutoImportPreferences";
 import { PROFESSIONAL_PROFILE_LABEL, type ProfessionalProfile } from "../../core/extraction/ProfessionalCategoryDetector";
 import { DummyPaymentModal } from "../payment/DummyPaymentModal";
 
-const DUMMY_PAYMENT = import.meta.env.VITE_DUMMY_PAYMENT === "true";
-
 
 function fmt(paise: number | null | undefined): string {
   if (paise == null) return "—";
@@ -328,14 +326,7 @@ export function AutoImportSettings() {
   };
 
   const openProModal = () => {
-    if (DUMMY_PAYMENT) { setShowDummyPayment(true); return; }
-    setProName(prefs.customerName);
-    setProEmail(prefs.customerEmail);
-    setProLocation(prefs.customerLocation);
-    setProPin(prefs.customerPin);
-    setProCountry(prefs.customerCountry);
-    setProFormErr(null);
-    setShowProModal(true);
+    setShowDummyPayment(true);
   };
 
   const submitProUpgrade = () => {

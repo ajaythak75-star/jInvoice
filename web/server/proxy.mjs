@@ -1193,9 +1193,8 @@ app.post("/api/subscription/cancel", async (req, res) => {
   res.json(updated ?? { ..._FREE_PLAN, ...patch });
 });
 
-// ── Dummy payment (dev/staging only — remove DUMMY_PAYMENT env var in prod) ───
+// ── Dummy payment ─────────────────────────────────────────────────────────────
 app.post("/api/payment/dummy-activate", async (req, res) => {
-  if (process.env.DUMMY_PAYMENT !== "true") return res.status(404).json({ error: "not found" });
   const email = _verifyToken(_planToken(req));
   if (!email) return res.status(401).json({ error: "unauthorized" });
   if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) return res.status(503).json({ error: "Supabase not configured" });

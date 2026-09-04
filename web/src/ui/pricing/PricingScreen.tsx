@@ -13,8 +13,6 @@ import { startTrial as startTrialServer, requestProAccess } from "../../service/
 import { BusinessProfileModal } from "../shared/BusinessProfileModal";
 import { DummyPaymentModal } from "../payment/DummyPaymentModal";
 
-const DUMMY_PAYMENT = import.meta.env.VITE_DUMMY_PAYMENT === "true";
-
 const inpStyle: React.CSSProperties = {
   width: "100%", padding: "8px 10px", borderRadius: 6,
   border: "1px solid var(--color-border)", background: "var(--color-bg)",
@@ -138,8 +136,6 @@ export function PricingScreen() {
   const [licences, setLicences]       = useState(1);
   const [sub, setSub]                 = useState<Subscription | null>(null);
   const [loading, setLoading]         = useState(true);
-  const [checkoutLoading, setCheckoutLoading] = useState(false);
-  const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showApiKeyModal,  setShowApiKeyModal]  = useState(false);
   const [postPayment,      setPostPayment]      = useState(false);
@@ -233,20 +229,8 @@ export function PricingScreen() {
     }
   };
 
-  const handleSubscribe = async () => {
-    if (DUMMY_PAYMENT) {
-      setShowDummyPayment(true);
-      return;
-    }
-    setCheckoutLoading(true);
-    setCheckoutError(null);
-    const url = await subscriptionService.createCheckout(apiOption, billing);
-    setCheckoutLoading(false);
-    if (url) {
-      window.location.href = url;
-    } else {
-      setCheckoutError("Could not open checkout. Payments may not be configured yet — please contact support or try again later.");
-    }
+  const handleSubscribe = () => {
+    setShowDummyPayment(true);
   };
 
   const handleCancel = async () => {
@@ -503,10 +487,9 @@ export function PricingScreen() {
                 </div>
                 <button
                   onClick={handleSubscribe}
-                  disabled={checkoutLoading}
                   style={{ padding: "8px 18px", borderRadius: 8, border: "1px solid #7c3aed", background: "transparent", color: "#7c3aed", fontSize: 13, fontWeight: 700, cursor: "pointer" }}
                 >
-                  {checkoutLoading ? "Redirecting…" : "Subscribe now →"}
+                  Subscribe now →
                 </button>
               </>
             ) : approvalRequired ? (
@@ -544,20 +527,14 @@ export function PricingScreen() {
             ) : (
               <button
                 onClick={handleSubscribe}
-                disabled={checkoutLoading}
                 style={{ padding: "10px 24px", borderRadius: 8, border: "none", background: "#7c3aed", color: "#fff", fontSize: 13.5, fontWeight: 700, cursor: "pointer" }}
               >
-                {checkoutLoading ? "Redirecting…" : "Continue with Pro →"}
+                Continue with Pro →
               </button>
             )}
             {trialError && (
               <div style={{ marginTop: 4, padding: "10px 14px", borderRadius: 8, background: "#fef2f2", border: "1px solid #fca5a5", color: "#b91c1c", fontSize: 12.5, lineHeight: 1.5 }}>
                 {trialError}
-              </div>
-            )}
-            {checkoutError && (
-              <div style={{ marginTop: 4, padding: "10px 14px", borderRadius: 8, background: "#fef2f2", border: "1px solid #fca5a5", color: "#b91c1c", fontSize: 12.5, lineHeight: 1.5 }}>
-                {checkoutError}
               </div>
             )}
           </div>
