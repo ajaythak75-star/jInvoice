@@ -14,6 +14,9 @@ import { BusinessProfileModal } from "../shared/BusinessProfileModal";
 import type { ExtractionResult, ExtractedInvoice } from "../../core/extraction/models";
 import { prefs } from "../../data/AutoImportPreferences";
 import { PROFESSIONAL_PROFILE_LABEL, type ProfessionalProfile } from "../../core/extraction/ProfessionalCategoryDetector";
+import { DummyPaymentModal } from "../payment/DummyPaymentModal";
+
+const DUMMY_PAYMENT = import.meta.env.VITE_DUMMY_PAYMENT === "true";
 
 
 function fmt(paise: number | null | undefined): string {
@@ -305,6 +308,7 @@ export function AutoImportSettings() {
   const totalAccounts = effectiveGmailAccounts.length + effectiveOutlookAccounts.length;
 
   const [showProModal, setShowProModal] = useState(false);
+  const [showDummyPayment, setShowDummyPayment] = useState(false);
   const [proName,     setProName]     = useState(() => prefs.customerName);
   const [proEmail,    setProEmail]    = useState(() => prefs.customerEmail);
   const [proLocation, setProLocation] = useState(() => prefs.customerLocation);
@@ -324,6 +328,7 @@ export function AutoImportSettings() {
   };
 
   const openProModal = () => {
+    if (DUMMY_PAYMENT) { setShowDummyPayment(true); return; }
     setProName(prefs.customerName);
     setProEmail(prefs.customerEmail);
     setProLocation(prefs.customerLocation);
@@ -1382,6 +1387,18 @@ export function AutoImportSettings() {
           handleStartTrial();
         }}
         onClose={() => setShowProfileModal(false)}
+      />
+    )}
+    {showDummyPayment && (
+      <DummyPaymentModal
+        apiOption="shared"
+        billing="monthly"
+        totalPaise={99900}
+        onSuccess={(plan) => {
+          setShowDummyPayment(false);
+          setProEndDate(plan.paid_until ?? null);
+        }}
+        onClose={() => setShowDummyPayment(false)}
       />
     )}
     {showProModal && (
