@@ -723,3 +723,17 @@ export function getProfessionalCategoryLabel(profile: ProfessionalProfile, categ
     case "ngo":            return NGO_CATEGORY_LABEL[category as NGOCategory] ?? category;
   }
 }
+
+export function getProfessionalCategoryEntries(profile: ProfessionalProfile | "personal"): Array<[string, string]> {
+  switch (profile) {
+    case "shopkeeper":     return Object.entries(SHOPKEEPER_CATEGORY_LABEL);
+    case "tax_consultant": return Object.entries(TAX_CONSULTANT_CATEGORY_LABEL);
+    case "ca":             return Object.entries(CA_CATEGORY_LABEL);
+    case "real_estate":    return Object.entries(REAL_ESTATE_CATEGORY_LABEL);
+    case "advocate":       return Object.entries(ADVOCATE_CATEGORY_LABEL);
+    case "bookkeeper":     return Object.entries(BOOKKEEPER_CATEGORY_LABEL);
+    case "freelancer":     return Object.entries(FREELANCER_CATEGORY_LABEL);
+    case "ngo":            return Object.entries(NGO_CATEGORY_LABEL);
+    case "personal":       return Object.entries(PERSONAL_CATEGORY_LABEL);
+  }
+}

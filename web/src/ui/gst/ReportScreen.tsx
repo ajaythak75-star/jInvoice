@@ -2207,7 +2207,8 @@ function SocietyQuotesTab({ records }: { records: InvoiceMeta[] }) {
       .filter(r => {
         const cat = r.docTypes?.[0] ?? r.docType ?? r.category;
         if (cat === "quotation") return true;
-        return r.projectTag?.trim().toLowerCase() === "quotation";
+        if (r.projectTag?.trim().toLowerCase() === "quotation") return true;
+        return (r.clientTags ?? []).some(t => t.trim().toLowerCase() === "quotation");
       })
       .sort((a, b) => (b.invoiceDate ?? "").localeCompare(a.invoiceDate ?? "")),
     [records]
