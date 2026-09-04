@@ -137,6 +137,7 @@ type SourcedResult = EmailResult & { source: "gmail" | "outlook" | "imap" };
 
 export async function poll(): Promise<{ found: number; processed: number; cancelled: boolean }> {
   if (_syncRunning) return { found: 0, processed: 0, cancelled: false };
+  if (!prefs.cloudUploadEnabled) return { found: 0, processed: 0, cancelled: false };
   _syncRunning = true;
   _syncCancelled = false;
   window.dispatchEvent(new CustomEvent("jinvoice:sync-start"));

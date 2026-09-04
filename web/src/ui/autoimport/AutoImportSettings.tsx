@@ -934,8 +934,18 @@ export function AutoImportSettings() {
               )}
             </h3>
 
+            {!prefs.cloudUploadEnabled && (
+              <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: "color-mix(in srgb, #ef4444 10%, transparent)", border: "1px solid color-mix(in srgb, #ef4444 30%, transparent)", borderRadius: 8, marginBottom: 12 }}>
+                <span style={{ fontSize: 16, flexShrink: 0 }}>🔒</span>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#ef4444" }}>Email sync disabled</div>
+                  <div style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 1 }}>Cloud upload has been disabled for your profile by the admin. Email account access is blocked.</div>
+                </div>
+              </div>
+            )}
+
             {/* All accounts — one row each */}
-            <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 10 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 10, opacity: prefs.cloudUploadEnabled ? 1 : 0.4, pointerEvents: prefs.cloudUploadEnabled ? "auto" : "none" }}>
               {effectiveGmailAccounts.map((acct) => {
                 const isPrimary = acct.email === primaryGmailEmail;
                 return (
@@ -1045,7 +1055,7 @@ export function AutoImportSettings() {
             </div>
 
             {/* Add account buttons */}
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10, opacity: prefs.cloudUploadEnabled ? 1 : 0.4, pointerEvents: prefs.cloudUploadEnabled ? "auto" : "none" }}>
               {isImapAvailable() && (
                 <button className="btn-sm" onClick={() => {
                   if (!prefs.imapConsentGiven) { setPendingConsent("imap"); }
