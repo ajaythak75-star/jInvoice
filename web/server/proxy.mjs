@@ -96,13 +96,14 @@ async function _sbService(path, opts = {}) {
 // Always include email in fields. Returns the saved row or null.
 async function _upsertPlan(email, fields) {
   const body = { email: email.toLowerCase(), ...fields };
-  const { ok, status, data } = await _sbService("/user_plans", {
+  // ?on_conflict=email tells PostgREST which column to use for ON CONFLICT DO UPDATE
+  const { ok, status, data } = await _sbService("/user_plans?on_conflict=email", {
     method: "POST",
     headers: { Prefer: "resolution=merge-duplicates,return=representation" },
     body: JSON.stringify(body),
   });
   if (!ok) console.error("[user_plans] upsert failed:", status, JSON.stringify(data));
-  return Array.isArray(data) ? data[0] : (data ?? null);
+  return { ok, status, data: Array.isArray(data) ? data[0] : (data ?? null) };
 }
 
 // Insert one row into user_plan_events — fire-and-forget, never blocks the caller.
@@ -1146,7 +1147,8 @@ app.post("/api/subscription/start-trial", async (req, res) => {
   const now = new Date();
   const trialEnds = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
   const patch = { plan: "pro_trial", status: "active", trial_used: true, trial_started_at: now.toISOString(), trial_ends_at: trialEnds.toISOString(), updated_at: now.toISOString() };
-  const updated = await _upsertPlan(email, patch);
+  const { ok: uok, status: ustatus, data: updated } = await _upsertPlan(email, patch);
+  if (!uok) return res.status(500).json({ error: "DB update failed", detail: updated, dbStatus: ustatus });
   _logPlanEvent(email, "trial_started", { trial_ends_at: trialEnds.toISOString() });
   res.json(updated ?? { ...row, ...patch });
 });
@@ -1185,7 +1187,8 @@ app.post("/api/subscription/cancel", async (req, res) => {
   const { data: current } = await _sbService(`/user_plans?email=eq.${encodeURIComponent(email)}&limit=1`);
   const currentPlan = (Array.isArray(current) ? current[0] : null)?.plan ?? "unknown";
   const patch = { plan: "free", status: "cancelled", cancelled_at: now, updated_at: now };
-  const updated = await _upsertPlan(email, patch);
+  const { ok: uok, status: ustatus, data: updated } = await _upsertPlan(email, patch);
+  if (!uok) return res.status(500).json({ error: "DB update failed", detail: updated, dbStatus: ustatus });
   _logPlanEvent(email, "cancelled", { from_plan: currentPlan });
   res.json(updated ?? { ..._FREE_PLAN, ...patch });
 });
@@ -1208,7 +1211,8 @@ app.post("/api/payment/dummy-activate", async (req, res) => {
     cancelled_at: null,
     updated_at: now,
   };
-  const updated = await _upsertPlan(email, patch);
+  const { ok: uok, status: ustatus, data: updated } = await _upsertPlan(email, patch);
+  if (!uok) return res.status(500).json({ error: "DB update failed", detail: updated, dbStatus: ustatus });
   _logPlanEvent(email, "pro_activated", { via: "dummy_payment", api_option: apiOption ?? "shared", billing: billing ?? "monthly" });
   res.json(updated ?? { email, ...patch });
 });
@@ -1281,7 +1285,8 @@ app.patch("/api/admin/users/:email/plan", async (req, res) => {
     patch.status = "cancelled";
     patch.cancelled_at = now.toISOString();
   }
-  const saved = await _upsertPlan(email, patch);
+  const { ok: uok, status: ustatus, data: saved } = await _upsertPlan(email, patch);
+  if (!uok) return res.status(500).json({ error: "DB update failed", detail: saved, dbStatus: ustatus });
   const eventName = plan === "pro_paid" ? "pro_activated" : plan === "pro_trial" ? "trial_started" : "cancelled";
   _logPlanEvent(email, eventName, { by: "admin", plan });
   res.json(saved ?? patch);
