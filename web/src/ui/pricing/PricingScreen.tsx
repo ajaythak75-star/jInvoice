@@ -176,7 +176,7 @@ export function PricingScreen() {
   const trialUsed    = sub ? sub.trial_used : trialStarted;
   const daysLeft     = sub ? serverTrialDaysLeft(sub) : prefs.trialDaysLeft;
   const proActive    = sub ? serverIsProActive(sub) : prefs.isProActive;
-  const canCancel    = sub?.plan === "pro_paid" && sub.status === "active";
+
   const canRefund    = sub?.status === "cancelled" && !sub.refund_requested_at;
 
   const selectApiOption = (opt: ApiOption) => {
@@ -233,7 +233,10 @@ export function PricingScreen() {
   };
 
   const handleCancel = async () => {
-    if (!window.confirm("Cancel your Pro subscription? You will stay on Free after your paid period.")) return;
+    const msg = inTrial
+      ? "Cancel your trial? You will be moved back to the Free plan immediately."
+      : "Cancel your Pro subscription? You will stay on Free after your paid period ends.";
+    if (!window.confirm(msg)) return;
     const updated = await subscriptionService.cancel();
     if (updated) setSub(updated);
   };
@@ -273,11 +276,9 @@ export function PricingScreen() {
       {!loading && isSubscribed && (
         <div style={{ marginBottom: 20, padding: "12px 16px", borderRadius: 10, background: "#f0fdf4", border: "1px solid #86efac", color: "#166534", fontSize: 13, fontWeight: 600 }}>
           ✓ You are on the Pro plan.
-          {canCancel && (
-            <button onClick={handleCancel} style={{ marginLeft: 16, fontSize: 12, color: "#ef4444", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>
-              Cancel subscription
-            </button>
-          )}
+          <button onClick={handleCancel} style={{ marginLeft: 16, fontSize: 12, color: "#ef4444", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>
+            Cancel subscription
+          </button>
         </div>
       )}
       {!loading && sub?.status === "cancelled" && (
@@ -294,6 +295,9 @@ export function PricingScreen() {
       {!loading && !isSubscribed && inTrial && (
         <div style={{ marginBottom: 20, padding: "12px 16px", borderRadius: 10, background: "#eff6ff", border: "1px solid #93c5fd", color: "#1e40af", fontSize: 13, fontWeight: 600 }}>
           🎉 Pro trial active — {daysLeft} day{daysLeft !== 1 ? "s" : ""} left.
+          <button onClick={handleCancel} style={{ marginLeft: 16, fontSize: 12, color: "#ef4444", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>
+            Cancel trial
+          </button>
         </div>
       )}
       {!loading && !isSubscribed && trialStarted && !inTrial && sub?.status !== "cancelled" && (
