@@ -176,8 +176,7 @@ export function PricingScreen() {
   const trialUsed    = sub ? sub.trial_used : trialStarted;
   const daysLeft     = sub ? serverTrialDaysLeft(sub) : prefs.trialDaysLeft;
   const proActive    = sub ? serverIsProActive(sub) : prefs.isProActive;
-  const canCancel    = sub?.plan === "pro_paid" && sub.status === "active" && sub.paid_until
-    ? new Date(sub.paid_until) < new Date() : false;
+  const canCancel    = sub?.plan === "pro_paid" && sub.status === "active";
   const canRefund    = sub?.status === "cancelled" && !sub.refund_requested_at;
 
   const selectApiOption = (opt: ApiOption) => {
