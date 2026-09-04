@@ -2206,7 +2206,8 @@ function SocietyQuotesTab({ records }: { records: InvoiceMeta[] }) {
     records
       .filter(r => {
         const cat = r.docTypes?.[0] ?? r.docType ?? r.category;
-        return cat === "quotation";
+        if (cat === "quotation") return true;
+        return r.projectTag?.trim().toLowerCase() === "quotation";
       })
       .sort((a, b) => (b.invoiceDate ?? "").localeCompare(a.invoiceDate ?? "")),
     [records]
@@ -2296,7 +2297,7 @@ function SocietyQuotesTab({ records }: { records: InvoiceMeta[] }) {
           </div>
           {quotationInvoices.length === 0 ? (
             <div style={{ fontSize: 12, color: "var(--color-text-secondary)", padding: "12px 0" }}>
-              No invoices categorised as "Quotation" yet. Upload vendor quotes and set their category to "Quotation" in the detail panel first.
+              No invoices found yet. Upload vendor quotes and either set their category to "Quotation" or tag them as "Quotation" in the detail panel.
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 240, overflowY: "auto", marginBottom: 12 }}>
@@ -2333,7 +2334,7 @@ function SocietyQuotesTab({ records }: { records: InvoiceMeta[] }) {
       {quoteSets.length === 0 && !creating ? (
         <div style={{ textAlign: "center", padding: "48px 24px", color: "var(--color-text-secondary)", fontSize: 13, background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10 }}>
           <div style={{ fontWeight: 600, marginBottom: 6 }}>No quote sets yet</div>
-          <div style={{ fontSize: 12, opacity: 0.8 }}>Upload vendor quotations, set their category to "Quotation" in the detail panel, then click "New Quote Set" to compare them side-by-side.</div>
+          <div style={{ fontSize: 12, opacity: 0.8 }}>Upload vendor quotations, then either set their category to "Quotation" or tag them as "Quotation" in the detail panel — both will appear here for comparison.</div>
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
