@@ -36,6 +36,7 @@ export interface ExtractedInvoice {
   sourceType: PdfSourceType;
   rawText: string | null;          // never persisted or transmitted
   confidenceScore: number;
+  docMetadata?: Record<string, string> | null;
 }
 
 export type ExtractionResult =

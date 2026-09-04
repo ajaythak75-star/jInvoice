@@ -21,6 +21,13 @@ export interface ClaudeInvoiceData {
     discountInr: number | null;
     amountInr: number;
   }>;
+  // Society-specific extras (quotations + AGM records)
+  validUntil?: string | null;
+  paymentTerms?: string | null;
+  warrantyPeriod?: string | null;
+  resolutionNo?: string | null;
+  attendeeCount?: string | null;
+  meetingType?: string | null;
 }
 
 const PROMPT_INVOICE = `You are an invoice data extractor for Indian businesses. Extract the following fields from the invoice and respond ONLY with a valid JSON object, no explanation or markdown.
@@ -55,30 +62,36 @@ Rules:
 - PIN code is a 6-digit number found in the merchant address`;
 
 const PROMPT_SOCIETY = `You are a document data extractor for Indian residential societies and housing expenses.
-This document may be a maintenance bill, rent receipt/agreement, insurance policy receipt, lift/equipment AMC invoice, utility bill, or any other housing/society-related financial record.
+This document may be a maintenance bill, rent receipt/agreement, insurance policy receipt, lift/equipment AMC invoice, utility bill, vendor quotation, AGM/meeting minutes, or any other housing/society-related financial record.
 Extract the following fields and respond ONLY with a valid JSON object, no explanation or markdown.
 
 {
   "shopName": <society name / vendor / landlord / insurer / service company as string, or null>,
   "address": <society or property address as string, or null>,
   "pincode": <6-digit Indian PIN code as string, or null>,
-  "invoiceNumber": <bill number / receipt number / agreement number / policy number as string, or null>,
+  "invoiceNumber": <bill number / receipt number / quotation number / agreement number / policy number as string, or null>,
   "gstNumber": <GSTIN if present as string, or null>,
   "gstPercent": <GST rate if shown e.g. "18%" as string, or null>,
   "gstAmountInr": <GST/tax amount as number in INR, or null>,
   "subtotalInr": <subtotal before taxes as number in INR, or null>,
-  "dateOfPurchase": <bill date / receipt date / agreement date in YYYY-MM-DD format — assume ${new Date().getFullYear()} if year missing, or null>,
+  "dateOfPurchase": <bill date / receipt date / quotation date / meeting date in YYYY-MM-DD format — assume ${new Date().getFullYear()} if year missing, or null>,
   "discountInr": <discount amount as number in INR, or null>,
-  "finalPaymentInr": <total amount due — maintenance total / monthly rent / insurance premium / AMC charge — as number in INR, or null>,
+  "finalPaymentInr": <total amount due — maintenance total / monthly rent / insurance premium / AMC charge / quotation total — as number in INR, or null>,
   "items": [
     {
-      "name": <charge description e.g. "Monthly Maintenance", "Water Charges", "Parking Charges", "Sinking Fund", "Rent", "Insurance Premium", "AMC Charge">,
+      "name": <charge / scope description e.g. "Monthly Maintenance", "Water Charges", "Sinking Fund", "Exterior Painting", "Waterproofing", "Labour Charges">,
       "quantity": <quantity as number, use 1 if not shown>,
       "unitPriceInr": <unit price in INR as number, or null>,
       "discountInr": <per-item discount in INR as number, or null>,
       "amountInr": <line amount in INR as number>
     }
-  ]
+  ],
+  "validUntil": <quotation validity / expiry date in YYYY-MM-DD format, or null — only for quotations>,
+  "paymentTerms": <payment terms e.g. "50% advance, balance on completion" as string, or null — for quotations and agreements>,
+  "warrantyPeriod": <warranty or defect-liability period offered e.g. "1 year" as string, or null — for quotations>,
+  "resolutionNo": <resolution number or reference from meeting minutes as string, or null — only for AGM/SGM/committee meeting records>,
+  "attendeeCount": <number of members / attendees present at the meeting as string e.g. "42", or null — only for meeting records>,
+  "meetingType": <type of meeting e.g. "AGM", "SGM", "EGM", "Committee Meeting" as string, or null — only for meeting records>
 }
 
 Rules:
@@ -86,7 +99,10 @@ Rules:
 - Rent receipts/agreements: shopName = landlord or property name; finalPaymentInr = monthly rent amount
 - Insurance policy receipts: shopName = insurance company name; finalPaymentInr = premium paid
 - AMC / service contracts: shopName = service vendor name; finalPaymentInr = AMC/contract amount
+- Vendor quotations: shopName = vendor/contractor name; finalPaymentInr = quoted total; populate validUntil, paymentTerms, warrantyPeriod where present
+- AGM/SGM/meeting minutes: shopName = society name; dateOfPurchase = meeting date; populate resolutionNo, attendeeCount, meetingType; finalPaymentInr = null unless a specific expenditure was approved
 - Amounts must be numbers (not strings) in INR
+- Leave validUntil, paymentTerms, warrantyPeriod, resolutionNo, attendeeCount, meetingType as null for documents where they don't apply
 - PIN code is a 6-digit number`;
 
 const PROMPT_TAX = `You are a tax document data extractor for Indian tax and compliance documents.
@@ -436,7 +452,15 @@ function parseOpenAIResponse(data: unknown): ClaudeInvoiceData {
     clean = m ? m[0] : "{}";
   }
   try {
-    return JSON.parse(clean) as ClaudeInvoiceData;
+    const raw = JSON.parse(clean) as ClaudeInvoiceData;
+    // Carry society-specific extras through as typed fields
+    raw.validUntil     = (raw as any).validUntil     ?? null;
+    raw.paymentTerms   = (raw as any).paymentTerms   ?? null;
+    raw.warrantyPeriod = (raw as any).warrantyPeriod ?? null;
+    raw.resolutionNo   = (raw as any).resolutionNo   ?? null;
+    raw.attendeeCount  = (raw as any).attendeeCount  != null ? String((raw as any).attendeeCount) : null;
+    raw.meetingType    = (raw as any).meetingType    ?? null;
+    return raw;
   } catch {
     return { shopName: null, address: null, pincode: null, invoiceNumber: null, gstNumber: null, gstPercent: null, gstAmountInr: null, subtotalInr: null, dateOfPurchase: null, discountInr: null, finalPaymentInr: null, items: [] };
   }
@@ -494,6 +518,15 @@ async function callOpenAIVision(pages: RenderedPage[], filename?: string): Promi
 }
 
 function mergeClaudeData(invoice: ExtractedInvoice, data: ClaudeInvoiceData): ExtractedInvoice {
+  const extras: Record<string, string> = {};
+  if (data.validUntil)     extras.validUntil     = data.validUntil;
+  if (data.paymentTerms)   extras.paymentTerms   = data.paymentTerms;
+  if (data.warrantyPeriod) extras.warrantyPeriod = data.warrantyPeriod;
+  if (data.resolutionNo)   extras.resolutionNo   = data.resolutionNo;
+  if (data.attendeeCount)  extras.attendeeCount  = data.attendeeCount;
+  if (data.meetingType)    extras.meetingType    = data.meetingType;
+  const docMetadata = Object.keys(extras).length > 0 ? extras : (invoice.docMetadata ?? null);
+
   return {
     ...invoice,
     merchantName:    data.shopName      ?? invoice.merchantName,
@@ -520,6 +553,7 @@ function mergeClaudeData(invoice: ExtractedInvoice, data: ClaudeInvoiceData): Ex
         }))
       : invoice.lineItems,
     confidenceScore: Math.max(invoice.confidenceScore, 0.9),
+    docMetadata,
   };
 }
 

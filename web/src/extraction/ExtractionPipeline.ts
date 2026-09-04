@@ -504,6 +504,7 @@ async function persistResultWithNote(
         senderEmail: meta?.senderEmail,
         receivedAt: meta?.receivedAt,
         accountEmail: meta?.accountEmail,
+        docMetadata: inv.docMetadata ?? null,
         extractionNote: extractionNote ?? null,
         createdAt: now,
         updatedAt: now,
@@ -686,6 +687,7 @@ async function finalizeExtractedInvoice(
     category,
     docType: docTypes[0] ?? "other",
     docTypes,
+    docMetadata: enhanced.docMetadata ?? null,
     extractionNote: extractionNote ?? null,
     updatedAt: now,
   });

@@ -2283,6 +2283,34 @@ export function ViewScreen() {
                     );
                   })()}
 
+                  {/* Society extras: quotation / AGM fields */}
+                  {r.docMetadata && Object.keys(r.docMetadata).length > 0 && (() => {
+                    const m = r.docMetadata!;
+                    const rows: Array<{ label: string; value: string }> = [];
+                    if (m.meetingType)    rows.push({ label: "Meeting Type",    value: m.meetingType });
+                    if (m.resolutionNo)   rows.push({ label: "Resolution No.",  value: m.resolutionNo });
+                    if (m.attendeeCount)  rows.push({ label: "Attendees",       value: m.attendeeCount });
+                    if (m.validUntil)     rows.push({ label: "Valid Until",     value: m.validUntil });
+                    if (m.paymentTerms)   rows.push({ label: "Payment Terms",   value: m.paymentTerms });
+                    if (m.warrantyPeriod) rows.push({ label: "Warranty",        value: m.warrantyPeriod });
+                    if (rows.length === 0) return null;
+                    return (
+                      <div style={{ padding: "12px 20px 0" }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>
+                          {m.meetingType ? "Meeting Details" : "Quotation Details"}
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                          {rows.map(({ label, value }) => (
+                            <div key={label} style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+                              <span style={{ color: "var(--color-text-tertiary)", fontWeight: 500 }}>{label}</span>
+                              <span style={{ color: "var(--color-text)", fontWeight: 600, textAlign: "right", maxWidth: "60%", wordBreak: "break-word" }}>{value}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
                   {/* Line items */}
                   {detailItems.length > 0 && (
                     <div style={{ padding: "16px 20px 24px" }}>

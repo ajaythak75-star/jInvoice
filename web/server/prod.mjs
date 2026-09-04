@@ -98,7 +98,7 @@ const EXTRACTION_PROMPT_INVOICE = `You are an invoice data extractor for Indian 
 Rules: extract merchant/seller details only (NOT buyer). Amounts must be numbers in INR.`;
 
 const EXTRACTION_PROMPT_SOCIETY = `You are a document data extractor for Indian residential societies and housing expenses.
-This document may be a maintenance bill, rent receipt/agreement, insurance policy receipt, lift/equipment AMC invoice, utility bill, or other housing/society-related financial record.
+This document may be a maintenance bill, rent receipt/agreement, insurance policy receipt, lift/equipment AMC invoice, utility bill, vendor quotation, AGM/meeting minutes, or other housing/society-related financial record.
 Extract the following fields and respond ONLY with valid JSON, no explanation or markdown.
 
 {
@@ -106,15 +106,21 @@ Extract the following fields and respond ONLY with valid JSON, no explanation or
   "address": <society or property address as string or null>,
   "pincode": <6-digit Indian PIN code as string or null>,
   "phone": <contact phone number as string or null>,
-  "invoiceNumber": <bill number / receipt number / agreement number / policy number as string or null>,
+  "invoiceNumber": <bill number / receipt number / quotation number / agreement number / policy number as string or null>,
   "gstNumber": <GSTIN if present as string or null>,
   "gstPercent": <GST rate if shown e.g. "18%" as string or null>,
   "gstAmountInr": <GST/tax amount as number in INR or null>,
   "subtotalInr": <subtotal before taxes as number in INR or null>,
-  "dateOfPurchase": <bill date / receipt date / agreement date in YYYY-MM-DD format, assume ${new Date().getFullYear()} if year missing, or null>,
+  "dateOfPurchase": <bill date / receipt date / quotation date / meeting date in YYYY-MM-DD format, assume ${new Date().getFullYear()} if year missing, or null>,
   "discountInr": <discount amount as number in INR or null>,
-  "finalPaymentInr": <total amount due — maintenance total / monthly rent / insurance premium / AMC charge — as number in INR or null>,
-  "items": [{"name": <charge e.g. "Monthly Maintenance" / "Water Charges" / "Rent" / "Insurance Premium" / "AMC Charge">,"quantity": <qty, 1 if not shown>,"unitPriceInr": <unit price or null>,"discountInr": <discount or null>,"amountInr": <line amount>}]
+  "finalPaymentInr": <total amount due — maintenance total / monthly rent / insurance premium / AMC charge / quotation total — as number in INR or null>,
+  "items": [{"name": <charge/scope description e.g. "Monthly Maintenance" / "Water Charges" / "Sinking Fund" / "Exterior Painting" / "Labour Charges">,"quantity": <qty, 1 if not shown>,"unitPriceInr": <unit price or null>,"discountInr": <discount or null>,"amountInr": <line amount>}],
+  "validUntil": <quotation validity date in YYYY-MM-DD or null — quotations only>,
+  "paymentTerms": <payment terms e.g. "50% advance, balance on completion" as string or null>,
+  "warrantyPeriod": <warranty/defect-liability period e.g. "1 year" as string or null — quotations only>,
+  "resolutionNo": <resolution number from meeting minutes as string or null — meeting records only>,
+  "attendeeCount": <number of members present at meeting as string e.g. "42" or null — meeting records only>,
+  "meetingType": <"AGM" / "SGM" / "EGM" / "Committee Meeting" or null — meeting records only>
 }
 
 Rules:
@@ -122,6 +128,9 @@ Rules:
 - Rent receipts: shopName = landlord/property name; finalPaymentInr = monthly rent
 - Insurance receipts: shopName = insurance company; finalPaymentInr = premium paid
 - AMC/service: shopName = service vendor; finalPaymentInr = AMC amount
+- Vendor quotations: shopName = vendor/contractor; finalPaymentInr = quoted total; populate validUntil, paymentTerms, warrantyPeriod where present
+- AGM/meeting minutes: shopName = society name; dateOfPurchase = meeting date; populate resolutionNo, attendeeCount, meetingType; finalPaymentInr = null unless a specific expenditure was approved
+- Leave quotation/meeting fields null for documents where they don't apply
 - Amounts must be numbers in INR`;
 
 const EXTRACTION_PROMPT_TAX = `You are a tax document data extractor for Indian tax and compliance documents.
