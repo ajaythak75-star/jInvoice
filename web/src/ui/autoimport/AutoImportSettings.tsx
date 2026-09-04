@@ -235,6 +235,8 @@ export function AutoImportSettings() {
   const [syncSchedule, setSyncSchedule] = useState(() => prefs.syncSchedule);
   const [syncTime,     setSyncTime]     = useState(() => prefs.syncTime);
   const [showProBanner, setShowProBanner] = useState(false);
+  const [editingProfileName, setEditingProfileName] = useState(false);
+  const [profileNameInput, setProfileNameInput] = useState("");
   const [folderWarning, setFolderWarning] = useState<"sync" | "upload" | null>(null);
   const [manualUploadCount, setManualUploadCount] = useState(0);
   const [uploadLimitMsg, setUploadLimitMsg] = useState<string | null>(null);
@@ -765,14 +767,52 @@ export function AutoImportSettings() {
               {/* Divider */}
               <div style={{ width: 1, background: "var(--color-border)", flexShrink: 0 }} />
 
-              {/* Right: Profile */}
-              <div style={{ padding: "14px 16px", minWidth: 130, display: "flex", flexDirection: "column", justifyContent: "flex-start" }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: "var(--color-primary)" }}>
-                  {profileLabel}
+              {/* Right: Profile (type is locked; name is editable) */}
+              <div style={{ padding: "14px 16px", minWidth: 140, display: "flex", flexDirection: "column", justifyContent: "flex-start" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: "var(--color-primary)" }}>{profileLabel}</span>
+                  <span style={{ fontSize: 10, color: "var(--color-text-tertiary)", fontWeight: 500 }} title="Profile type cannot be changed">🔒</span>
                 </div>
-                {profileName && (
-                  <div style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 4, fontWeight: 500 }}>
-                    {profileName}
+                {editingProfileName ? (
+                  <div style={{ marginTop: 6, display: "flex", gap: 5, alignItems: "center" }}>
+                    <input
+                      autoFocus
+                      value={profileNameInput}
+                      onChange={(e) => setProfileNameInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          if (mode === "society") prefs.societyName = profileNameInput.trim();
+                          else prefs.customerName = profileNameInput.trim();
+                          setEditingProfileName(false);
+                        }
+                        if (e.key === "Escape") setEditingProfileName(false);
+                      }}
+                      placeholder={mode === "society" ? "Society name" : "Your name"}
+                      style={{ fontSize: 12, padding: "3px 7px", borderRadius: 5, border: "1px solid var(--color-primary)", background: "var(--color-surface)", color: "var(--color-text)", width: "100%", outline: "none" }}
+                    />
+                    <button
+                      onClick={() => {
+                        if (mode === "society") prefs.societyName = profileNameInput.trim();
+                        else prefs.customerName = profileNameInput.trim();
+                        setEditingProfileName(false);
+                      }}
+                      style={{ fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 5, border: "none", background: "var(--color-primary)", color: "#fff", cursor: "pointer", flexShrink: 0 }}
+                    >✓</button>
+                    <button
+                      onClick={() => setEditingProfileName(false)}
+                      style={{ fontSize: 11, fontWeight: 700, padding: "3px 7px", borderRadius: 5, border: "1px solid var(--color-border)", background: "var(--color-surface-2)", color: "var(--color-text-secondary)", cursor: "pointer", flexShrink: 0 }}
+                    >✕</button>
+                  </div>
+                ) : (
+                  <div style={{ marginTop: 4, display: "flex", alignItems: "center", gap: 5 }}>
+                    <span style={{ fontSize: 12, color: profileName ? "var(--color-text-secondary)" : "var(--color-text-tertiary)", fontWeight: 500, fontStyle: profileName ? "normal" : "italic" }}>
+                      {profileName || (mode === "society" ? "Add society name" : "Add your name")}
+                    </span>
+                    <button
+                      onClick={() => { setProfileNameInput(profileName); setEditingProfileName(true); }}
+                      title="Edit name"
+                      style={{ background: "none", border: "none", cursor: "pointer", padding: "1px 3px", color: "var(--color-text-tertiary)", fontSize: 11, lineHeight: 1, borderRadius: 3, flexShrink: 0 }}
+                    >✎</button>
                   </div>
                 )}
               </div>
