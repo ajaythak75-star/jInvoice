@@ -270,16 +270,17 @@ app.post("/api/mobile/upload", upload.single("file"), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "no file attached" });
   const isImage = req.file.mimetype.startsWith("image/");
   const profileMode = (req.body?.mode ?? "").toString().trim() || "personal";
+  const uploadFilename = (req.file.originalname ?? "").toString();
   try {
     let data;
     if (isImage) {
       const apiKey = (req.headers["x-openai-key"] ?? "").toString().trim() || OPENAI_API_KEY;
       if (!apiKey) return res.status(503).json({ error: "No OpenAI API key configured on server." });
-      data = await extractWithOpenAI(req.file.buffer, req.file.mimetype, apiKey, profileMode);
+      data = await extractWithOpenAI(req.file.buffer, req.file.mimetype, apiKey, profileMode, uploadFilename);
     } else {
       const apiKey = (req.headers["x-gemini-key"] ?? "").toString().trim() || GEMINI_API_KEY;
       if (!apiKey) return res.status(503).json({ error: "No Gemini API key configured on server." });
-      data = await extractWithGemini(req.file.buffer, req.file.mimetype, apiKey, profileMode);
+      data = await extractWithGemini(req.file.buffer, req.file.mimetype, apiKey, profileMode, uploadFilename);
     }
 
     // Strip item details for free users on finance/tax documents
@@ -419,13 +420,106 @@ Rules:
 - AMC/service: shopName = service vendor; finalPaymentInr = AMC amount
 - Amounts must be numbers in INR`;
 
-function getExtractionPrompt(mode) {
-  return mode === "society" ? EXTRACTION_PROMPT_SOCIETY : EXTRACTION_PROMPT_INVOICE;
+const EXTRACTION_PROMPT_TAX = `You are a tax document data extractor for Indian tax and compliance documents.
+This document may be an ITR acknowledgment, Challan 280, TDS certificate (Form 16/16A), Form 26AS, advance tax receipt, or GST filing receipt.
+Extract the following fields and respond ONLY with valid JSON, no explanation or markdown.
+
+{
+  "shopName": <assessee name (taxpayer/employee) or deductor/employer name as string or null>,
+  "address": <assessee or deductor address as string or null>,
+  "pincode": <6-digit Indian PIN code as string or null>,
+  "phone": null,
+  "invoiceNumber": <challan number / acknowledgment number / TDS certificate number / BSR code as string or null>,
+  "gstNumber": <PAN of assessee or deductor e.g. ABCDE1234F as string or null>,
+  "gstPercent": <tax rate or surcharge rate if shown as string or null>,
+  "gstAmountInr": <education cess + surcharge combined as number in INR or null>,
+  "subtotalInr": <basic tax before cess/surcharge as number in INR or null>,
+  "dateOfPurchase": <filing date / payment date in YYYY-MM-DD format, assume ${new Date().getFullYear()} if year missing, or null>,
+  "discountInr": <TDS already deducted or advance tax paid as number in INR or null>,
+  "finalPaymentInr": <total tax paid / TDS deducted / net tax amount as number in INR or null>,
+  "items": [{"name": <tax component e.g. "Income Tax" / "Surcharge" / "Education Cess" / "Interest u/s 234B" / "TDS Deducted" / "Advance Tax Paid">,"quantity": 1,"unitPriceInr": null,"discountInr": null,"amountInr": <amount in INR>}]
+}
+
+Rules: ITR ack → shopName = assessee, invoiceNumber = ack number, gstNumber = PAN. Challan 280 → invoiceNumber = CRN/challan number, list each tax head as item. Form 16/16A → shopName = employer/deductor, gstNumber = employee PAN. Amounts must be numbers in INR.`;
+
+const EXTRACTION_PROMPT_LEGAL = `You are a legal document data extractor for Indian property and legal documents.
+This document may be a property sale deed, lease or rent agreement, vakalatnama, stamp duty receipt, property registration certificate, court fee receipt, or bar council membership receipt.
+Extract the following fields and respond ONLY with valid JSON, no explanation or markdown.
+
+{
+  "shopName": <primary party name — seller / developer / landlord / client / authority / court as string or null>,
+  "address": <property address or party address as string or null>,
+  "pincode": <6-digit Indian PIN code as string or null>,
+  "phone": null,
+  "invoiceNumber": <deed number / registration number / case number / agreement number / receipt number as string or null>,
+  "gstNumber": <registration number / stamp duty reference / CIN / bar council number / case number as string or null>,
+  "gstPercent": <stamp duty rate or GST rate if shown as string or null>,
+  "gstAmountInr": <stamp duty amount as number in INR or null>,
+  "subtotalInr": <consideration / agreement value before charges as number in INR or null>,
+  "dateOfPurchase": <execution date / registration date / agreement date in YYYY-MM-DD format, assume ${new Date().getFullYear()} if year missing, or null>,
+  "discountInr": null,
+  "finalPaymentInr": <total consideration / total fees paid / total amount as number in INR or null>,
+  "items": [{"name": <charge e.g. "Stamp Duty" / "Registration Fee" / "Legal Fee" / "Court Fee" / "Bar Council Fee" / "Property Value">,"quantity": 1,"unitPriceInr": null,"discountInr": null,"amountInr": <amount in INR>}]
+}
+
+Rules: Sale deed → shopName = seller/developer, finalPaymentInr = total sale consideration, list stamp duty + registration fee as items. Lease/rent → shopName = landlord, finalPaymentInr = monthly rent or agreement value. Court fee → shopName = court name, invoiceNumber = case number. Amounts must be numbers in INR.`;
+
+const EXTRACTION_PROMPT_CORPORATE = `You are a corporate document data extractor for Indian company and professional documents.
+This document may be a share certificate, audit engagement letter, ICAI/ICSI membership receipt, ROC filing receipt, company incorporation document, or professional fee invoice.
+Extract the following fields and respond ONLY with valid JSON, no explanation or markdown.
+
+{
+  "shopName": <company name / ICAI / ICSI / issuing authority as string or null>,
+  "address": <company registered address as string or null>,
+  "pincode": <6-digit Indian PIN code as string or null>,
+  "phone": null,
+  "invoiceNumber": <certificate number / membership number / receipt number / SRN / DIN as string or null>,
+  "gstNumber": <CIN / folio number / PAN / GSTIN of company as string or null>,
+  "gstPercent": <GST rate if applicable as string or null>,
+  "gstAmountInr": <GST amount if applicable as number in INR or null>,
+  "subtotalInr": null,
+  "dateOfPurchase": <issue date / membership date / filing date in YYYY-MM-DD format, assume ${new Date().getFullYear()} if year missing, or null>,
+  "discountInr": null,
+  "finalPaymentInr": <total paid-up share value / membership fee / filing fee / audit fee as number in INR or null>,
+  "items": [{"name": <component e.g. "Equity Shares" / "Preference Shares" / "Annual Membership Fee" / "Filing Fee" / "Audit Fee">,"quantity": <shares count or 1>,"unitPriceInr": <face value per share or null>,"discountInr": null,"amountInr": <total amount in INR>}]
+}
+
+Rules: Share certificate → shopName = company name, invoiceNumber = certificate number, gstNumber = folio number, items = share classes with quantity = number of shares and unitPriceInr = face value. ICAI/ICSI → invoiceNumber = membership number. Amounts must be numbers in INR.`;
+
+const EXTRACTION_PROMPT_PAYROLL = `You are a payroll document data extractor for Indian salary payslips and compensation statements.
+This document is a salary payslip, pay stub, or compensation statement.
+Extract the following fields and respond ONLY with valid JSON, no explanation or markdown.
+
+{
+  "shopName": <employer / company name as string or null>,
+  "address": <company address as string or null>,
+  "pincode": <6-digit Indian PIN code as string or null>,
+  "phone": null,
+  "invoiceNumber": <employee ID / payslip number as string or null>,
+  "gstNumber": <PAN of employee e.g. ABCDE1234F as string or null>,
+  "gstPercent": null,
+  "gstAmountInr": null,
+  "subtotalInr": <total gross earnings (sum of all earnings) as number in INR or null>,
+  "dateOfPurchase": <last day of pay period month in YYYY-MM-DD e.g. 2026-05-31 for May 2026, or null>,
+  "discountInr": <total deductions amount as number in INR or null>,
+  "finalPaymentInr": <net pay / take-home salary as number in INR or null>,
+  "items": [{"name": <prefix ALL earnings with "EARN: " and ALL deductions with "DED: " e.g. "EARN: Basic Salary" / "EARN: HRA" / "DED: Provident Fund" / "DED: Income Tax">,"quantity": 1,"unitPriceInr": null,"discountInr": null,"amountInr": <positive amount in INR>}]
+}
+
+Rules: List ALL earnings first (prefixed "EARN: ") then ALL deductions (prefixed "DED: "). subtotalInr = total gross earnings. discountInr = total deductions. finalPaymentInr = net pay. gstNumber = employee PAN. Amounts must be positive numbers in INR.`;
+
+function getExtractionPrompt(mode, filename = "") {
+  if (mode === "society")                              return EXTRACTION_PROMPT_SOCIETY;
+  if (mode === "tax_consultant")                       return EXTRACTION_PROMPT_TAX;
+  if (mode === "ca")                                   return EXTRACTION_PROMPT_CORPORATE;
+  if (mode === "real_estate" || mode === "advocate")   return EXTRACTION_PROMPT_LEGAL;
+  if (filename && /payslip|payroll|salaryslip|salary.?slip|paystub/i.test(filename)) return EXTRACTION_PROMPT_PAYROLL;
+  return EXTRACTION_PROMPT_INVOICE;
 }
 
 const EXTRACTION_PROMPT = EXTRACTION_PROMPT_INVOICE;
 
-async function extractWithGemini(fileBuf, mimeType, apiKey, mode) {
+async function extractWithGemini(fileBuf, mimeType, apiKey, mode, filename = "") {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
   const resp = await fetch(url, {
     method: "POST",
@@ -433,7 +527,7 @@ async function extractWithGemini(fileBuf, mimeType, apiKey, mode) {
     body: JSON.stringify({
       contents: [{ parts: [
         { inline_data: { mime_type: mimeType, data: fileBuf.toString("base64") } },
-        { text: getExtractionPrompt(mode) },
+        { text: getExtractionPrompt(mode, filename) },
       ]}],
       generationConfig: { maxOutputTokens: 4096 },
     }),
@@ -452,7 +546,7 @@ async function extractWithGemini(fileBuf, mimeType, apiKey, mode) {
   try { return JSON.parse(raw); } catch { return {}; }
 }
 
-async function extractWithOpenAI(fileBuf, mimeType, apiKey, mode) {
+async function extractWithOpenAI(fileBuf, mimeType, apiKey, mode, filename = "") {
   const b64 = fileBuf.toString("base64");
   const resp = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
@@ -461,7 +555,7 @@ async function extractWithOpenAI(fileBuf, mimeType, apiKey, mode) {
       model: "gpt-4o-mini",
       messages: [{ role: "user", content: [
         { type: "image_url", image_url: { url: `data:${mimeType};base64,${b64}`, detail: "high" } },
-        { type: "text", text: getExtractionPrompt(mode) },
+        { type: "text", text: getExtractionPrompt(mode, filename) },
       ]}],
       max_tokens: 4096,
     }),

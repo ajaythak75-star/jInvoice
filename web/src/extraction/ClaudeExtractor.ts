@@ -89,8 +89,155 @@ Rules:
 - Amounts must be numbers (not strings) in INR
 - PIN code is a 6-digit number`;
 
-function getExtractionPrompt(): string {
-  return prefs.activeMode === "society" ? PROMPT_SOCIETY : PROMPT_INVOICE;
+const PROMPT_TAX = `You are a tax document data extractor for Indian tax and compliance documents.
+This document may be an ITR acknowledgment, Challan 280, TDS certificate (Form 16/16A), Form 26AS, advance tax receipt, or GST filing receipt.
+Extract the following fields and respond ONLY with a valid JSON object, no explanation or markdown.
+
+{
+  "shopName": <assessee name (taxpayer/employee) or deductor/employer name as string, or null>,
+  "address": <assessee or deductor address as string, or null>,
+  "pincode": <6-digit Indian PIN code as string, or null>,
+  "invoiceNumber": <challan number / acknowledgment number / TDS certificate number / BSR code as string, or null>,
+  "gstNumber": <PAN of assessee or deductor as string e.g. ABCDE1234F, or null>,
+  "gstPercent": <tax rate or surcharge rate if shown as string, or null>,
+  "gstAmountInr": <education cess + surcharge combined as number in INR, or null>,
+  "subtotalInr": <basic tax before cess/surcharge as number in INR, or null>,
+  "dateOfPurchase": <filing date / payment date / deduction date in YYYY-MM-DD format — assume ${new Date().getFullYear()} if year missing, or null>,
+  "discountInr": <TDS already deducted or advance tax paid as number in INR, or null>,
+  "finalPaymentInr": <total tax paid / TDS deducted / net tax amount as number in INR, or null>,
+  "items": [
+    {
+      "name": <tax component e.g. "Income Tax", "Surcharge", "Education Cess", "Interest u/s 234B", "Interest u/s 234C", "Penalty", "TDS Deducted", "Advance Tax Paid">,
+      "quantity": 1,
+      "unitPriceInr": null,
+      "discountInr": null,
+      "amountInr": <amount in INR as number>
+    }
+  ]
+}
+
+Rules:
+- ITR acknowledgment: shopName = assessee name; invoiceNumber = acknowledgment number; gstNumber = PAN
+- Challan 280: shopName = assessee name; invoiceNumber = CRN/challan number; list each tax head as a separate item
+- TDS certificate (Form 16/16A): shopName = employer/deductor name; gstNumber = PAN of employee/deductee; finalPaymentInr = total TDS
+- Amounts must be numbers in INR; PAN is 10 characters e.g. AFPPC4942K`;
+
+const PROMPT_LEGAL = `You are a legal document data extractor for Indian property and legal documents.
+This document may be a property sale deed, lease or rent agreement, vakalatnama, stamp duty receipt, property registration certificate, court fee receipt, or bar council membership/fee receipt.
+Extract the following fields and respond ONLY with a valid JSON object, no explanation or markdown.
+
+{
+  "shopName": <primary party name — seller / developer / landlord / client / authority / court name as string, or null>,
+  "address": <property address or party address as string, or null>,
+  "pincode": <6-digit Indian PIN code as string, or null>,
+  "invoiceNumber": <deed number / registration number / case number / agreement number / receipt number as string, or null>,
+  "gstNumber": <registration number / stamp duty reference / CIN / bar council number / court case number as string, or null>,
+  "gstPercent": <stamp duty rate or GST rate if shown as string, or null>,
+  "gstAmountInr": <stamp duty amount as number in INR, or null>,
+  "subtotalInr": <consideration / agreement value before charges as number in INR, or null>,
+  "dateOfPurchase": <execution date / registration date / agreement date in YYYY-MM-DD format — assume ${new Date().getFullYear()} if year missing, or null>,
+  "discountInr": null,
+  "finalPaymentInr": <total consideration / total fees paid / total amount as number in INR, or null>,
+  "items": [
+    {
+      "name": <charge type e.g. "Stamp Duty", "Registration Fee", "Legal Fee", "Court Fee", "Bar Council Fee", "Advocate Fee", "Property Value">,
+      "quantity": 1,
+      "unitPriceInr": null,
+      "discountInr": null,
+      "amountInr": <amount in INR as number>
+    }
+  ]
+}
+
+Rules:
+- Sale deed: shopName = seller/developer name; finalPaymentInr = total sale consideration; list stamp duty + registration fee as items
+- Lease/rent agreement: shopName = landlord name; finalPaymentInr = monthly rent or agreement value
+- Vakalatnama/retainer: shopName = client or advocate name; finalPaymentInr = retainer/fee amount
+- Court fee receipt: shopName = court name; invoiceNumber = case number; finalPaymentInr = court fee paid
+- Bar council: shopName = Bar Council of [State]; finalPaymentInr = membership/renewal fee
+- Amounts must be numbers in INR`;
+
+const PROMPT_CORPORATE = `You are a corporate document data extractor for Indian company and professional documents.
+This document may be a share certificate, audit engagement letter, ICAI/ICSI membership receipt, ROC filing receipt, company incorporation document, or professional fee invoice.
+Extract the following fields and respond ONLY with a valid JSON object, no explanation or markdown.
+
+{
+  "shopName": <company name / ICAI / ICSI / issuing authority / client company as string, or null>,
+  "address": <company registered address as string, or null>,
+  "pincode": <6-digit Indian PIN code as string, or null>,
+  "invoiceNumber": <certificate number / membership number / receipt number / SRN / DIN as string, or null>,
+  "gstNumber": <CIN (Company Identification Number) / folio number / PAN / GSTIN of company as string, or null>,
+  "gstPercent": <GST rate if applicable as string, or null>,
+  "gstAmountInr": <GST amount if applicable as number in INR, or null>,
+  "subtotalInr": null,
+  "dateOfPurchase": <issue date / membership date / filing date in YYYY-MM-DD format — assume ${new Date().getFullYear()} if year missing, or null>,
+  "discountInr": null,
+  "finalPaymentInr": <total paid-up share value / membership fee / filing fee / audit fee as number in INR, or null>,
+  "items": [
+    {
+      "name": <component e.g. "Equity Shares", "Preference Shares", "Annual Membership Fee", "Filing Fee", "Audit Fee">,
+      "quantity": <number of shares, or 1 for fees>,
+      "unitPriceInr": <face value per share or unit price in INR, or null>,
+      "discountInr": null,
+      "amountInr": <total amount in INR as number>
+    }
+  ]
+}
+
+Rules:
+- Share certificate: shopName = company name; invoiceNumber = certificate number; gstNumber = folio number; items = share classes (Equity/Preference) with quantity = number of shares, unitPriceInr = face value per share
+- ICAI/ICSI membership: shopName = "ICAI" or "ICSI"; invoiceNumber = membership number; finalPaymentInr = fee paid
+- ROC/company filing: shopName = company name; invoiceNumber = SRN; gstNumber = CIN
+- Audit engagement: shopName = client company; finalPaymentInr = audit fee
+- Amounts must be numbers in INR`;
+
+const PROMPT_PAYROLL = `You are a payroll document data extractor for Indian salary payslips and compensation statements.
+This document is a salary payslip, pay stub, or compensation statement.
+Extract the following fields and respond ONLY with a valid JSON object, no explanation or markdown.
+
+{
+  "shopName": <employer / company name as string, or null>,
+  "address": <company address as string, or null>,
+  "pincode": <6-digit Indian PIN code as string, or null>,
+  "invoiceNumber": <employee ID / payslip number as string, or null>,
+  "gstNumber": <PAN of employee as string e.g. ABCDE1234F, or null>,
+  "gstPercent": null,
+  "gstAmountInr": null,
+  "subtotalInr": <total gross earnings (sum of all earnings) as number in INR, or null>,
+  "dateOfPurchase": <last day of the pay period month in YYYY-MM-DD format e.g. 2026-05-31 for May 2026, or null>,
+  "discountInr": <total deductions amount as number in INR, or null>,
+  "finalPaymentInr": <net pay / take-home salary as number in INR, or null>,
+  "items": [
+    {
+      "name": <component name — prefix ALL earnings with "EARN: " and ALL deductions with "DED: " e.g. "EARN: Basic Salary", "EARN: HRA", "EARN: Performance Pay", "DED: Provident Fund", "DED: Income Tax", "DED: Professional Tax">,
+      "quantity": 1,
+      "unitPriceInr": null,
+      "discountInr": null,
+      "amountInr": <amount in INR as positive number>
+    }
+  ]
+}
+
+Rules:
+- shopName = employer/company name (e.g. "Tata Consultancy Services")
+- invoiceNumber = employee ID or payslip/slip number
+- gstNumber = employee PAN
+- subtotalInr = total gross earnings before deductions
+- discountInr = total deductions (repurposed field)
+- finalPaymentInr = net pay (gross − deductions)
+- List ALL earnings components first (prefixed "EARN: "), then ALL deductions (prefixed "DED: ")
+- Common earnings: Basic Salary, HRA, LTA, Special Allowance, Performance Pay, Car Allowance, City Allowance, NPS Contribution
+- Common deductions: Provident Fund, Voluntary PF, Income Tax, Professional Tax, Health Insurance, NPS
+- All amounts must be positive numbers in INR`;
+
+function getExtractionPrompt(filename?: string): string {
+  const mode = prefs.activeMode;
+  if (mode === "society")                              return PROMPT_SOCIETY;
+  if (mode === "tax_consultant")                       return PROMPT_TAX;
+  if (mode === "ca")                                   return PROMPT_CORPORATE;
+  if (mode === "real_estate" || mode === "advocate")   return PROMPT_LEGAL;
+  if (filename && /payslip|payroll|salaryslip|salary.?slip|paystub/i.test(filename)) return PROMPT_PAYROLL;
+  return PROMPT_INVOICE;
 }
 
 const OPENAI_MODEL = "gpt-4o-mini";
@@ -127,18 +274,18 @@ async function openaiPost(body: Record<string, unknown>): Promise<unknown> {
   return resp.json();
 }
 
-async function callOpenAIText(rawText: string): Promise<ClaudeInvoiceData> {
+async function callOpenAIText(rawText: string, filename?: string): Promise<ClaudeInvoiceData> {
   const body = {
     model: OPENAI_MODEL,
     messages: [
-      { role: "user", content: `${getExtractionPrompt()}\n\nDocument text:\n\n${rawText.slice(0, 6000)}` },
+      { role: "user", content: `${getExtractionPrompt(filename)}\n\nDocument text:\n\n${rawText.slice(0, 6000)}` },
     ],
     max_tokens: 4096,
   };
   return parseOpenAIResponse(await openaiPost(body));
 }
 
-async function callOpenAIVision(pages: RenderedPage[]): Promise<ClaudeInvoiceData> {
+async function callOpenAIVision(pages: RenderedPage[], filename?: string): Promise<ClaudeInvoiceData> {
   const imageContent = pages.map((p) => ({
     type: "image_url",
     image_url: { url: `data:${p.mimeType};base64,${p.data}`, detail: "high" },
@@ -151,7 +298,7 @@ async function callOpenAIVision(pages: RenderedPage[]): Promise<ClaudeInvoiceDat
         role: "user",
         content: [
           ...imageContent,
-          { type: "text", text: getExtractionPrompt() },
+          { type: "text", text: getExtractionPrompt(filename) },
         ],
       },
     ],
@@ -191,23 +338,24 @@ function mergeClaudeData(invoice: ExtractedInvoice, data: ClaudeInvoiceData): Ex
 }
 
 /** On-demand export used by ViewScreen */
-export async function extractWithClaude(rawText: string): Promise<ClaudeInvoiceData> {
-  return callOpenAIText(rawText);
+export async function extractWithClaude(rawText: string, filename?: string): Promise<ClaudeInvoiceData> {
+  return callOpenAIText(rawText, filename);
 }
 
 /** Vision-based extraction — call with rendered PDF page images */
 export async function enhanceWithClaudeVision(
   invoice: ExtractedInvoice,
   pages: RenderedPage[],
+  filename?: string,
 ): Promise<ExtractedInvoice> {
   if (pages.length === 0) return invoice;
-  const data = await callOpenAIVision(pages);
+  const data = await callOpenAIVision(pages, filename);
   return mergeClaudeData(invoice, data);
 }
 
 /** Text-based fallback — used when PDF rendering fails or no file is available */
-export async function enhanceWithClaude(invoice: ExtractedInvoice): Promise<ExtractedInvoice> {
+export async function enhanceWithClaude(invoice: ExtractedInvoice, filename?: string): Promise<ExtractedInvoice> {
   if (!invoice.rawText) return invoice;
-  const data = await callOpenAIText(invoice.rawText);
+  const data = await callOpenAIText(invoice.rawText, filename);
   return mergeClaudeData(invoice, data);
 }
