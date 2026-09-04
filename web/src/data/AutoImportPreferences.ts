@@ -1,4 +1,9 @@
-import { getCachedConfig } from "../service/ConfigService";
+import { getCachedConfig, type PlanSettings } from "../service/ConfigService";
+
+// Exported so PricingScreen can access cached trial days synchronously
+export function getCachedTrialDays(): number {
+  return (getCachedConfig("plan_settings") as PlanSettings).trial_days ?? 14;
+}
 
 export type UserProfile =
   | "personal"
@@ -189,11 +194,18 @@ export const prefs = {
   get isInTrial(): boolean {
     const s = get("trial_started_at");
     if (!s) return false;
-    return Date.now() - new Date(s).getTime() < 14 * 24 * 60 * 60 * 1000;
+    const days = getCachedTrialDays();
+    return Date.now() - new Date(s).getTime() < days * 24 * 60 * 60 * 1000;
   },
 
-  // True when the user can use Pro features (subscribed OR within 14-day trial)
-  get isProActive(): boolean { return get("subscribed") === "true" || (!!get("trial_started_at") && Date.now() - new Date(get("trial_started_at")!).getTime() < 14 * 24 * 60 * 60 * 1000); },
+  // True when the user can use Pro features (subscribed OR within trial period)
+  get isProActive(): boolean {
+    if (get("subscribed") === "true") return true;
+    const s = get("trial_started_at");
+    if (!s) return false;
+    const days = getCachedTrialDays();
+    return Date.now() - new Date(s).getTime() < days * 24 * 60 * 60 * 1000;
+  },
 
   startTrial(): void {
     if (!get("trial_started_at")) set("trial_started_at", new Date().toISOString());

@@ -1144,8 +1144,10 @@ app.post("/api/subscription/start-trial", async (req, res) => {
   const { data: rows } = await _sbService(`/user_plans?email=eq.${encodeURIComponent(email)}&limit=1`);
   const row = Array.isArray(rows) ? rows[0] : null;
   if (row?.trial_used) return res.status(400).json({ error: "Trial already used for this account." });
+  const settings = await _getConfig("plan_settings");
+  const trialDays = (settings?.trial_days ?? 14);
   const now = new Date();
-  const trialEnds = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
+  const trialEnds = new Date(now.getTime() + trialDays * 24 * 60 * 60 * 1000);
   const patch = { plan: "pro_trial", status: "active", trial_used: true, trial_started_at: now.toISOString(), trial_ends_at: trialEnds.toISOString(), updated_at: now.toISOString() };
   const { ok: uok, status: ustatus, data: updated } = await _upsertPlan(email, patch);
   if (!uok) return res.status(500).json({ error: "DB update failed", detail: updated, dbStatus: ustatus });
@@ -1310,6 +1312,10 @@ const CONFIG_DEFAULTS = {
   profile_enabled: {
     personal: true, society: true, shopkeeper: true, tax_consultant: true,
     ca: true, real_estate: true, advocate: true, bookkeeper: true, freelancer: true, ngo: true,
+  },
+  plan_settings: {
+    trial_days: 14,
+    support_response: { free: "7 days", pro_trial: "7 days", pro: "48 hours" },
   },
 };
 

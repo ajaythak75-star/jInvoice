@@ -24,6 +24,15 @@ export interface ProfileEnabled {
   ngo:            boolean;
 }
 
+export interface PlanSettings {
+  trial_days: number;
+  support_response: {
+    free:      string;
+    pro_trial: string;
+    pro:       string;
+  };
+}
+
 const DEFAULTS = {
   upload_limits: { free: 5, pro_trial: 50, pro_paid: -1 } as UploadLimits,
   plan_pricing: {
@@ -35,6 +44,10 @@ const DEFAULTS = {
     ca: true, real_estate: true, advocate: true, bookkeeper: true,
     freelancer: true, ngo: true,
   } as ProfileEnabled,
+  plan_settings: {
+    trial_days: 14,
+    support_response: { free: "7 days", pro_trial: "7 days", pro: "48 hours" },
+  } as PlanSettings,
 };
 
 type ConfigKey = keyof typeof DEFAULTS;
@@ -72,5 +85,6 @@ export async function refreshAllConfig(): Promise<void> {
     fetchAndCacheConfig("upload_limits"),
     fetchAndCacheConfig("plan_pricing"),
     fetchAndCacheConfig("profile_enabled"),
+    fetchAndCacheConfig("plan_settings"),
   ]);
 }
