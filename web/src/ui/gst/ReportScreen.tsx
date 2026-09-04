@@ -14,6 +14,66 @@ type ReportTab = "gst" | "period" | "vendor" | "tags" | "category"
                | "adv_matter_billing" | "adv_client_ledger" | "adv_court_fees";
 type PeriodView = "daily" | "monthly" | "quarterly" | "yearly" | "custom";
 
+// ── quote line-item fuzzy alignment ───────────────────────────────────────────
+
+const ITEM_STOP = new Set([
+  "and","or","of","the","a","an","with","for","in","on","at","to","from","by","per",
+  "coat","coats","plus","inc","excl","gst","ls","lumpsum","lump","sum","job",
+  "sq","sqft","rft","no","nos",
+]);
+
+function tokenizeItem(name: string): string[] {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .split(" ")
+    .filter(t => t.length > 1 && !ITEM_STOP.has(t) && !/^\d+$/.test(t));
+}
+
+function jaccardSim(a: string[], b: string[]): number {
+  const sa = new Set(a), sb = new Set(b);
+  let inter = 0;
+  for (const t of sa) if (sb.has(t)) inter++;
+  const union = new Set([...sa, ...sb]).size;
+  return union === 0 ? 0 : inter / union;
+}
+
+type AlignedRow = { label: string; cells: Map<number, number> };
+
+function alignLineItems(
+  vendorIds: number[],
+  lineItemsMap: Map<number, LineItemRow[]>,
+  threshold = 0.25,
+): AlignedRow[] {
+  type Slot = { vendorId: number; name: string; amount: number; tokens: string[]; used: boolean };
+  const flat: Slot[] = vendorIds.flatMap(vid =>
+    (lineItemsMap.get(vid) ?? []).map(li => ({
+      vendorId: vid, name: li.name, amount: li.totalPricePaise,
+      tokens: tokenizeItem(li.name), used: false,
+    }))
+  );
+
+  const rows: AlignedRow[] = [];
+  for (let i = 0; i < flat.length; i++) {
+    if (flat[i].used) continue;
+    flat[i].used = true;
+    const row: AlignedRow = { label: flat[i].name, cells: new Map([[flat[i].vendorId, flat[i].amount]]) };
+
+    for (const vid of vendorIds) {
+      if (row.cells.has(vid)) continue;
+      let bestIdx = -1, bestSim = threshold;
+      for (let j = 0; j < flat.length; j++) {
+        if (flat[j].used || flat[j].vendorId !== vid) continue;
+        const sim = jaccardSim(flat[i].tokens, flat[j].tokens);
+        if (sim > bestSim) { bestSim = sim; bestIdx = j; }
+      }
+      if (bestIdx >= 0) { flat[bestIdx].used = true; row.cells.set(vid, flat[bestIdx].amount); }
+    }
+    rows.push(row);
+  }
+  return rows;
+}
+
 // ── formatting ────────────────────────────────────────────────────────────────
 
 function fmtRupee(paise: number): string {
@@ -2453,23 +2513,23 @@ function SocietyQuotesTab({ records }: { records: InvoiceMeta[] }) {
                                 </td>
                               ))}
                             </tr>
-                            {/* Line items section */}
+                            {/* Line items section — fuzzy-aligned across vendors */}
                             {(() => {
-                              const allNames = [...new Set(qsInvoices.flatMap(r => (lineItemsMap.get(r.id!) ?? []).map(i => i.name)))];
-                              if (allNames.length === 0) return null;
+                              const aligned = alignLineItems(qsInvoices.map(r => r.id!), lineItemsMap);
+                              if (aligned.length === 0) return null;
                               return (
                                 <>
                                   <tr style={{ borderBottom: "1px solid var(--color-border)", background: "color-mix(in srgb, var(--color-primary) 5%, transparent)" }}>
                                     <td colSpan={qsInvoices.length + 1} style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-primary)", textTransform: "uppercase" as const, letterSpacing: "0.06em", padding: "6px 12px" }}>Line Items</td>
                                   </tr>
-                                  {allNames.map((name, ni) => (
-                                    <tr key={name} style={{ borderBottom: "1px solid var(--color-border)", background: ni % 2 === 0 ? "transparent" : "var(--color-surface-2)" }}>
-                                      <td style={{ fontSize: 11.5, color: "var(--color-text)", padding: "7px 12px 7px 20px", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={name}>{name}</td>
+                                  {aligned.map((row, ni) => (
+                                    <tr key={ni} style={{ borderBottom: "1px solid var(--color-border)", background: ni % 2 === 0 ? "transparent" : "var(--color-surface-2)" }}>
+                                      <td style={{ fontSize: 11.5, color: "var(--color-text)", padding: "7px 12px 7px 20px", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={row.label}>{row.label}</td>
                                       {qsInvoices.map(r => {
-                                        const item = (lineItemsMap.get(r.id!) ?? []).find(i => i.name === name);
+                                        const amount = row.cells.get(r.id!);
                                         return (
-                                          <td key={r.id} style={{ padding: "7px 12px", fontSize: 12.5, color: item ? "var(--color-text)" : "var(--color-text-tertiary)", textAlign: "right", fontVariantNumeric: "tabular-nums", borderLeft: "1px solid var(--color-border)", background: qs.awardedId === r.id ? "#f0fdf4" : "transparent" }}>
-                                            {item ? fmtRupee(item.totalPricePaise) : "—"}
+                                          <td key={r.id} style={{ padding: "7px 12px", fontSize: 12.5, color: amount != null ? "var(--color-text)" : "var(--color-text-tertiary)", textAlign: "right", fontVariantNumeric: "tabular-nums", borderLeft: "1px solid var(--color-border)", background: qs.awardedId === r.id ? "#f0fdf4" : "transparent" }}>
+                                            {amount != null ? fmtRupee(amount) : "—"}
                                           </td>
                                         );
                                       })}
@@ -2502,11 +2562,11 @@ function SocietyQuotesTab({ records }: { records: InvoiceMeta[] }) {
                               ["Quote Ref", ...qsInvoices.map(r => r.invoiceNumber ?? "")],
                               ["Status", ...qsInvoices.map(r => qs.awardedId === r.id ? "Awarded" : qs.lockedAt ? "Rejected" : "Open")],
                             ];
-                            const allNames = [...new Set(qsInvoices.flatMap(r => (lineItemsMap.get(r.id!) ?? []).map(i => i.name)))];
-                            for (const name of allNames) {
-                              rows.push([name, ...qsInvoices.map(r => {
-                                const item = (lineItemsMap.get(r.id!) ?? []).find(i => i.name === name);
-                                return item ? (item.totalPricePaise / 100).toFixed(2) : "";
+                            const aligned = alignLineItems(qsInvoices.map(r => r.id!), lineItemsMap);
+                            for (const row of aligned) {
+                              rows.push([row.label, ...qsInvoices.map(r => {
+                                const amount = row.cells.get(r.id!);
+                                return amount != null ? (amount / 100).toFixed(2) : "";
                               })]);
                             }
                             downloadCSV(`quote-comparison-${qs.name.replace(/\s+/g, "-").toLowerCase()}.csv`, rows);
