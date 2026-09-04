@@ -104,7 +104,8 @@ const ADMIN_EMAIL = "ajaythak75@gmail.com";
 export function App() {
   const [loggedIn, setLoggedIn] = useState(auth.isLoggedIn);
   const [tab, setTab] = useState("import");
-  const isAdmin = auth.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
+  const userEmail = auth.email ?? prefs.gmailEmail ?? null;
+  const isAdmin = userEmail?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
   const [alertCount, setAlertCount] = useState(0);
   const [showTrialBanner, setShowTrialBanner] = useState(false);
 
