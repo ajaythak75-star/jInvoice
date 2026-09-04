@@ -2274,8 +2274,8 @@ export function ViewScreen() {
                 </div>
               )}
 
-              {/* Detail body: Universal format for Pro, existing format for Free */}
-              {prefs.isProActive && !isPreviewMode ? (
+              {/* Detail body: Universal format for Pro or any non-personal profile (society, etc.) */}
+              {(prefs.isProActive || prefs.activeMode !== "personal") && !isPreviewMode ? (
                 <UniversalDocView rec={r} items={detailItems} category={detailCategory} activeMode={prefs.activeMode} rawText={detailRawText} />
               ) : (
                 <>
