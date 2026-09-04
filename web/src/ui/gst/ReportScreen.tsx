@@ -1606,7 +1606,12 @@ function SocietyLedgerTab({ records }: { records: InvoiceMeta[] }) {
 
 function SocietyAuditTab({ records }: { records: InvoiceMeta[] }) {
   const allFYs = useMemo(() => availableFYs(records), [records]);
-  const [fy, setFY] = useState<number | null>(currentFY);
+  // Start with null; snap to the most recent FY once records load (avoids FY mismatch on first render)
+  const [fy, setFY] = useState<number | null>(null);
+  const [fyLocked, setFYLocked] = useState(false);
+  useEffect(() => {
+    if (!fyLocked && allFYs.length > 0) { setFY(allFYs[0]); setFYLocked(true); }
+  }, [allFYs, fyLocked]);
 
   const filtered = useMemo(() => filterByFY(records, fy), [records, fy]);
 
@@ -1700,9 +1705,63 @@ function SocietyAuditTab({ records }: { records: InvoiceMeta[] }) {
       ]} />
 
       {expenditure.length === 0 && incomeRecords.length === 0 ? (
-        <div style={{ textAlign: "center", padding: "48px 0", color: "var(--color-text-secondary)", fontSize: 13 }}>No records for this period.</div>
+        <div style={{ textAlign: "center", padding: "48px 0", color: "var(--color-text-secondary)", fontSize: 13 }}>
+          No records for this period.{" "}
+          <span style={{ opacity: 0.7, fontSize: 12 }}>
+            Upload maintenance receipts and tag them with a flat number (e.g. A-101) to see income here.
+          </span>
+        </div>
       ) : (
         <>
+          {/* ── Income by Flat ─────────────────────────────────────────────── */}
+          {incomeRecords.length > 0 && (() => {
+            const byFlat = new Map<string, { count: number; totalPaise: number }>();
+            for (const r of incomeRecords) {
+              const tag = r.projectTag!.trim();
+              if (!byFlat.has(tag)) byFlat.set(tag, { count: 0, totalPaise: 0 });
+              const b = byFlat.get(tag)!;
+              b.count++;
+              b.totalPaise += r.grandTotalPaise ?? 0;
+            }
+            const rows = [...byFlat.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+            return (
+              <div style={{ overflowX: "auto", background: "var(--color-surface)", border: "1px solid color-mix(in srgb, #16a34a 30%, transparent)", borderRadius: 10, marginBottom: 16 }}>
+                <div style={{ fontSize: 10.5, fontWeight: 700, color: "#16a34a", textTransform: "uppercase" as const, letterSpacing: "0.06em", padding: "12px 16px 0" }}>Income — by Flat / Unit</div>
+                <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 8 }}>
+                  <thead>
+                    <tr style={{ borderBottom: "1.5px solid var(--color-border)" }}>
+                      {["Flat / Tag", "Receipts", "Amount"].map((h, i) => (
+                        <th key={h} style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase" as const, letterSpacing: "0.06em", padding: "8px 16px", textAlign: i === 0 ? "left" : "right" }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map(([tag, v], i) => (
+                      <tr key={tag} style={{ borderBottom: i < rows.length - 1 ? "1px solid var(--color-border)" : "none", background: i % 2 === 0 ? "transparent" : "var(--color-surface-2)" }}>
+                        <td style={{ fontSize: 12.5, fontWeight: 600, color: "#16a34a", padding: "9px 16px" }}>{tag}</td>
+                        <td style={{ fontSize: 12.5, color: "var(--color-text-secondary)", padding: "9px 16px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{v.count}</td>
+                        <td style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-text)", padding: "9px 16px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(v.totalPaise)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{ borderTop: "1.5px solid var(--color-border)", background: "color-mix(in srgb, #16a34a 6%, var(--color-surface-2))" }}>
+                      <td style={{ fontSize: 12, fontWeight: 700, color: "#16a34a", padding: "10px 16px" }}>Total Income</td>
+                      <td style={{ fontSize: 12.5, fontWeight: 700, padding: "10px 16px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{incomeRecords.length}</td>
+                      <td style={{ fontSize: 12.5, fontWeight: 800, color: "#16a34a", padding: "10px 16px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(totalIncome)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            );
+          })()}
+
+          {incomeRecords.length === 0 && (
+            <div style={{ padding: "14px 16px", background: "color-mix(in srgb, #16a34a 5%, var(--color-surface))", border: "1px dashed color-mix(in srgb, #16a34a 30%, transparent)", borderRadius: 10, marginBottom: 16, fontSize: 12, color: "var(--color-text-secondary)" }}>
+              No income receipts tagged yet. Open a maintenance receipt in the View screen and set its <strong>Project Tag</strong> to a flat number (e.g. <strong>A-101</strong>) to include it as income.
+            </div>
+          )}
+
           {expenditure.length > 0 && (
             <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10, padding: "16px", marginBottom: 16 }}>
               <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 12 }}>Expenditure by Head</div>
