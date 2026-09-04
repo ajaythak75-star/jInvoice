@@ -1165,6 +1165,7 @@ export function ViewScreen() {
     }
     load();
     setNewProjectName("");
+    window.dispatchEvent(new Event("jinvoice:tags-changed"));
   };
 
   const openDetail = async (e: React.MouseEvent, rec: InvoiceMeta) => {
