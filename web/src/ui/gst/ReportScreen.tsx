@@ -116,7 +116,7 @@ function availableYears(records: InvoiceMeta[]): number[] {
 
 function filterByYear(records: InvoiceMeta[], year: number | null): InvoiceMeta[] {
   if (year === null) return records;
-  return records.filter(r => { const d = recDate(r); return d ? d.getFullYear() === year : false; });
+  return records.filter(r => { const d = recDate(r); return !d || d.getFullYear() === year; });
 }
 
 function useInvoices() {
@@ -976,7 +976,8 @@ function fyBounds(fyStart: number): { from: Date; to: Date } {
 function filterByFY(records: InvoiceMeta[], fyStart: number | null): InvoiceMeta[] {
   if (fyStart === null) return records;
   const { from, to } = fyBounds(fyStart);
-  return records.filter(r => { const d = recDate(r); return d ? d >= from && d <= to : false; });
+  // Records with no parseable date are included in the selected FY (don't silently drop them)
+  return records.filter(r => { const d = recDate(r); return !d || (d >= from && d <= to); });
 }
 
 function fyLabel(fyStart: number): string {
