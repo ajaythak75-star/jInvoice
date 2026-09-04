@@ -67,13 +67,14 @@ function ActionBtn({ label, color, onClick }: { label: string; color: string; on
 }
 
 type AdminTab = "users" | "pricing" | "limits" | "profiles" | "settings";
+type AdminRole = "super_admin" | "admin" | null;
 
-const TAB_LABELS: { id: AdminTab; label: string }[] = [
-  { id: "users",    label: "Users" },
-  { id: "pricing",  label: "Pricing" },
-  { id: "limits",   label: "Upload Limits" },
-  { id: "profiles", label: "Profiles" },
-  { id: "settings", label: "Plan Settings" },
+const ALL_TABS: { id: AdminTab; label: string; superOnly: boolean }[] = [
+  { id: "users",    label: "Users",         superOnly: false },
+  { id: "pricing",  label: "Pricing",        superOnly: true  },
+  { id: "limits",   label: "Upload Limits",  superOnly: true  },
+  { id: "profiles", label: "Profiles",       superOnly: true  },
+  { id: "settings", label: "Plan Settings",  superOnly: true  },
 ];
 
 // ── Users tab ────────────────────────────────────────────────────────────────
@@ -659,7 +660,19 @@ function PlanSettingsTab() {
 // ── Main AdminScreen ──────────────────────────────────────────────────────────
 
 export function AdminScreen() {
-  const [tab, setTab] = useState<AdminTab>("users");
+  const [tab,  setTab]  = useState<AdminTab>("users");
+  const [role, setRole] = useState<AdminRole>(null);
+
+  useEffect(() => {
+    const h: Record<string, string> = { "Content-Type": "application/json" };
+    if (auth.token) h["Authorization"] = `Bearer ${auth.token}`;
+    fetch("/api/admin/role", { headers: h })
+      .then((r) => r.json())
+      .then((d) => setRole(d.role ?? null))
+      .catch(() => setRole(null));
+  }, []);
+
+  const visibleTabs = ALL_TABS.filter((t) => !t.superOnly || role === "super_admin");
 
   const tabBtn = (id: AdminTab): React.CSSProperties => ({
     padding: "7px 16px", border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600,
@@ -669,27 +682,46 @@ export function AdminScreen() {
     transition: "background 0.15s, color 0.15s",
   });
 
+  const roleBadge = role === "super_admin"
+    ? { label: "Super Admin", bg: "#4f46e520", color: "#4f46e5" }
+    : role === "admin"
+    ? { label: "Admin",       bg: "#f59e0b20", color: "#d97706" }
+    : null;
+
   return (
     <div style={{ padding: "24px 20px", maxWidth: 1000, margin: "0 auto" }}>
-      <div style={{ marginBottom: 20 }}>
-        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Admin Panel</h2>
-        <p style={{ margin: "4px 0 0", fontSize: 13, color: "var(--color-text-secondary)" }}>
-          Manage users, pricing, upload limits, and available profiles.
-        </p>
+      <div style={{ marginBottom: 20, display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Admin Panel</h2>
+          <p style={{ margin: "4px 0 0", fontSize: 13, color: "var(--color-text-secondary)" }}>
+            {role === "super_admin"
+              ? "Manage users, pricing, upload limits, profiles, and plan settings."
+              : "Manage user access and plan assignments."}
+          </p>
+        </div>
+        {roleBadge && (
+          <span style={{
+            fontSize: 11.5, fontWeight: 700, padding: "4px 10px", borderRadius: 20,
+            background: roleBadge.bg, color: roleBadge.color,
+            letterSpacing: "0.04em", textTransform: "uppercase", alignSelf: "center",
+          }}>
+            {roleBadge.label}
+          </span>
+        )}
       </div>
 
       {/* Tab bar */}
       <div style={{ display: "flex", gap: 4, marginBottom: 24, padding: "4px", background: "var(--color-surface-2)", borderRadius: 8, width: "fit-content" }}>
-        {TAB_LABELS.map(({ id, label }) => (
+        {visibleTabs.map(({ id, label }) => (
           <button key={id} style={tabBtn(id)} onClick={() => setTab(id)}>{label}</button>
         ))}
       </div>
 
       {tab === "users"    && <UsersTab />}
-      {tab === "pricing"  && <PricingTab />}
-      {tab === "limits"   && <UploadLimitsTab />}
-      {tab === "profiles" && <ProfilesTab />}
-      {tab === "settings" && <PlanSettingsTab />}
+      {tab === "pricing"  && role === "super_admin" && <PricingTab />}
+      {tab === "limits"   && role === "super_admin" && <UploadLimitsTab />}
+      {tab === "profiles" && role === "super_admin" && <ProfilesTab />}
+      {tab === "settings" && role === "super_admin" && <PlanSettingsTab />}
     </div>
   );
 }

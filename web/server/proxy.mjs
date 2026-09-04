@@ -981,6 +981,8 @@ const _otpStore = new Map(); // email → { code, expiresAt }
 const RESEND_API_KEY    = process.env.RESEND_API_KEY    ?? "";
 const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL ?? "onboarding@resend.dev";
 const ADMIN_EMAIL       = process.env.ADMIN_EMAIL       ?? "ajaythak75@gmail.com";
+// Super admin has full access; falls back to ADMIN_EMAIL so existing deploys stay super-admin by default.
+const SUPER_ADMIN_EMAIL = (process.env.SUPER_ADMIN_EMAIL ?? ADMIN_EMAIL).toLowerCase();
 
 async function _sendEmail(to, subject, html) {
   if (!RESEND_API_KEY) throw new Error("Email service not configured (RESEND_API_KEY missing).");
@@ -1007,7 +1009,8 @@ app.post("/api/auth/send-otp", async (req, res) => {
   // Allowlist check — only users in allowed_users can log in.
   // Admin email always bypasses the check.
   const emailLower = email.toLowerCase();
-  const isAdmin = ADMIN_EMAIL && emailLower === ADMIN_EMAIL.toLowerCase();
+  const isAdmin = (ADMIN_EMAIL && emailLower === ADMIN_EMAIL.toLowerCase()) ||
+                  emailLower === SUPER_ADMIN_EMAIL;
   if (!isAdmin && SUPABASE_URL && SUPABASE_SERVICE_KEY) {
     try {
       const chk = await fetch(
@@ -1220,14 +1223,35 @@ app.post("/api/payment/dummy-activate", async (req, res) => {
 
 // ── Admin endpoints ────────────────────────────────────────────────────────────
 
+// Returns the caller's email if they are admin OR super admin; null otherwise.
 function _requireAdmin(req, res) {
   const email = _verifyToken(_planToken(req));
   if (!email) { res.status(401).json({ error: "unauthorized" }); return null; }
-  if (!ADMIN_EMAIL || email.toLowerCase() !== ADMIN_EMAIL.toLowerCase()) {
-    res.status(403).json({ error: "forbidden" }); return null;
+  const em = email.toLowerCase();
+  const isAdminRole = (ADMIN_EMAIL && em === ADMIN_EMAIL.toLowerCase()) || em === SUPER_ADMIN_EMAIL;
+  if (!isAdminRole) { res.status(403).json({ error: "forbidden" }); return null; }
+  return email;
+}
+
+// Returns the caller's email only if they are the super admin; null otherwise.
+function _requireSuperAdmin(req, res) {
+  const email = _verifyToken(_planToken(req));
+  if (!email) { res.status(401).json({ error: "unauthorized" }); return null; }
+  if (email.toLowerCase() !== SUPER_ADMIN_EMAIL) {
+    res.status(403).json({ error: "forbidden: super admin only" }); return null;
   }
   return email;
 }
+
+// GET /api/admin/role — returns caller's admin role
+app.get("/api/admin/role", (req, res) => {
+  const email = _verifyToken(_planToken(req));
+  if (!email) return res.status(401).json({ error: "unauthorized" });
+  const em = email.toLowerCase();
+  if (em === SUPER_ADMIN_EMAIL) return res.json({ role: "super_admin" });
+  if (ADMIN_EMAIL && em === ADMIN_EMAIL.toLowerCase()) return res.json({ role: "admin" });
+  return res.status(403).json({ error: "forbidden" });
+});
 
 // GET /api/admin/users — all users with current plan
 app.get("/api/admin/users", async (req, res) => {
@@ -1340,17 +1364,17 @@ app.get("/api/config/:key", async (req, res) => {
   res.json(await _getConfig(req.params.key));
 });
 
-// GET /api/admin/config/:key — admin read
+// GET /api/admin/config/:key — super admin read
 app.get("/api/admin/config/:key", async (req, res) => {
-  if (!_requireAdmin(req, res)) return;
+  if (!_requireSuperAdmin(req, res)) return;
   const allowed = Object.keys(CONFIG_DEFAULTS);
   if (!allowed.includes(req.params.key)) return res.status(404).json({ error: "Unknown config key" });
   res.json(await _getConfig(req.params.key));
 });
 
-// PUT /api/admin/config/:key — admin write
+// PUT /api/admin/config/:key — super admin write
 app.put("/api/admin/config/:key", async (req, res) => {
-  if (!_requireAdmin(req, res)) return;
+  if (!_requireSuperAdmin(req, res)) return;
   const allowed = Object.keys(CONFIG_DEFAULTS);
   if (!allowed.includes(req.params.key)) return res.status(404).json({ error: "Unknown config key" });
   const { ok, data } = await _setConfig(req.params.key, req.body);
