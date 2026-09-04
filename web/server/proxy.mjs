@@ -92,6 +92,19 @@ async function _sbService(path, opts = {}) {
   } catch (e) { return { ok: false, data: null, error: String(e) }; }
 }
 
+// Upsert a user_plans row — inserts if missing, updates if found.
+// Always include email in fields. Returns the saved row or null.
+async function _upsertPlan(email, fields) {
+  const body = { email: email.toLowerCase(), ...fields };
+  const { ok, status, data } = await _sbService("/user_plans", {
+    method: "POST",
+    headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+    body: JSON.stringify(body),
+  });
+  if (!ok) console.error("[user_plans] upsert failed:", status, JSON.stringify(data));
+  return Array.isArray(data) ? data[0] : (data ?? null);
+}
+
 // Insert one row into user_plan_events — fire-and-forget, never blocks the caller.
 // event: "plan_created" | "trial_started" | "trial_expired" | "pro_activated" | "cancelled"
 function _logPlanEvent(email, event, meta = {}) {
@@ -1133,9 +1146,9 @@ app.post("/api/subscription/start-trial", async (req, res) => {
   const now = new Date();
   const trialEnds = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
   const patch = { plan: "pro_trial", status: "active", trial_used: true, trial_started_at: now.toISOString(), trial_ends_at: trialEnds.toISOString(), updated_at: now.toISOString() };
-  const { data: updated } = await _sbService(`/user_plans?email=eq.${encodeURIComponent(email)}`, { method: "PATCH", body: JSON.stringify(patch) });
+  const updated = await _upsertPlan(email, patch);
   _logPlanEvent(email, "trial_started", { trial_ends_at: trialEnds.toISOString() });
-  res.json(Array.isArray(updated) ? updated[0] : (updated ?? { ...row, ...patch }));
+  res.json(updated ?? { ...row, ...patch });
 });
 
 // POST /api/subscription/request-pro — user requests Pro access; emails admin
@@ -1172,9 +1185,9 @@ app.post("/api/subscription/cancel", async (req, res) => {
   const { data: current } = await _sbService(`/user_plans?email=eq.${encodeURIComponent(email)}&limit=1`);
   const currentPlan = (Array.isArray(current) ? current[0] : null)?.plan ?? "unknown";
   const patch = { plan: "free", status: "cancelled", cancelled_at: now, updated_at: now };
-  const { data: updated } = await _sbService(`/user_plans?email=eq.${encodeURIComponent(email)}`, { method: "PATCH", body: JSON.stringify(patch) });
+  const updated = await _upsertPlan(email, patch);
   _logPlanEvent(email, "cancelled", { from_plan: currentPlan });
-  res.json(Array.isArray(updated) ? updated[0] : (updated ?? { ..._FREE_PLAN, ...patch }));
+  res.json(updated ?? { ..._FREE_PLAN, ...patch });
 });
 
 // ── Dummy payment (dev/staging only — remove DUMMY_PAYMENT env var in prod) ───
@@ -1195,13 +1208,9 @@ app.post("/api/payment/dummy-activate", async (req, res) => {
     cancelled_at: null,
     updated_at: now,
   };
-  const { data: updated } = await _sbService(`/user_plans?email=eq.${encodeURIComponent(email)}`, {
-    method: "PATCH",
-    headers: { Prefer: "return=representation" },
-    body: JSON.stringify(patch),
-  });
+  const updated = await _upsertPlan(email, patch);
   _logPlanEvent(email, "pro_activated", { via: "dummy_payment", api_option: apiOption ?? "shared", billing: billing ?? "monthly" });
-  res.json(Array.isArray(updated) ? updated[0] : (updated ?? { email, ...patch }));
+  res.json(updated ?? { email, ...patch });
 });
 
 // ── Admin endpoints ────────────────────────────────────────────────────────────
@@ -1272,13 +1281,10 @@ app.patch("/api/admin/users/:email/plan", async (req, res) => {
     patch.status = "cancelled";
     patch.cancelled_at = now.toISOString();
   }
-  const { data } = await _sbService(`/user_plans?email=eq.${encodeURIComponent(email)}`, {
-    method: "PATCH",
-    body: JSON.stringify(patch),
-  });
+  const saved = await _upsertPlan(email, patch);
   const eventName = plan === "pro_paid" ? "pro_activated" : plan === "pro_trial" ? "trial_started" : "cancelled";
   _logPlanEvent(email, eventName, { by: "admin", plan });
-  res.json(Array.isArray(data) ? data[0] : (data ?? patch));
+  res.json(saved ?? patch);
 });
 
 // DELETE /api/admin/users/:email/access — remove from allowed_users
