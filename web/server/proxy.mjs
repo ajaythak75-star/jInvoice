@@ -269,16 +269,17 @@ app.post("/api/mobile/upload", upload.single("file"), async (req, res) => {
 
   if (!req.file) return res.status(400).json({ error: "no file attached" });
   const isImage = req.file.mimetype.startsWith("image/");
+  const profileMode = (req.body?.mode ?? "").toString().trim() || "personal";
   try {
     let data;
     if (isImage) {
       const apiKey = (req.headers["x-openai-key"] ?? "").toString().trim() || OPENAI_API_KEY;
       if (!apiKey) return res.status(503).json({ error: "No OpenAI API key configured on server." });
-      data = await extractWithOpenAI(req.file.buffer, req.file.mimetype, apiKey);
+      data = await extractWithOpenAI(req.file.buffer, req.file.mimetype, apiKey, profileMode);
     } else {
       const apiKey = (req.headers["x-gemini-key"] ?? "").toString().trim() || GEMINI_API_KEY;
       if (!apiKey) return res.status(503).json({ error: "No Gemini API key configured on server." });
-      data = await extractWithGemini(req.file.buffer, req.file.mimetype, apiKey);
+      data = await extractWithGemini(req.file.buffer, req.file.mimetype, apiKey, profileMode);
     }
 
     // Strip item details for free users on finance/tax documents
@@ -354,7 +355,8 @@ app.post("/api/mobile/ack", async (req, res) => {
 // ── [MOBILE] Gemini extraction ────────────────────────────────────────────────
 
 const GEMINI_MODEL = "gemini-3.6-flash";
-const EXTRACTION_PROMPT = `You are an invoice data extractor for Indian businesses. Extract the following fields and respond ONLY with valid JSON, no explanation or markdown.
+
+const EXTRACTION_PROMPT_INVOICE = `You are an invoice data extractor for Indian businesses. Extract the following fields and respond ONLY with valid JSON, no explanation or markdown.
 
 {
   "shopName": <business/merchant name as string or null>,
@@ -366,7 +368,7 @@ const EXTRACTION_PROMPT = `You are an invoice data extractor for Indian business
   "gstPercent": <tax rate e.g. "18%" as string or null>,
   "gstAmountInr": <total GST/tax amount as number in INR or null>,
   "subtotalInr": <subtotal before GST/discount as number in INR or null>,
-  "dateOfPurchase": <purchase date in YYYY-MM-DD format, assume 2025 if year missing, or null>,
+  "dateOfPurchase": <purchase date in YYYY-MM-DD format, assume ${new Date().getFullYear()} if year missing, or null>,
   "discountInr": <total discount as number in INR or null>,
   "finalPaymentInr": <grand total / net payable as number in INR or null>,
   "items": [
@@ -382,7 +384,48 @@ const EXTRACTION_PROMPT = `You are an invoice data extractor for Indian business
 
 Rules: extract merchant/seller details only (NOT buyer). Amounts must be numbers in INR.`;
 
-async function extractWithGemini(fileBuf, mimeType, apiKey) {
+const EXTRACTION_PROMPT_SOCIETY = `You are a document data extractor for Indian residential societies and housing expenses.
+This document may be a maintenance bill, rent receipt/agreement, insurance policy receipt, lift/equipment AMC invoice, utility bill, or other housing/society-related financial record.
+Extract the following fields and respond ONLY with valid JSON, no explanation or markdown.
+
+{
+  "shopName": <society name / vendor / landlord / insurer / service company as string or null>,
+  "address": <society or property address as string or null>,
+  "pincode": <6-digit Indian PIN code as string or null>,
+  "phone": <contact phone number as string or null>,
+  "invoiceNumber": <bill number / receipt number / agreement number / policy number as string or null>,
+  "gstNumber": <GSTIN if present as string or null>,
+  "gstPercent": <GST rate if shown e.g. "18%" as string or null>,
+  "gstAmountInr": <GST/tax amount as number in INR or null>,
+  "subtotalInr": <subtotal before taxes as number in INR or null>,
+  "dateOfPurchase": <bill date / receipt date / agreement date in YYYY-MM-DD format, assume ${new Date().getFullYear()} if year missing, or null>,
+  "discountInr": <discount amount as number in INR or null>,
+  "finalPaymentInr": <total amount due — maintenance total / monthly rent / insurance premium / AMC charge — as number in INR or null>,
+  "items": [
+    {
+      "name": <charge description e.g. "Monthly Maintenance", "Water Charges", "Parking Charges", "Sinking Fund", "Rent", "Insurance Premium", "AMC Charge">,
+      "quantity": <quantity as number, use 1 if not shown>,
+      "unitPriceInr": <unit price in INR as number or null>,
+      "discountInr": <per-item discount in INR as number or null>,
+      "amountInr": <line amount in INR as number>
+    }
+  ]
+}
+
+Rules:
+- Maintenance bills: shopName = housing society name; list each charge type as a separate item
+- Rent receipts: shopName = landlord/property name; finalPaymentInr = monthly rent
+- Insurance receipts: shopName = insurance company; finalPaymentInr = premium paid
+- AMC/service: shopName = service vendor; finalPaymentInr = AMC amount
+- Amounts must be numbers in INR`;
+
+function getExtractionPrompt(mode) {
+  return mode === "society" ? EXTRACTION_PROMPT_SOCIETY : EXTRACTION_PROMPT_INVOICE;
+}
+
+const EXTRACTION_PROMPT = EXTRACTION_PROMPT_INVOICE;
+
+async function extractWithGemini(fileBuf, mimeType, apiKey, mode) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
   const resp = await fetch(url, {
     method: "POST",
@@ -390,7 +433,7 @@ async function extractWithGemini(fileBuf, mimeType, apiKey) {
     body: JSON.stringify({
       contents: [{ parts: [
         { inline_data: { mime_type: mimeType, data: fileBuf.toString("base64") } },
-        { text: EXTRACTION_PROMPT },
+        { text: getExtractionPrompt(mode) },
       ]}],
       generationConfig: { maxOutputTokens: 4096 },
     }),
@@ -409,7 +452,7 @@ async function extractWithGemini(fileBuf, mimeType, apiKey) {
   try { return JSON.parse(raw); } catch { return {}; }
 }
 
-async function extractWithOpenAI(fileBuf, mimeType, apiKey) {
+async function extractWithOpenAI(fileBuf, mimeType, apiKey, mode) {
   const b64 = fileBuf.toString("base64");
   const resp = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
@@ -418,7 +461,7 @@ async function extractWithOpenAI(fileBuf, mimeType, apiKey) {
       model: "gpt-4o-mini",
       messages: [{ role: "user", content: [
         { type: "image_url", image_url: { url: `data:${mimeType};base64,${b64}`, detail: "high" } },
-        { type: "text", text: EXTRACTION_PROMPT },
+        { type: "text", text: getExtractionPrompt(mode) },
       ]}],
       max_tokens: 4096,
     }),

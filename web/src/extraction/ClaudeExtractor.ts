@@ -23,7 +23,7 @@ export interface ClaudeInvoiceData {
   }>;
 }
 
-const PROMPT = `You are an invoice data extractor for Indian businesses. Extract the following fields from the invoice and respond ONLY with a valid JSON object, no explanation or markdown.
+const PROMPT_INVOICE = `You are an invoice data extractor for Indian businesses. Extract the following fields from the invoice and respond ONLY with a valid JSON object, no explanation or markdown.
 
 {
   "shopName": <business/shop/merchant name as string, or null>,
@@ -53,6 +53,45 @@ Rules:
 - Capture all line items visible in the invoice
 - Amounts must be numbers (not strings), in INR
 - PIN code is a 6-digit number found in the merchant address`;
+
+const PROMPT_SOCIETY = `You are a document data extractor for Indian residential societies and housing expenses.
+This document may be a maintenance bill, rent receipt/agreement, insurance policy receipt, lift/equipment AMC invoice, utility bill, or any other housing/society-related financial record.
+Extract the following fields and respond ONLY with a valid JSON object, no explanation or markdown.
+
+{
+  "shopName": <society name / vendor / landlord / insurer / service company as string, or null>,
+  "address": <society or property address as string, or null>,
+  "pincode": <6-digit Indian PIN code as string, or null>,
+  "invoiceNumber": <bill number / receipt number / agreement number / policy number as string, or null>,
+  "gstNumber": <GSTIN if present as string, or null>,
+  "gstPercent": <GST rate if shown e.g. "18%" as string, or null>,
+  "gstAmountInr": <GST/tax amount as number in INR, or null>,
+  "subtotalInr": <subtotal before taxes as number in INR, or null>,
+  "dateOfPurchase": <bill date / receipt date / agreement date in YYYY-MM-DD format — assume ${new Date().getFullYear()} if year missing, or null>,
+  "discountInr": <discount amount as number in INR, or null>,
+  "finalPaymentInr": <total amount due — maintenance total / monthly rent / insurance premium / AMC charge — as number in INR, or null>,
+  "items": [
+    {
+      "name": <charge description e.g. "Monthly Maintenance", "Water Charges", "Parking Charges", "Sinking Fund", "Rent", "Insurance Premium", "AMC Charge">,
+      "quantity": <quantity as number, use 1 if not shown>,
+      "unitPriceInr": <unit price in INR as number, or null>,
+      "discountInr": <per-item discount in INR as number, or null>,
+      "amountInr": <line amount in INR as number>
+    }
+  ]
+}
+
+Rules:
+- Maintenance bills: shopName = housing society name; list each charge type as a separate item (maintenance, water, parking, sinking fund, repair fund, club, etc.)
+- Rent receipts/agreements: shopName = landlord or property name; finalPaymentInr = monthly rent amount
+- Insurance policy receipts: shopName = insurance company name; finalPaymentInr = premium paid
+- AMC / service contracts: shopName = service vendor name; finalPaymentInr = AMC/contract amount
+- Amounts must be numbers (not strings) in INR
+- PIN code is a 6-digit number`;
+
+function getExtractionPrompt(): string {
+  return prefs.activeMode === "society" ? PROMPT_SOCIETY : PROMPT_INVOICE;
+}
 
 const OPENAI_MODEL = "gpt-4o-mini";
 
@@ -92,7 +131,7 @@ async function callOpenAIText(rawText: string): Promise<ClaudeInvoiceData> {
   const body = {
     model: OPENAI_MODEL,
     messages: [
-      { role: "user", content: `${PROMPT}\n\nInvoice text:\n\n${rawText.slice(0, 6000)}` },
+      { role: "user", content: `${getExtractionPrompt()}\n\nDocument text:\n\n${rawText.slice(0, 6000)}` },
     ],
     max_tokens: 4096,
   };
@@ -112,7 +151,7 @@ async function callOpenAIVision(pages: RenderedPage[]): Promise<ClaudeInvoiceDat
         role: "user",
         content: [
           ...imageContent,
-          { type: "text", text: PROMPT },
+          { type: "text", text: getExtractionPrompt() },
         ],
       },
     ],
