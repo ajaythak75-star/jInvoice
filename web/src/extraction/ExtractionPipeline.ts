@@ -292,6 +292,67 @@ export async function processFile(
     return skipResult;
   }
 
+  // "text_capture" — readable native-text documents (AGM notices, meeting minutes,
+  // agreements). Extract full text locally and store it; no financial extraction needed.
+  if (strategy === "text_capture") {
+    console.log("[Pipeline] text_capture — extracting native text for:", file.name);
+    if (file.name && (filenameKnown || await isDuplicateByFilename(file.name))) {
+      console.log("[Pipeline] text_capture filename duplicate:", file.name);
+      return { kind: "pendingExtraction" };
+    }
+
+    let capturedText: string | null = null;
+    try {
+      const tr = await extractNativePdf(file);
+      if ((tr.kind === "success" || tr.kind === "lowConfidence") && tr.invoice.rawText) {
+        capturedText = tr.invoice.rawText;
+      }
+    } catch {}
+
+    const now = new Date().toISOString();
+    const pdfSourceType =
+      classification === "native" ? "NATIVE_PDF" :
+      classification === "scanned" ? "SCANNED_PDF" : "MIXED_PDF";
+    const category = resolveCategory(null, [], capturedText);
+    const docTypes = detectDocType(null, [], file.name, meta?.subject, capturedText ?? undefined);
+
+    const invoiceId = await insertInvoiceWithItems(
+      {
+        merchantName: null, merchantAddress: null, merchantGstin: null,
+        merchantPincode: null, invoiceNumber: null, invoiceDate: null,
+        subtotalPaise: null, grandTotalPaise: null, discountPaise: 0,
+        taxPaise: null, paymentMode: null,
+        importSource, pdfSourceType, importRecordId: null,
+        status: capturedText ? "imported" : "extraction_failed",
+        category, docType: docTypes[0] ?? "other", docTypes,
+        sourceFilename: file.name,
+        subject: meta?.subject, senderEmail: meta?.senderEmail,
+        receivedAt: meta?.receivedAt, accountEmail: meta?.accountEmail,
+        extractionNote: capturedText
+          ? "Full document text captured — no financial data"
+          : "No text layer found — document may be a scanned image",
+        createdAt: now, updatedAt: now,
+      },
+      [],
+    );
+
+    if (capturedText) {
+      await db.rawTexts.add({ invoiceId, rawText: capturedText });
+    }
+
+    const tcInvoice: ExtractedInvoice = {
+      merchantName: null, merchantAddress: null, merchantGstin: null,
+      merchantPhone: null, merchantPincode: null, invoiceNumber: null,
+      invoiceDate: null, lineItems: [], subtotalPaise: null, discountPaise: 0,
+      taxPaise: null, grandTotalPaise: null, paymentMode: null,
+      sourceType: pdfSourceType as ExtractedInvoice["sourceType"],
+      rawText: capturedText, confidenceScore: capturedText ? 1 : 0,
+    };
+    return capturedText
+      ? { kind: "success", invoice: tcInvoice }
+      : { kind: "failure", reason: "text-capture-no-text" };
+  }
+
   let result: ExtractionResult;
 
   if (classification === "encrypted") {

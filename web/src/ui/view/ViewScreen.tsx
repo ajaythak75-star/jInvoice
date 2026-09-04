@@ -976,6 +976,7 @@ export function ViewScreen() {
   const [newProjectName, setNewProjectName] = useState("");
   const [detailRec, setDetailRec] = useState<InvoiceMeta | null>(null);
   const [detailItems, setDetailItems] = useState<LineItemRow[]>([]);
+  const [detailRawText, setDetailRawText] = useState<string | null>(null);
   const [detailCategory, setDetailCategory] = useState<string>("");
   const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [previewExtracted, setPreviewExtracted] = useState<ExtractedInvoice | null>(null);
@@ -1173,6 +1174,8 @@ export function ViewScreen() {
     setDetailItems(items);
     setDetailRec(rec);
     setDetailCategory(rec.docTypes?.[0] ?? rec.docType ?? rec.category ?? "");
+    const rawRec = await db.rawTexts.where("invoiceId").equals(rec.id!).first();
+    setDetailRawText(rawRec?.rawText ?? null);
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2430,7 +2433,50 @@ export function ViewScreen() {
                       </div>
                     </div>
                   )}
-                  {detailItems.length === 0 && (
+                  {/* Document text for non-financial text captures (AGM notices, minutes, etc.) */}
+                  {detailItems.length === 0 && detailRawText && r.grandTotalPaise == null && (() => {
+                    const blocks = detailRawText
+                      .replace(/\r\n/g, "\n")
+                      .replace(/\n{3,}/g, "\n\n")
+                      .trim()
+                      .split(/\n\n+/)
+                      .map((b) => b.trim())
+                      .filter(Boolean);
+                    return (
+                      <div style={{ padding: "12px 20px 24px" }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>
+                          Document Text
+                        </div>
+                        <div style={{ fontSize: 13, color: "var(--color-text)", lineHeight: 1.75, maxHeight: 420, overflowY: "auto", padding: "12px 14px", background: "var(--color-surface-2)", border: "1px solid var(--color-border)", borderRadius: 8 }}>
+                          {blocks.map((block, i) => {
+                            const isHeading = block.length < 100 && block === block.toUpperCase() && /[A-Z]/.test(block);
+                            const isItem = /^\d+[.)]\s/.test(block) || /^[•\-–]\s/.test(block);
+                            if (isHeading) {
+                              return (
+                                <div key={i} style={{ fontWeight: 700, fontSize: 13, color: "var(--color-text)", marginTop: i > 0 ? 14 : 0, marginBottom: 4 }}>
+                                  {block}
+                                </div>
+                              );
+                            }
+                            if (isItem) {
+                              return (
+                                <div key={i} style={{ marginBottom: 4, paddingLeft: 12, color: "var(--color-text)" }}>
+                                  {block.split("\n").join(" ")}
+                                </div>
+                              );
+                            }
+                            return (
+                              <div key={i} style={{ marginBottom: 8, color: "var(--color-text)" }}>
+                                {block.split("\n").join(" ")}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {detailItems.length === 0 && !(detailRawText && r.grandTotalPaise == null) && (
                     <div style={{ padding: "12px 20px 24px", fontSize: 13, color: "var(--color-text-secondary)" }}>
                       {r.grandTotalPaise != null
                         ? "Single-amount document — no itemised breakdown."

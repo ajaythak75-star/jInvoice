@@ -18,7 +18,7 @@
  *
  * Default is "local_first" — matches current pipeline behaviour for anything not listed.
  */
-export type ExtractionStrategy = "local_first" | "gemini_direct" | "skip";
+export type ExtractionStrategy = "local_first" | "gemini_direct" | "text_capture" | "skip";
 
 // ── LOCAL_FIRST: filename / subject keyword sets ───────────────────────────
 
@@ -203,6 +203,24 @@ const SKIP_FILENAME_KW = [
   "complaint letter", "grievance",
 ];
 
+// ── TEXT_CAPTURE: native-text documents with no financial data ────────────
+// These have readable text worth preserving (meeting notices, agreements,
+// legal records). Extract the full native text and store it; skip Gemini.
+
+const TEXT_CAPTURE_FILENAME_KW = [
+  // Society governance
+  "agm", "annual general meeting", "sgm", "special general meeting",
+  "minutes of meeting", "meeting notice", "attendance register",
+  "resolution", "agenda",
+  // Legal agreements
+  "rental agreement", "leave and license", "leave & license",
+  "service agreement", "maintenance contract",
+  // Legal records (native-text only — not scanned deeds)
+  "legal notice", "vakalatnama", "court order", "judgment",
+  // Society admin text docs
+  "noc letter", "no objection letter",
+];
+
 // ── GEMINI_DIRECT: filename / subject keyword sets ────────────────────────
 
 const GEMINI_FILENAME_KW = [
@@ -210,18 +228,12 @@ const GEMINI_FILENAME_KW = [
   "cheque", "check", "demand draft", "dd no", "bearer",
   // Share / society membership documents
   "share certificate", "membership certificate",
-  // Legal & property registration documents
+  // Legal & property registration documents (typically scanned image PDFs)
   "sale deed", "conveyance deed", "power of attorney", "poa",
   "affidavit", "noc", "no objection certificate",
   "occupation certificate", "completion certificate",
   "allotment letter", "possession letter",
   "stamp paper", "e-stamp", "franking",
-  // Society non-invoice records
-  "agm", "annual general meeting", "sgm", "special general meeting",
-  "minutes of meeting", "meeting notice", "attendance register",
-  "resolution", "agenda",
-  // Legal profession documents
-  "legal notice", "vakalatnama", "court order", "judgment",
   // Personal: service / repair job cards — unstructured thermal/handwritten print
   "job card", "service job card", "repair order", "workshop invoice",
   "service bill", "repair bill", "service estimate",
@@ -257,6 +269,12 @@ export function detectExtractionStrategy(
   // any extraction time or API tokens.
   if (matchesAny(fn, SKIP_FILENAME_KW) || matchesAny(sub, SKIP_FILENAME_KW)) {
     return "skip";
+  }
+
+  // "text_capture" — readable text docs with no financial data worth Gemini.
+  // Extract native text and store it directly; no AI call needed.
+  if (matchesAny(fn, TEXT_CAPTURE_FILENAME_KW) || matchesAny(sub, TEXT_CAPTURE_FILENAME_KW)) {
+    return "text_capture";
   }
 
   // "gemini_direct" next — non-invoice documents that DO have extractable
