@@ -2202,8 +2202,29 @@ function SocietyQuotesTab({ records }: { records: InvoiceMeta[] }) {
   const [lineItemsMap, setLineItemsMap] = useState<Map<number, LineItemRow[]>>(new Map());
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
+  // Load all non-failed invoices directly — no grandTotalPaise gate, so
+  // quotations without a parsed total still appear in the picker.
+  const [allInvoices, setAllInvoices] = useState<InvoiceMeta[]>([]);
+  useEffect(() => {
+    db.invoices.toArray().then(rows =>
+      setAllInvoices(rows.filter(r =>
+        r.status !== "extraction_failed" &&
+        r.status !== "import_blocked_encrypted"
+      ))
+    );
+  }, []);
+
+  // Merge: prefer allInvoices for the picker (includes null-total docs),
+  // fall back to the filtered records prop for comparison table lookups.
+  const mergedRecords = useMemo(() => {
+    const map = new Map<number, InvoiceMeta>();
+    for (const r of records) if (r.id != null) map.set(r.id, r);
+    for (const r of allInvoices) if (r.id != null && !map.has(r.id)) map.set(r.id, r);
+    return [...map.values()];
+  }, [records, allInvoices]);
+
   const quotationInvoices = useMemo(() =>
-    records
+    mergedRecords
       .filter(r => {
         const cat = r.docTypes?.[0] ?? r.docType ?? r.category;
         if (cat === "quotation") return true;
@@ -2211,7 +2232,7 @@ function SocietyQuotesTab({ records }: { records: InvoiceMeta[] }) {
         return (r.clientTags ?? []).some(t => t.trim().toLowerCase() === "quotation");
       })
       .sort((a, b) => (b.invoiceDate ?? "").localeCompare(a.invoiceDate ?? "")),
-    [records]
+    [mergedRecords]
   );
 
   useEffect(() => {
@@ -2342,7 +2363,7 @@ function SocietyQuotesTab({ records }: { records: InvoiceMeta[] }) {
           {quoteSets.map(qs => {
             const isExpanded = expandedId === qs.id;
             const isLocked = !!qs.lockedAt;
-            const qsInvoices = qs.invoiceIds.map(id => records.find(r => r.id === id)).filter(Boolean) as InvoiceMeta[];
+            const qsInvoices = qs.invoiceIds.map(id => mergedRecords.find(r => r.id === id)).filter(Boolean) as InvoiceMeta[];
             const isConfirming = confirmDelete === qs.id;
 
             return (
