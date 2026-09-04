@@ -1698,9 +1698,6 @@ export function ViewScreen() {
                         >×</button>
                       </span>
                     ))}
-                    {rec.projectTag && (
-                      <span className="view-chip" style={{ color: "#059669", borderColor: "#059669", background: "#ecfdf5" }}>{rec.projectTag}</span>
-                    )}
                     <span className="view-chip" style={{ color: statusColor(rec.status), borderColor: statusColor(rec.status) }}>
                       {statusText(rec.status)}
                     </span>
