@@ -973,7 +973,7 @@ export function ViewScreen() {
   const [filterProject, setFilterProject] = useState<string | null>(null);
   const [projectTags, setProjectTags] = useState<string[]>(() => prefs.projects);
   const [projectTaggingId, setProjectTaggingId] = useState<number | null>(null);
-  const projectTaggingPos = { top: 0, left: 0 };
+  const projectTaggingPos = useRef({ top: 0, left: 0 });
   const [newProjectName, setNewProjectName] = useState("");
   const [detailRec, setDetailRec] = useState<InvoiceMeta | null>(null);
   const [detailItems, setDetailItems] = useState<LineItemRow[]>([]);
@@ -1168,6 +1168,11 @@ export function ViewScreen() {
     setNewProjectName("");
     window.dispatchEvent(new Event("jinvoice:tags-changed"));
   };
+
+  const openProjectTagPicker = useCallback((invoiceId: number, anchor: DOMRect) => {
+    projectTaggingPos.current = { top: anchor.bottom + 6, left: anchor.left };
+    setProjectTaggingId(invoiceId);
+  }, []);
 
   const openDetail = async (e: React.MouseEvent, rec: InvoiceMeta) => {
     e.preventDefault();
@@ -2279,7 +2284,7 @@ export function ViewScreen() {
 
               {/* Detail body: Universal format for Pro or any non-personal profile (society, etc.) */}
               {(prefs.isProActive || prefs.activeMode !== "personal") && !isPreviewMode ? (
-                <UniversalDocView rec={r} items={detailItems} category={detailCategory} activeMode={prefs.activeMode} rawText={detailRawText} />
+                <UniversalDocView rec={r} items={detailItems} category={detailCategory} activeMode={prefs.activeMode} rawText={detailRawText} onEditProjectTag={r.id != null ? openProjectTagPicker : undefined} />
               ) : (
                 <>
                   {/* Merchant card */}
@@ -2507,7 +2512,7 @@ export function ViewScreen() {
         return (
           <>
             <div style={{ position: "fixed", inset: 0, zIndex: 199 }} onClick={() => setProjectTaggingId(null)} />
-            <div style={{ position: "fixed", top: projectTaggingPos.top, left: projectTaggingPos.left, zIndex: 200, background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,.14)", minWidth: 220, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            <div style={{ position: "fixed", top: projectTaggingPos.current.top, left: projectTaggingPos.current.left, zIndex: 200, background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,.14)", minWidth: 220, display: "flex", flexDirection: "column", overflow: "hidden" }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em", padding: "8px 12px 4px" }}>
                 Assign Project
               </div>

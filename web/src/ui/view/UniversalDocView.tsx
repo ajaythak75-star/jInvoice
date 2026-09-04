@@ -151,9 +151,10 @@ interface Props {
   category: string;
   activeMode: string;
   rawText?: string | null;
+  onEditProjectTag?: (invoiceId: number, anchor: DOMRect) => void;
 }
 
-export function UniversalDocView({ rec, items, category, activeMode, rawText }: Props) {
+export function UniversalDocView({ rec, items, category, activeMode, rawText, onEditProjectTag }: Props) {
   const docTypes = rec.docTypes ?? (rec.docType ? [rec.docType] : []);
   const docClass = classifyDoc(docTypes, activeMode, category);
   const cfg = DOC_CONFIGS[docClass];
@@ -187,7 +188,7 @@ export function UniversalDocView({ rec, items, category, activeMode, rawText }: 
   };
 
   // Fields list — only include populated optional ones
-  const fields: Array<{ label: string; value: string | null; span?: boolean }> = [
+  const fields: Array<{ label: string; value: string | null; span?: boolean; editable?: boolean }> = [
     { label: cfg.nameLabel, value: rec.merchantName, span: true },
     { label: cfg.refLabel, value: rec.invoiceNumber ?? null },
     { label: cfg.dateLabel, value: fmtDate(rec.invoiceDate) },
@@ -198,10 +199,23 @@ export function UniversalDocView({ rec, items, category, activeMode, rawText }: 
     ...(rec.merchantPincode ? [{ label: "Pincode", value: rec.merchantPincode }] : []),
     ...(rec.merchantPhone ? [{ label: "Phone", value: rec.merchantPhone }] : []),
     ...(rec.platform ? [{ label: "Platform", value: rec.platform }] : []),
+    ...(rec.projectTag || onEditProjectTag
+      ? [{ label: activeMode === "society" ? "Flat / Unit" : "Project Tag", value: rec.projectTag ?? null, editable: !!onEditProjectTag }]
+      : []),
   ];
 
-  // AI-extracted doc-specific metadata (populated by future extraction updates)
-  const metaEntries = rec.docMetadata ? Object.entries(rec.docMetadata) : [];
+  // AI-extracted doc-specific metadata — exclude flatUnit (shown as "Flat / Unit" in fields grid above)
+  const META_LABELS: Record<string, string> = {
+    validUntil: "Valid Until",
+    paymentTerms: "Payment Terms",
+    warrantyPeriod: "Warranty Period",
+    resolutionNo: "Resolution No.",
+    attendeeCount: "Attendees",
+    meetingType: "Meeting Type",
+  };
+  const metaEntries = rec.docMetadata
+    ? Object.entries(rec.docMetadata).filter(([k]) => k !== "flatUnit")
+    : [];
 
   // Category badge label
   const categoryLabel: string | null = category
@@ -270,10 +284,20 @@ export function UniversalDocView({ rec, items, category, activeMode, rawText }: 
       <div style={{ padding: "16px 20px 0" }}>
         <div style={sectionLbl}>Document Fields</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-          {fields.map(({ label, value, span }) => (
+          {fields.map(({ label, value, span, editable }) => (
             <div key={label} style={{ ...fieldCard, gridColumn: span ? "1 / -1" : undefined }}>
-              <div style={fieldLbl}>{label}</div>
-              <div style={value ? fieldVal : fieldNull}>{value ?? "Not extracted"}</div>
+              <div style={{ ...fieldLbl, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                {label}
+                {editable && (
+                  <button
+                    onClick={(e) => onEditProjectTag!(rec.id!, e.currentTarget.getBoundingClientRect())}
+                    style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, border: "1px solid var(--color-border)", background: "var(--color-surface)", color: "var(--color-text-secondary)", cursor: "pointer", fontWeight: 600, lineHeight: 1.6 }}
+                  >
+                    Edit
+                  </button>
+                )}
+              </div>
+              <div style={value ? fieldVal : fieldNull}>{value ?? "Not set"}</div>
             </div>
           ))}
         </div>
@@ -286,7 +310,7 @@ export function UniversalDocView({ rec, items, category, activeMode, rawText }: 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
             {metaEntries.map(([key, val]) => (
               <div key={key} style={fieldCard}>
-                <div style={fieldLbl}>{key}</div>
+                <div style={fieldLbl}>{META_LABELS[key] ?? key.replace(/([A-Z])/g, " $1").trim()}</div>
                 <div style={fieldVal}>{val}</div>
               </div>
             ))}

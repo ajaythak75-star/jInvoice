@@ -94,7 +94,7 @@ Extract the following fields and respond ONLY with a valid JSON object, no expla
   "resolutionNo": <resolution number or reference from meeting minutes as string, or null — only for AGM/SGM/committee meeting records>,
   "attendeeCount": <number of members / attendees present at the meeting as string e.g. "42", or null — only for meeting records>,
   "meetingType": <type of meeting e.g. "AGM", "SGM", "EGM", "Committee Meeting" as string, or null — only for meeting records>,
-  "flatUnit": <flat or unit number of the member who paid e.g. "A-101", "B-202", "301" — extract from "Flat / Unit" or "Received From Flat" field, or null — only for maintenance receipts>
+  "flatUnit": <flat or unit number of the member / resident e.g. "A-101", "B-202", "301" — extract from any "Flat / Unit", "Flat No", "Unit No", "Received From Flat", or "Member" field on any document type, or null if not present>
 }
 
 Rules:
@@ -106,6 +106,7 @@ Rules:
 - AGM/SGM/meeting minutes: shopName = society name; dateOfPurchase = meeting date; populate resolutionNo, attendeeCount, meetingType; finalPaymentInr = null unless a specific expenditure was approved
 - Amounts must be numbers (not strings) in INR
 - Leave validUntil, paymentTerms, warrantyPeriod, resolutionNo, attendeeCount, meetingType as null for documents where they don't apply
+- flatUnit: extract whenever a flat, unit, or member number is printed on the document regardless of document type; leave null only when completely absent
 - PIN code is a 6-digit number`;
 
 const PROMPT_TAX = `You are a tax document data extractor for Indian tax and compliance documents.
