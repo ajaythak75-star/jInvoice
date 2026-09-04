@@ -978,18 +978,26 @@ app.post("/api/auth/send-otp", async (req, res) => {
   const { email } = req.body ?? {};
   if (!email || !email.includes("@")) return res.status(400).json({ error: "Valid email required" });
 
-  // Allowlist check — only users in allowed_users can log in (free or Pro).
-  if (SUPABASE_URL && SUPABASE_SERVICE_KEY) {
+  // Allowlist check — only users in allowed_users can log in.
+  // Admin email always bypasses the check.
+  const emailLower = email.toLowerCase();
+  const isAdmin = ADMIN_EMAIL && emailLower === ADMIN_EMAIL.toLowerCase();
+  if (!isAdmin && SUPABASE_URL && SUPABASE_SERVICE_KEY) {
     try {
       const chk = await fetch(
-        `${SUPABASE_URL}/rest/v1/allowed_users?email=eq.${encodeURIComponent(email.toLowerCase())}&select=email&limit=1`,
+        `${SUPABASE_URL}/rest/v1/allowed_users?email=eq.${encodeURIComponent(emailLower)}&select=email&limit=1`,
         { headers: { apikey: SUPABASE_SERVICE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_KEY}` } }
       );
       const rows = await chk.json();
-      if (!Array.isArray(rows) || rows.length === 0) {
+      if (!chk.ok || !Array.isArray(rows)) {
+        console.error("[auth] allowed_users check error:", JSON.stringify(rows));
+        return res.status(503).json({ error: "Access check unavailable. Please try again shortly." });
+      }
+      if (rows.length === 0) {
         return res.status(403).json({ error: "This email is not registered for access. Contact the admin to request access." });
       }
-    } catch {
+    } catch (e) {
+      console.error("[auth] allowed_users fetch failed:", e);
       return res.status(503).json({ error: "Access check unavailable. Please try again shortly." });
     }
   }
