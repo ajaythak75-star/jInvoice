@@ -3,9 +3,13 @@ export type SocietyExpenseCategory =
   | "lift_amc"
   | "security"
   | "housekeeping"
+  | "pest_control"
+  | "fire_safety"
+  | "swimming_pool"
   | "civil_work"
   | "insurance"
   | "government_dues"
+  | "quotation"
   | "cheque"
   | "rent_agreement"
   | "agreement"
@@ -42,9 +46,31 @@ const SOCIETY_KEYWORDS: Array<{ cat: SocietyExpenseCategory; keywords: string[] 
     ],
   },
   {
+    cat: "pest_control",
+    keywords: [
+      "pest control", "fumigation", "termite", "rodent control", "cockroach",
+      "mosquito control", "vector control", "disinfection service",
+    ],
+  },
+  {
+    cat: "fire_safety",
+    keywords: [
+      "fire extinguisher", "fire hydrant", "sprinkler", "fire noc", "fire safety",
+      "fire suppression", "fire alarm", "smoke detector", "fire fighting",
+      "fire department", "amc fire", "fire refilling",
+    ],
+  },
+  {
+    cat: "swimming_pool",
+    keywords: [
+      "swimming pool", "pool maintenance", "pool cleaning", "pool chemicals",
+      "chlorine", "pool pump", "pool filter", "swimming pool amc",
+    ],
+  },
+  {
     cat: "housekeeping",
     keywords: [
-      "housekeeping", "cleaning", "sweeping", "pest control", "fumigation",
+      "housekeeping", "cleaning", "sweeping",
       "landscaping", "gardening", "garbage", "waste management", "sanitation",
       "janitorial", "caretaker",
     ],
@@ -71,6 +97,14 @@ const SOCIETY_KEYWORDS: Array<{ cat: SocietyExpenseCategory; keywords: string[] 
       "property tax", "municipal tax", "bmc", "mcgm", "nmmc", "pcmc",
       "professional tax", "labour cess", "stamp duty", "government",
       "municipal corporation", "nagar palika", "registration fees",
+    ],
+  },
+  {
+    cat: "quotation",
+    keywords: [
+      "quotation", "rate list", "rate schedule", "proforma invoice",
+      "pro-forma", "estimate", "bill of quantities", "boq",
+      "price list", "valid until", "validity of offer",
     ],
   },
   {
@@ -161,9 +195,13 @@ export const SOCIETY_CATEGORY_LABEL: Record<SocietyExpenseCategory, string> = {
   lift_amc:           "Lift / AMC",
   security:           "Security",
   housekeeping:       "Housekeeping",
+  pest_control:       "Pest Control",
+  fire_safety:        "Fire Safety",
+  swimming_pool:      "Swimming Pool",
   civil_work:         "Civil Work",
   insurance:          "Insurance",
   government_dues:    "Government Dues",
+  quotation:          "Quotation",
   cheque:             "Cheque",
   rent_agreement:     "Rent Agreement",
   agreement:          "Agreement",

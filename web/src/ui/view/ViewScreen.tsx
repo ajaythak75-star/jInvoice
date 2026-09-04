@@ -1172,7 +1172,7 @@ export function ViewScreen() {
     const items = await db.lineItems.where("invoiceId").equals(rec.id!).toArray();
     setDetailItems(items);
     setDetailRec(rec);
-    setDetailCategory(rec.category ?? "");
+    setDetailCategory(rec.docTypes?.[0] ?? rec.docType ?? rec.category ?? "");
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2267,6 +2267,30 @@ export function ViewScreen() {
                         ? (SOCIETY_CATEGORY_LABEL[detailCategory as SocietyExpenseCategory] ?? detailCategory.replace(/_/g, " "))
                         : getProfessionalCategoryLabel(mode as ProfessionalProfile, detailCategory)
                       : null;
+
+                    if (mode === "society" && r.id != null) {
+                      return (
+                        <div style={{ padding: "12px 20px 0" }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>
+                            Category
+                          </div>
+                          <select
+                            value={detailCategory || "other"}
+                            onChange={async (e) => {
+                              const newCat = e.target.value as SocietyExpenseCategory;
+                              setDetailCategory(newCat);
+                              await db.invoices.update(r.id!, { docType: newCat, docTypes: [newCat], category: newCat, updatedAt: new Date().toISOString() });
+                            }}
+                            style={{ fontSize: 13, fontWeight: 600, padding: "4px 10px", borderRadius: 6, border: "1px solid var(--color-border)", background: "var(--color-surface)", color: "var(--color-accent, #6366f1)", cursor: "pointer", appearance: "auto" }}
+                          >
+                            {(Object.entries(SOCIETY_CATEGORY_LABEL) as [SocietyExpenseCategory, string][]).map(([k, v]) => (
+                              <option key={k} value={k}>{v}</option>
+                            ))}
+                          </select>
+                        </div>
+                      );
+                    }
+
                     return (
                       <div style={{ padding: "12px 20px 0" }}>
                         <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>

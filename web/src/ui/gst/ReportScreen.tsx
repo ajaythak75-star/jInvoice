@@ -5,7 +5,7 @@ import { prefs } from "../../data/AutoImportPreferences";
 
 type ReportTab = "gst" | "period" | "vendor" | "tags" | "category"
                | "summary" | "personal_budget" | "personal_tax"
-               | "society_ledger" | "society_audit" | "society_vendor" | "society_dues"
+               | "society_ledger" | "society_audit" | "society_vendor" | "society_dues" | "society_sinking"
                | "bookkeeper_ledger"
                | "shop_purchase_register" | "shop_expense_head" | "shop_gst_summary"
                | "tc_client_summary" | "tc_tds_tracker" | "tc_fy_comparison" | "tc_gstr2a"
@@ -1373,11 +1373,17 @@ function PersonalTaxSavingsTab({ records }: { records: InvoiceMeta[] }) {
 
 // ── Society: Maintenance Ledger ───────────────────────────────────────────────
 
+const LEDGER_OPENING_KEY = "jinvoice_society_ledger_opening";
+
 function SocietyLedgerTab({ records }: { records: InvoiceMeta[] }) {
   const allFYs = useMemo(() => availableFYs(records), [records]);
   const [fy, setFY] = useState<number | null>(currentFY);
   const [drillUnit, setDrillUnit] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<"unit" | "total" | "count">("unit");
+  const [ledgerOpeningPaise, setLedgerOpeningPaise] = useState<number>(() => {
+    try { return Number(localStorage.getItem(LEDGER_OPENING_KEY) ?? "0"); } catch { return 0; }
+  });
+  const [ledgerOpeningInput, setLedgerOpeningInput] = useState("");
 
   const filtered = useMemo(() => filterByFY(records, fy), [records, fy]);
 
@@ -1420,6 +1426,26 @@ function SocietyLedgerTab({ records }: { records: InvoiceMeta[] }) {
         { label: "Untagged",        value: `${untaggedCount} inv.` },
       ]} />
 
+      {/* Opening balance for MCS Act CSV */}
+      <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10, padding: "12px 14px", marginBottom: 14 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase" as const, letterSpacing: "0.05em", marginBottom: 8 }}>Opening Balance (₹) — for MCS Act CSV</div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <input type="number" placeholder={`Current: ${(ledgerOpeningPaise / 100).toFixed(0)}`} value={ledgerOpeningInput}
+            onChange={e => setLedgerOpeningInput(e.target.value)}
+            style={{ width: 130, padding: "5px 8px", borderRadius: 6, border: "1px solid var(--color-border)", background: "var(--color-bg)", color: "var(--color-text)", fontSize: 13 }} />
+          <button onClick={() => {
+            const v = Math.round(parseFloat(ledgerOpeningInput) * 100);
+            if (!isNaN(v) && v >= 0) {
+              setLedgerOpeningPaise(v);
+              try { localStorage.setItem(LEDGER_OPENING_KEY, String(v)); } catch { /* ignore */ }
+            }
+            setLedgerOpeningInput("");
+          }}
+            style={{ padding: "5px 12px", borderRadius: 6, border: "none", background: "var(--color-primary)", color: "#fff", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Set</button>
+          <span style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}>Arrears at period start — included in the Dr/Cr ledger export</span>
+        </div>
+      </div>
+
       {units.length === 0 ? (
         <div style={{ textAlign: "center", padding: "48px 24px", color: "var(--color-text-secondary)", fontSize: 13, background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10 }}>
           <div style={{ fontWeight: 600, marginBottom: 6 }}>No unit-tagged invoices found</div>
@@ -1434,10 +1460,36 @@ function SocietyLedgerTab({ records }: { records: InvoiceMeta[] }) {
             ))}
           </div>
           <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
-            <CsvButton onClick={() => downloadCSV(`maintenance-ledger-${fy ?? "all"}.csv`, [
-              ["Unit / Flat", "Invoices", "Total Collected (₹)", "Last Payment"],
-              ...units.map(u => [u.unit, u.count, (u.totalPaise / 100).toFixed(2), u.lastDate.slice(0, 10)]),
-            ])} />
+            <CsvButton onClick={() => {
+              // MCS Act / Maharashtra Cooperative Housing Society ledger format
+              const fyStr = fy !== null ? fyLabel(fy) : "All Time";
+              const rows: (string | number)[][] = [
+                [`Maintenance Collection Ledger — ${fyStr}`, "", "", "", "", ""],
+                ["Unit / Flat", "Date", "Particulars", "Dr (Due)", "Cr (Paid)", "Balance (₹)"],
+                ["Opening Balance", "", "", (ledgerOpeningPaise / 100).toFixed(2), "", (ledgerOpeningPaise / 100).toFixed(2)],
+              ];
+              let balance = ledgerOpeningPaise;
+              const unitsSorted = [...units].sort((a, b) => a.unit.localeCompare(b.unit));
+              for (const u of unitsSorted) {
+                const invs = filtered
+                  .filter(r => r.projectTag?.trim() === u.unit)
+                  .sort((a, b) => (a.invoiceDate ?? "").localeCompare(b.invoiceDate ?? ""));
+                for (const inv of invs) {
+                  const amt = inv.grandTotalPaise ?? 0;
+                  balance += amt;
+                  rows.push([
+                    u.unit,
+                    (inv.invoiceDate ?? "").slice(0, 10),
+                    inv.merchantName ?? "Maintenance",
+                    "",
+                    (amt / 100).toFixed(2),
+                    (balance / 100).toFixed(2),
+                  ]);
+                }
+              }
+              rows.push(["Closing Balance", "", "", "", (unitsTotal / 100).toFixed(2), (balance / 100).toFixed(2)]);
+              downloadCSV(`maintenance-ledger-mcs-${fy ?? "all"}.csv`, rows);
+            }} />
           </div>
           <div style={{ overflowX: "auto", background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10 }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -1914,6 +1966,206 @@ function SocietyDuesTab({ records }: { records: InvoiceMeta[] }) {
               </div>
             </>
           )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Society: Sinking Fund Ledger ──────────────────────────────────────────────
+
+const SINKING_CORPUS_KEY = "jinvoice_society_sinking_corpus";
+const SINKING_OPENING_KEY = "jinvoice_society_sinking_opening";
+
+function loadSinkingCorpus(): number {
+  try { return Number(localStorage.getItem(SINKING_CORPUS_KEY) ?? "0"); } catch { return 0; }
+}
+function saveSinkingCorpus(v: number): void {
+  try { localStorage.setItem(SINKING_CORPUS_KEY, String(v)); } catch { /* ignore */ }
+}
+function loadSinkingOpening(): number {
+  try { return Number(localStorage.getItem(SINKING_OPENING_KEY) ?? "0"); } catch { return 0; }
+}
+function saveSinkingOpening(v: number): void {
+  try { localStorage.setItem(SINKING_OPENING_KEY, String(v)); } catch { /* ignore */ }
+}
+
+interface SinkingEntry {
+  invoiceId: number;
+  date: string;
+  vendor: string;
+  amountPaise: number;
+}
+
+function SocietySinkingFundTab({ records }: { records: InvoiceMeta[] }) {
+  const allFYs = useMemo(() => availableFYs(records), [records]);
+  const [fy, setFY] = useState<number | null>(currentFY);
+  const [entries, setEntries] = useState<SinkingEntry[]>([]);
+  const [corpusInput, setCorpusInput] = useState("");
+  const [openingInput, setOpeningInput] = useState("");
+  const [corpusPaise, setCorpusPaise] = useState(loadSinkingCorpus);
+  const [openingPaise, setOpeningPaise] = useState(loadSinkingOpening);
+
+  const filtered = useMemo(() => filterByFY(records, fy), [records, fy]);
+
+  useEffect(() => {
+    if (filtered.length === 0) { setEntries([]); return; }
+    const ids = filtered.map(r => r.id!).filter(Boolean);
+    db.lineItems.where("invoiceId").anyOf(ids).toArray().then(items => {
+      const result: SinkingEntry[] = [];
+      for (const item of items) {
+        if (!item.name.toLowerCase().includes("sinking")) continue;
+        const inv = filtered.find(r => r.id === item.invoiceId);
+        if (!inv) continue;
+        result.push({
+          invoiceId: item.invoiceId,
+          date: inv.invoiceDate ?? inv.createdAt ?? "",
+          vendor: inv.merchantName ?? "Unknown",
+          amountPaise: item.totalPricePaise,
+        });
+      }
+      result.sort((a, b) => a.date.localeCompare(b.date));
+      setEntries(result);
+    });
+  }, [filtered]);
+
+  const totalPaise = entries.reduce((s, e) => s + e.amountPaise, 0);
+  const balancePaise = openingPaise + totalPaise;
+  const pctFunded = corpusPaise > 0 ? Math.min(100, Math.round((balancePaise / corpusPaise) * 100)) : null;
+
+  function applyCorpus() {
+    const v = Math.round(parseFloat(corpusInput) * 100);
+    if (!isNaN(v) && v >= 0) { setCorpusPaise(v); saveSinkingCorpus(v); }
+    setCorpusInput("");
+  }
+  function applyOpening() {
+    const v = Math.round(parseFloat(openingInput) * 100);
+    if (!isNaN(v) && v >= 0) { setOpeningPaise(v); saveSinkingOpening(v); }
+    setOpeningInput("");
+  }
+
+  // CSV: Dr/Cr running balance
+  function downloadSinkingCSV() {
+    const rows: (string | number)[][] = [
+      ["Date", "Vendor / Particulars", "Dr (Withdrawal)", "Cr (Contribution)", "Balance (₹)"],
+      ["Opening Balance", "", "", (openingPaise / 100).toFixed(2), (openingPaise / 100).toFixed(2)],
+    ];
+    let running = openingPaise;
+    for (const e of entries) {
+      running += e.amountPaise;
+      rows.push([
+        e.date.slice(0, 10),
+        e.vendor,
+        "",
+        (e.amountPaise / 100).toFixed(2),
+        (running / 100).toFixed(2),
+      ]);
+    }
+    rows.push(["Closing Balance", "", "", (totalPaise / 100).toFixed(2), (balancePaise / 100).toFixed(2)]);
+    downloadCSV(`sinking-fund-ledger-${fy ?? "all"}.csv`, rows);
+  }
+
+  return (
+    <div style={{ padding: "20px", maxWidth: 900, margin: "0 auto" }}>
+      <div style={{ marginBottom: 16 }}>
+        <h2 style={{ fontSize: 18, fontWeight: 700, color: "var(--color-text)", margin: 0 }}>Sinking Fund Ledger</h2>
+        <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 3 }}>Running tally of sinking fund contributions from maintenance bills — invoices with a "Sinking Fund" line item</p>
+      </div>
+
+      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 14 }}>
+        {allFYs.map(f => <button key={f} style={chipStyle(fy === f)} onClick={() => setFY(f)}>{fyLabel(f)}</button>)}
+        <button style={chipStyle(fy === null)} onClick={() => setFY(null)}>All Time</button>
+      </div>
+
+      {/* Settings row */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
+        <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10, padding: "12px 14px" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase" as const, letterSpacing: "0.05em", marginBottom: 8 }}>Opening Balance (₹)</div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <input type="number" placeholder={`Current: ${(openingPaise / 100).toFixed(0)}`} value={openingInput}
+              onChange={e => setOpeningInput(e.target.value)}
+              style={{ flex: 1, padding: "5px 8px", borderRadius: 6, border: "1px solid var(--color-border)", background: "var(--color-bg)", color: "var(--color-text)", fontSize: 12 }} />
+            <button onClick={applyOpening}
+              style={{ padding: "5px 12px", borderRadius: 6, border: "none", background: "var(--color-primary)", color: "#fff", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Set</button>
+          </div>
+        </div>
+        <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10, padding: "12px 14px" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase" as const, letterSpacing: "0.05em", marginBottom: 8 }}>Corpus Target (₹)</div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <input type="number" placeholder={`Current: ${(corpusPaise / 100).toFixed(0)}`} value={corpusInput}
+              onChange={e => setCorpusInput(e.target.value)}
+              style={{ flex: 1, padding: "5px 8px", borderRadius: 6, border: "1px solid var(--color-border)", background: "var(--color-bg)", color: "var(--color-text)", fontSize: 12 }} />
+            <button onClick={applyCorpus}
+              style={{ padding: "5px 12px", borderRadius: 6, border: "none", background: "var(--color-primary)", color: "#fff", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Set</button>
+          </div>
+        </div>
+      </div>
+
+      <SummaryCards cards={[
+        { label: "Contributions",   value: String(entries.length) },
+        { label: "Total Collected", value: fmtShort(totalPaise), color: "var(--color-primary)" },
+        { label: "Fund Balance",    value: fmtShort(balancePaise), color: "#16a34a" },
+        { label: pctFunded !== null ? "Corpus Funded" : "Corpus Target", value: pctFunded !== null ? `${pctFunded}%` : corpusPaise > 0 ? fmtShort(corpusPaise) : "—" },
+      ]} />
+
+      {pctFunded !== null && (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 11, color: "var(--color-text-tertiary)", marginBottom: 4 }}>Corpus Progress</div>
+          <div style={{ height: 8, borderRadius: 4, background: "var(--color-border)", overflow: "hidden" }}>
+            <div style={{ height: "100%", width: `${pctFunded}%`, background: pctFunded >= 100 ? "#16a34a" : pctFunded >= 60 ? "#f59e0b" : "#dc2626", borderRadius: 4, transition: "width 0.3s" }} />
+          </div>
+          <div style={{ fontSize: 11, color: "var(--color-text-secondary)", marginTop: 3 }}>
+            {fmtRupee(balancePaise)} of {fmtRupee(corpusPaise)} target
+          </div>
+        </div>
+      )}
+
+      {entries.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "48px 24px", color: "var(--color-text-secondary)", fontSize: 13, background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10 }}>
+          <div style={{ fontWeight: 600, marginBottom: 6 }}>No sinking fund line items found</div>
+          <div style={{ fontSize: 12, opacity: 0.8 }}>The AI extractor captures "Sinking Fund" as a line item in maintenance bills. Upload a maintenance invoice that itemises sinking fund separately.</div>
+        </div>
+      ) : (
+        <>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+            <CsvButton onClick={downloadSinkingCSV} />
+          </div>
+          <div style={{ overflowX: "auto", background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ borderBottom: "1.5px solid var(--color-border)" }}>
+                  {["Date", "Vendor / Particulars", "Cr (Contribution)", "Running Balance"].map((h, i) => (
+                    <th key={h} style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase" as const, letterSpacing: "0.06em", padding: "9px 14px", textAlign: i < 2 ? "left" : "right" }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {(() => {
+                  let running = openingPaise;
+                  return entries.map((e, i) => {
+                    running += e.amountPaise;
+                    return (
+                      <tr key={`${e.invoiceId}-${i}`} style={{ borderBottom: i < entries.length - 1 ? "1px solid var(--color-border)" : "none", background: i % 2 === 0 ? "transparent" : "var(--color-surface-2)" }}>
+                        <td style={{ fontSize: 12, color: "var(--color-text-secondary)", padding: "9px 14px" }}>
+                          {e.date ? new Date(e.date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "2-digit" }) : "—"}
+                        </td>
+                        <td style={{ fontSize: 12.5, color: "var(--color-text)", padding: "9px 14px" }}>{e.vendor}</td>
+                        <td style={{ fontSize: 12.5, fontWeight: 600, color: "#16a34a", padding: "9px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(e.amountPaise)}</td>
+                        <td style={{ fontSize: 12.5, fontWeight: 700, color: "var(--color-text)", padding: "9px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(running)}</td>
+                      </tr>
+                    );
+                  });
+                })()}
+              </tbody>
+              <tfoot>
+                <tr style={{ borderTop: "1.5px solid var(--color-border)", background: "var(--color-surface-2)" }}>
+                  <td style={{ fontSize: 12, fontWeight: 700, padding: "10px 14px" }} colSpan={2}>Closing Balance</td>
+                  <td style={{ fontSize: 12.5, fontWeight: 700, color: "#16a34a", padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(totalPaise)}</td>
+                  <td style={{ fontSize: 12.5, fontWeight: 700, color: "var(--color-text)", padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(balancePaise)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
         </>
       )}
     </div>
@@ -3129,7 +3381,7 @@ function visibleTabs(mode: string): ReportTab[] {
   if (GST_PROFILES.includes(mode as UserProfile)) tabs.unshift("gst");
   if (TAGS_PROFILES.includes(mode as UserProfile)) tabs.push("tags");
   if (mode === "personal")      tabs.push("personal_budget", "personal_tax");
-  if (mode === "society")       { tabs.push("society_ledger"); tabs.push("society_vendor"); tabs.push("society_dues"); tabs.push("society_audit"); }
+  if (mode === "society")       { tabs.push("society_ledger"); tabs.push("society_vendor"); tabs.push("society_dues"); tabs.push("society_sinking"); tabs.push("society_audit"); }
   if (mode === "bookkeeper")    tabs.push("bookkeeper_ledger");
   if (mode === "shopkeeper")    tabs.push("shop_purchase_register", "shop_expense_head", "shop_gst_summary");
   if (mode === "tax_consultant") tabs.push("tc_client_summary", "tc_tds_tracker", "tc_fy_comparison", "tc_gstr2a");
@@ -3159,6 +3411,7 @@ export function ReportScreen() {
     { id: "society_ledger",    label: "Ledger" },
     { id: "society_vendor",    label: "Vendors" },
     { id: "society_dues",      label: "Dues" },
+    { id: "society_sinking",   label: "Sinking Fund" },
     { id: "society_audit",     label: "Audit (I&E)" },
     { id: "bookkeeper_ledger", label: "Account Book" },
     { id: "shop_purchase_register", label: "Purchase Register" },
@@ -3219,6 +3472,7 @@ export function ReportScreen() {
         {activeTab === "society_ledger"    && <SocietyLedgerTab      records={records} />}
         {activeTab === "society_vendor"    && <SocietyVendorTab      records={records} />}
         {activeTab === "society_dues"      && <SocietyDuesTab        records={records} />}
+        {activeTab === "society_sinking"   && <SocietySinkingFundTab records={records} />}
         {activeTab === "society_audit"     && <SocietyAuditTab       records={records} />}
         {activeTab === "bookkeeper_ledger" && <BookkeeperLedgerTab   records={records} />}
         {activeTab === "shop_purchase_register" && <ShopkeeperPurchaseRegisterTab records={records} />}
