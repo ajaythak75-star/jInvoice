@@ -38,6 +38,8 @@ interface ProfileEnabledConfig {
   advocate: boolean; bookkeeper: boolean; freelancer: boolean; ngo: boolean;
 }
 
+type ProfileCloudUploadConfig = ProfileEnabledConfig;
+
 function authHeaders(): Record<string, string> {
   const h: Record<string, string> = { "Content-Type": "application/json" };
   if (auth.token) h["Authorization"] = `Bearer ${auth.token}`;
@@ -488,16 +490,22 @@ const PROFILE_META: { key: keyof ProfileEnabledConfig; label: string; desc: stri
 ];
 
 function ProfilesTab() {
-  const [cfg, setCfg]       = useState<ProfileEnabledConfig | null>(null);
-  const [draft, setDraft]   = useState<ProfileEnabledConfig | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved]   = useState(false);
-  const [error, setError]   = useState<string | null>(null);
+  const [cfg, setCfg]               = useState<ProfileEnabledConfig | null>(null);
+  const [draft, setDraft]           = useState<ProfileEnabledConfig | null>(null);
+  const [cloudCfg, setCloudCfg]     = useState<ProfileCloudUploadConfig | null>(null);
+  const [cloudDraft, setCloudDraft] = useState<ProfileCloudUploadConfig | null>(null);
+  const [saving, setSaving]         = useState(false);
+  const [saved, setSaved]           = useState(false);
+  const [error, setError]           = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/admin/config/profile_enabled", { headers: authHeaders() })
-      .then((r) => r.json())
-      .then((d) => { setCfg(d); setDraft(d); });
+    Promise.all([
+      fetch("/api/admin/config/profile_enabled",      { headers: authHeaders() }).then((r) => r.json()),
+      fetch("/api/admin/config/profile_cloud_upload", { headers: authHeaders() }).then((r) => r.json()),
+    ]).then(([pe, pcu]) => {
+      setCfg(pe);      setDraft(pe);
+      setCloudCfg(pcu); setCloudDraft(pcu);
+    });
   }, []);
 
   const toggle = (key: keyof ProfileEnabledConfig) => {
@@ -505,52 +513,88 @@ function ProfilesTab() {
     setSaved(false);
   };
 
+  const toggleCloud = (key: keyof ProfileCloudUploadConfig) => {
+    setCloudDraft((prev) => prev ? { ...prev, [key]: !prev[key] } : prev);
+    setSaved(false);
+  };
+
   const handleSave = async () => {
-    if (!draft) return;
+    if (!draft || !cloudDraft) return;
     setSaving(true); setError(null);
     try {
-      const r = await fetch("/api/admin/config/profile_enabled", {
-        method: "PUT", headers: authHeaders(), body: JSON.stringify(draft),
-      });
-      if (!r.ok) { setError("Save failed."); return; }
-      setCfg(draft); setSaved(true);
+      const [r1, r2] = await Promise.all([
+        fetch("/api/admin/config/profile_enabled",      { method: "PUT", headers: authHeaders(), body: JSON.stringify(draft) }),
+        fetch("/api/admin/config/profile_cloud_upload", { method: "PUT", headers: authHeaders(), body: JSON.stringify(cloudDraft) }),
+      ]);
+      if (!r1.ok || !r2.ok) { setError("Save failed."); return; }
+      setCfg(draft); setCloudCfg(cloudDraft); setSaved(true);
     } catch { setError("Network error."); }
     finally { setSaving(false); }
   };
 
-  if (!draft) return <p style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>Loading…</p>;
+  if (!draft || !cloudDraft) return <p style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>Loading…</p>;
 
   const enabledCount = Object.values(draft).filter(Boolean).length;
+  const isDirty = JSON.stringify(draft) !== JSON.stringify(cfg) || JSON.stringify(cloudDraft) !== JSON.stringify(cloudCfg);
+
+  const colHead: React.CSSProperties = {
+    fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em",
+    color: "var(--color-text-secondary)", textAlign: "center", padding: "0 10px",
+  };
 
   return (
-    <div style={{ maxWidth: 560 }}>
-      <p style={{ fontSize: 13, color: "var(--color-text-secondary)", marginBottom: 20 }}>
-        Control which profile types users can select during onboarding. Disabled profiles are hidden from the profile picker.
+    <div style={{ maxWidth: 680 }}>
+      <p style={{ fontSize: 13, color: "var(--color-text-secondary)", marginBottom: 16 }}>
+        Control which profile types users can select during onboarding. When Cloud Upload is disabled for a profile, all users of that type will have cloud upload blocked on their next sync.
       </p>
+
+      {/* Column headers */}
+      <div style={{ display: "flex", alignItems: "center", paddingLeft: 16, paddingRight: 16, marginBottom: 4 }}>
+        <div style={{ flex: 1 }} />
+        <div style={{ ...colHead, width: 80 }}>Visible</div>
+        <div style={{ ...colHead, width: 100 }}>Cloud Upload</div>
+      </div>
+
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {PROFILE_META.map(({ key, label, desc }) => {
-          const on = draft[key];
+          const on       = draft[key];
+          const cloudOn  = cloudDraft[key];
           return (
-            <label key={key} style={{
-              display: "flex", alignItems: "center", gap: 14,
+            <div key={key} style={{
+              display: "flex", alignItems: "center", gap: 0,
               padding: "12px 16px", border: "1px solid var(--color-border)",
-              borderRadius: 10, cursor: "pointer",
+              borderRadius: 10,
               background: on ? "rgba(79,70,229,0.04)" : "var(--color-surface)",
               borderColor: on ? "#4f46e540" : "var(--color-border)",
               transition: "background 0.15s, border-color 0.15s",
             }}>
-              <input type="checkbox" checked={on} onChange={() => toggle(key)}
-                style={{ width: 16, height: 16, accentColor: "#4f46e5", cursor: "pointer", flexShrink: 0 }} />
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: on ? "var(--color-text)" : "var(--color-text-secondary)" }}>{label}</div>
                 <div style={{ fontSize: 11, color: "var(--color-text-secondary)", marginTop: 1 }}>{desc}</div>
               </div>
-              <span style={{
-                fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
-                background: on ? "#4f46e520" : "#6b728020",
-                color: on ? "#4f46e5" : "#6b7280",
-              }}>{on ? "ENABLED" : "DISABLED"}</span>
-            </label>
+
+              {/* Visible checkbox */}
+              <div style={{ width: 80, display: "flex", justifyContent: "center" }}>
+                <label style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, cursor: "pointer" }}>
+                  <input type="checkbox" checked={on} onChange={() => toggle(key)}
+                    style={{ width: 16, height: 16, accentColor: "#4f46e5", cursor: "pointer" }} />
+                  <span style={{ fontSize: 9, fontWeight: 700, color: on ? "#4f46e5" : "#6b7280" }}>
+                    {on ? "ON" : "OFF"}
+                  </span>
+                </label>
+              </div>
+
+              {/* Cloud Upload checkbox */}
+              <div style={{ width: 100, display: "flex", justifyContent: "center" }}>
+                <label style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, cursor: "pointer" }}>
+                  <input type="checkbox" checked={cloudOn} onChange={() => toggleCloud(key)}
+                    style={{ width: 16, height: 16, accentColor: "#16a34a", cursor: "pointer" }} />
+                  <span style={{ fontSize: 9, fontWeight: 700, color: cloudOn ? "#16a34a" : "#ef4444" }}>
+                    {cloudOn ? "ALLOWED" : "BLOCKED"}
+                  </span>
+                </label>
+              </div>
+            </div>
           );
         })}
       </div>
@@ -558,7 +602,7 @@ function ProfilesTab() {
         {enabledCount} of {PROFILE_META.length} profiles enabled
       </p>
       <div style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 12 }}>
-        <button className="btn-primary" onClick={handleSave} disabled={saving || JSON.stringify(draft) === JSON.stringify(cfg)}>
+        <button className="btn-primary" onClick={handleSave} disabled={saving || !isDirty}>
           {saving ? "Saving…" : "Save Profiles"}
         </button>
         {saved  && <span style={{ fontSize: 13, color: "#16a34a" }}>✓ Saved</span>}

@@ -48,6 +48,18 @@ function applyPlanToPrefs(plan: ServerPlan): void {
   prefs.cloudUploadEnabled = plan.cloud_upload_enabled !== false;
 }
 
+async function applyProfileCloudUpload(): Promise<void> {
+  try {
+    const r = await fetch("/api/config/profile_cloud_upload");
+    if (!r.ok) return;
+    const cfg: Record<string, boolean> = await r.json();
+    const profile = prefs.userType ?? "personal";
+    if (cfg[profile] === false) prefs.cloudUploadEnabled = false;
+  } catch {
+    // silently ignore — don't block app startup
+  }
+}
+
 export async function syncPlanFromServer(): Promise<ServerPlan | null> {
   if (!auth.token) return null;
   try {
@@ -55,6 +67,8 @@ export async function syncPlanFromServer(): Promise<ServerPlan | null> {
     if (!r.ok) return null;
     const plan: ServerPlan = await r.json();
     applyPlanToPrefs(plan);
+    // Profile-level cloud upload block can override the per-user flag
+    await applyProfileCloudUpload();
     return plan;
   } catch {
     return null;

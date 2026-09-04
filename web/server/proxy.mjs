@@ -1355,6 +1355,10 @@ const CONFIG_DEFAULTS = {
     personal: true, society: true, shopkeeper: true, tax_consultant: true,
     ca: true, real_estate: true, advocate: true, bookkeeper: true, freelancer: true, ngo: true,
   },
+  profile_cloud_upload: {
+    personal: true, society: true, shopkeeper: true, tax_consultant: true,
+    ca: true, real_estate: true, advocate: true, bookkeeper: true, freelancer: true, ngo: true,
+  },
   plan_settings: {
     trial_days: 14,
     support_response: { free: "7 days", pro_trial: "7 days", pro: "48 hours" },

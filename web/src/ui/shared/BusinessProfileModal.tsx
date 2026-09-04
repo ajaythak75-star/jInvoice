@@ -20,6 +20,7 @@ interface BusinessProfile {
   state: string;
   country: string;
   licenses: string;
+  cloudUploadConsent?: boolean;
 }
 
 const inpStyle: React.CSSProperties = {
@@ -53,6 +54,7 @@ export function BusinessProfileModal({
       return { businessType: "", address: "", pin: "", state: "", country: "India", licenses: "" };
     }
   });
+  const [cloudConsent, setCloudConsent] = useState(false);
   const [errors, setErrors] = useState<Partial<Record<keyof BusinessProfile, string>>>({});
 
   const set =
@@ -69,7 +71,7 @@ export function BusinessProfileModal({
     if (!profile.country.trim()) errs.country = "Required";
     setErrors(errs);
     if (Object.keys(errs).length > 0) return;
-    try { localStorage.setItem("jinvoice:business_profile", JSON.stringify(profile)); } catch {}
+    try { localStorage.setItem("jinvoice:business_profile", JSON.stringify({ ...profile, cloudUploadConsent: cloudConsent })); } catch {}
     onConfirm();
   };
 
@@ -138,11 +140,35 @@ export function BusinessProfileModal({
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: 10, marginTop: 24 }}>
+        {/* Cloud upload consent — required disclaimer */}
+        <label style={{
+          display: "flex", gap: 12, alignItems: "flex-start", marginTop: 22,
+          padding: "14px 16px", borderRadius: 10, cursor: "pointer",
+          border: `1px solid ${cloudConsent ? "#4f46e540" : "var(--color-border)"}`,
+          background: cloudConsent ? "rgba(79,70,229,0.04)" : "color-mix(in srgb, #f59e0b 6%, transparent)",
+          transition: "background 0.15s, border-color 0.15s",
+        }}>
+          <input
+            type="checkbox"
+            checked={cloudConsent}
+            onChange={(e) => setCloudConsent(e.target.checked)}
+            style={{ width: 16, height: 16, marginTop: 1, accentColor: "#4f46e5", cursor: "pointer", flexShrink: 0 }}
+          />
+          <div>
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: "var(--color-text)", marginBottom: 4 }}>
+              Cloud Data Processing — Required
+            </div>
+            <div style={{ fontSize: 11.5, color: "var(--color-text-secondary)", lineHeight: 1.6 }}>
+              I understand that when I upload invoices, the document data is sent to cloud AI services (Google Gemini / OpenAI) for automatic extraction of amounts, dates, and vendor details. jInvoice does not store or share raw invoice files beyond what is needed for processing. I consent to this cloud-based processing.
+            </div>
+          </div>
+        </label>
+
+        <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
           <button onClick={onClose} style={{ flex: 1, padding: "10px", borderRadius: 8, border: "1px solid var(--color-border)", background: "var(--color-surface-2)", color: "var(--color-text-secondary)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
             Cancel
           </button>
-          <button onClick={handleSubmit} style={{ flex: 2, padding: "10px", borderRadius: 8, border: "none", background: "#7c3aed", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+          <button onClick={handleSubmit} disabled={!cloudConsent} style={{ flex: 2, padding: "10px", borderRadius: 8, border: "none", background: cloudConsent ? "#7c3aed" : "#6b7280", color: "#fff", fontSize: 13, fontWeight: 700, cursor: cloudConsent ? "pointer" : "not-allowed", opacity: cloudConsent ? 1 : 0.7 }}>
             {ctaLabel}
           </button>
         </div>
