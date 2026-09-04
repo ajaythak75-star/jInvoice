@@ -1385,7 +1385,9 @@ export function AutoImportSettings() {
       <DummyPaymentModal
         apiOption="shared"
         billing="monthly"
-        totalPaise={99900}
+        basePaise={39900}
+        gstPaise={7182}
+        totalPaise={47082}
         onSuccess={(plan) => {
           setShowDummyPayment(false);
           setProEndDate(plan.paid_until ?? null);

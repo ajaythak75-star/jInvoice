@@ -302,10 +302,13 @@ export function PricingScreen() {
         `₹${plans.own.yearlyPrice.toLocaleString("en-IN")}/yr`],
     ];
   })();
+  const GST_RATE        = 0.18;
   const extraUserFee    = (licences - 1) * 249; // ₹249/user/month for extra users
-  const displayTotal    = billing === "monthly"
+  const displayBase     = billing === "monthly"
     ? plan.monthlyPrice + extraUserFee
     : plan.yearlyPrice + extraUserFee * 12;
+  const displayGst      = Math.round(displayBase * GST_RATE);
+  const displayTotal    = displayBase + displayGst;
 
   return (
     <div style={{ padding: "32px 28px", maxWidth: 820, margin: "0 auto" }}>
@@ -673,25 +676,36 @@ export function PricingScreen() {
 
         {/* Price breakdown */}
         <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--color-border)" }}>
-          <div style={{ fontSize: 12.5, color: "var(--color-text-secondary)", lineHeight: 1.8 }}>
-            <span>₹{(billing === "monthly" ? plan.monthlyPrice : plan.yearlyPrice).toLocaleString("en-IN")}{billingLabel} base (1 user)</span>
+          <div style={{ fontSize: 12.5, color: "var(--color-text-secondary)", lineHeight: 1.9 }}>
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <span>Base — 1 user ({billing === "monthly" ? "monthly" : "yearly"})</span>
+              <span>₹{(billing === "monthly" ? plan.monthlyPrice : plan.yearlyPrice).toLocaleString("en-IN")}</span>
+            </div>
             {licences > 1 && (
-              <>
-                <br />
-                <span>
-                  + ₹{((licences - 1) * 249 * (billing === "yearly" ? 12 : 1)).toLocaleString("en-IN")}{billingLabel}
-                  {" "}({licences - 1} extra user{licences > 2 ? "s" : ""} × ₹249{billing === "yearly" ? " × 12" : ""})
-                </span>
-              </>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span>{licences - 1} extra user{licences > 2 ? "s" : ""} × ₹249{billing === "yearly" ? " × 12" : ""}</span>
+                <span>₹{((licences - 1) * 249 * (billing === "yearly" ? 12 : 1)).toLocaleString("en-IN")}</span>
+              </div>
             )}
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <span>GST @ 18% (SAC 998314)</span>
+              <span>₹{displayGst.toLocaleString("en-IN")}</span>
+            </div>
           </div>
-          <div style={{ fontSize: 17, fontWeight: 800, color: "#7c3aed", marginTop: 6 }}>
-            Total: ₹{displayTotal.toLocaleString("en-IN")}{billingLabel}
-            {billing === "yearly" && (
-              <span style={{ fontSize: 12.5, fontWeight: 400, color: "var(--color-text-tertiary)", marginLeft: 10 }}>
-                (₹{Math.round(displayTotal / 12).toLocaleString("en-IN")}/month)
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", borderTop: "1px dashed var(--color-border)", marginTop: 8, paddingTop: 8 }}>
+            <div style={{ fontSize: 17, fontWeight: 800, color: "#7c3aed" }}>
+              Total{billingLabel}
+            </div>
+            <div>
+              <span style={{ fontSize: 17, fontWeight: 800, color: "#7c3aed" }}>
+                ₹{displayTotal.toLocaleString("en-IN")}
               </span>
-            )}
+              {billing === "yearly" && (
+                <span style={{ fontSize: 12, fontWeight: 400, color: "var(--color-text-tertiary)", marginLeft: 8 }}>
+                  (₹{Math.round(displayTotal / 12).toLocaleString("en-IN")}/mo incl. GST)
+                </span>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -730,8 +744,8 @@ export function PricingScreen() {
 
       <p style={{ marginTop: 18, fontSize: 11.5, color: "var(--color-text-tertiary)", lineHeight: 1.6 }}>
         Base plan is for 1 user. Extra accounts ₹249/user/month; daily invoice limit scales with user count.
-        Prices in INR inclusive of all taxes. Cancel anytime.
-        Own API Key plan requires a valid OpenAI and/or Gemini API key set in Settings → API Keys.
+        Prices shown are base amounts (excl. GST). 18% GST (SAC 998314) is added at checkout.
+        Cancel anytime. Own API Key plan requires a valid OpenAI and/or Gemini API key set in Settings → API Keys.
         Click a Pro card to select a variant before starting your trial.
       </p>
 
@@ -780,6 +794,8 @@ export function PricingScreen() {
         <DummyPaymentModal
           apiOption={apiOption}
           billing={billing}
+          basePaise={displayBase * 100}
+          gstPaise={displayGst * 100}
           totalPaise={displayTotal * 100}
           onSuccess={(plan) => {
             setShowDummyPayment(false);
