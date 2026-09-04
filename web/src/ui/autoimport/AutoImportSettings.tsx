@@ -12,7 +12,7 @@ import { isSupabaseEnabled } from "../../data/supabase";
 import { auth } from "../../data/AuthStore";
 import { BusinessProfileModal } from "../shared/BusinessProfileModal";
 import type { ExtractionResult, ExtractedInvoice } from "../../core/extraction/models";
-import { prefs } from "../../data/AutoImportPreferences";
+import { prefs, getCachedTrialDays } from "../../data/AutoImportPreferences";
 import { PROFESSIONAL_PROFILE_LABEL, type ProfessionalProfile } from "../../core/extraction/ProfessionalCategoryDetector";
 import { DummyPaymentModal } from "../payment/DummyPaymentModal";
 
@@ -316,9 +316,10 @@ export function AutoImportSettings() {
   const [trialStartedAt, setTrialStartedAt] = useState(() => prefs.trialStartedAt);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [proEndDate, setProEndDate]   = useState<string | null>(() => prefs.proEndDate);
-  const isInTrial = !!trialStartedAt && Date.now() - new Date(trialStartedAt).getTime() < 14 * 86400000;
-  const trialDaysLeft = trialStartedAt ? Math.max(0, Math.ceil((14 * 86400000 - (Date.now() - new Date(trialStartedAt).getTime())) / 86400000)) : 0;
-  const trialEndDate = trialStartedAt ? new Date(new Date(trialStartedAt).getTime() + 14 * 86400000) : null;
+  const _trialMs = getCachedTrialDays() * 86400000;
+  const isInTrial = !!trialStartedAt && Date.now() - new Date(trialStartedAt).getTime() < _trialMs;
+  const trialDaysLeft = trialStartedAt ? Math.max(0, Math.ceil((_trialMs - (Date.now() - new Date(trialStartedAt).getTime())) / 86400000)) : 0;
+  const trialEndDate = trialStartedAt ? new Date(new Date(trialStartedAt).getTime() + _trialMs) : null;
 
   const handleStartTrial = () => {
     prefs.startTrial();

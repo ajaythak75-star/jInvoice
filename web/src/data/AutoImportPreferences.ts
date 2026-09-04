@@ -214,7 +214,8 @@ export const prefs = {
   get trialDaysLeft(): number {
     const s = get("trial_started_at");
     if (!s) return 0;
-    const ms = 14 * 24 * 60 * 60 * 1000 - (Date.now() - new Date(s).getTime());
+    const days = getCachedTrialDays();
+    const ms = days * 24 * 60 * 60 * 1000 - (Date.now() - new Date(s).getTime());
     return Math.max(0, Math.ceil(ms / (24 * 60 * 60 * 1000)));
   },
 

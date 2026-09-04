@@ -355,7 +355,7 @@ export function PricingScreen() {
       )}
       {!loading && !isSubscribed && trialStarted && !inTrial && sub?.status !== "cancelled" && (
         <div style={{ marginBottom: 20, padding: "12px 16px", borderRadius: 10, background: "#fff7ed", border: "1px solid #fdba74", color: "#92400e", fontSize: 13, fontWeight: 600 }}>
-          ⚠ Your 14-day trial has ended. Subscribe below to restore Pro features.
+          ⚠ Your {planSettings.trial_days}-day trial has ended. Subscribe below to restore Pro features.
         </div>
       )}
 
@@ -628,7 +628,7 @@ export function PricingScreen() {
                   onClick={() => setShowProfileModal(true)}
                   style={{ padding: "10px 24px", borderRadius: 8, border: "none", background: "#7c3aed", color: "#fff", fontSize: 13.5, fontWeight: 700, cursor: "pointer" }}
                 >
-                  Start 14-day free trial
+                  Start {planSettings.trial_days}-day free trial
                 </button>
                 <span style={{ fontSize: 11.5, color: "var(--color-text-tertiary)" }}>No credit card required</span>
               </>

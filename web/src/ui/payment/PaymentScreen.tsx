@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { prefs } from "../../data/AutoImportPreferences";
+import { prefs, getCachedTrialDays } from "../../data/AutoImportPreferences";
 
 type Billing = "monthly" | "yearly";
 type ApiOption = "shared" | "own";
@@ -102,7 +102,7 @@ export function PaymentScreen() {
       )}
       {!isSubscribed && trialStarted && !isInTrial && (
         <div style={{ marginBottom: 20, padding: "12px 16px", borderRadius: 10, background: "#fff7ed", border: "1px solid #fdba74", color: "#92400e", fontSize: 13, fontWeight: 600 }}>
-          ⚠ Your 14-day trial has ended. Activate Pro to restore access.
+          ⚠ Your {getCachedTrialDays()}-day trial has ended. Activate Pro to restore access.
         </div>
       )}
 
@@ -268,7 +268,7 @@ export function PaymentScreen() {
                   fontWeight: 700, cursor: "pointer",
                 }}
               >
-                Start 14-day free trial
+                Start {getCachedTrialDays()}-day free trial
               </button>
               <span style={{ fontSize: 11.5, color: "var(--color-text-tertiary)" }}>
                 No credit card required

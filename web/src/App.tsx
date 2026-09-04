@@ -14,7 +14,7 @@ import { AboutScreen } from "./ui/help/AboutScreen";
 import { LoginScreen } from "./ui/auth/LoginScreen";
 import { AdminScreen } from "./ui/admin/AdminScreen";
 import { auth } from "./data/AuthStore";
-import { prefs } from "./data/AutoImportPreferences";
+import { prefs, getCachedTrialDays } from "./data/AutoImportPreferences";
 import { schedulePolling } from "./service/AutoImportService";
 import { checkAndNotify } from "./service/NotificationService";
 import { startMobileSync } from "./service/MobileSyncService";
@@ -32,7 +32,7 @@ function TrialExpiredBanner({ onSubscribe, onContinueFree }: { onSubscribe: () =
       fontSize: 13, flexShrink: 0,
     }}>
       <span style={{ color: "#92400e", fontWeight: 600 }}>
-        ⚠ Your 14-day Pro trial has ended. Subscribe to keep Pro features, or continue on the free plan.
+        ⚠ Your {getCachedTrialDays()}-day Pro trial has ended. Subscribe to keep Pro features, or continue on the free plan.
       </span>
       <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
         <button
