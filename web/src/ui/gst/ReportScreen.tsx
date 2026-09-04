@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useState, useMemo } from "react";
 import { GSTReportScreen } from "./GSTReportScreen";
-import { db, type InvoiceMeta } from "../../data/InvoiceDatabase";
+import { db, type InvoiceMeta, type LineItemRow } from "../../data/InvoiceDatabase";
 import { prefs } from "../../data/AutoImportPreferences";
 
 type ReportTab = "gst" | "period" | "vendor" | "tags" | "category"
                | "summary" | "personal_budget" | "personal_tax"
-               | "society_ledger" | "society_audit" | "society_vendor" | "society_dues" | "society_sinking"
+               | "society_ledger" | "society_audit" | "society_vendor" | "society_dues" | "society_sinking" | "society_quotes"
                | "bookkeeper_ledger"
                | "shop_purchase_register" | "shop_expense_head" | "shop_gst_summary"
                | "tc_client_summary" | "tc_tds_tracker" | "tc_fy_comparison" | "tc_gstr2a"
@@ -2172,6 +2172,336 @@ function SocietySinkingFundTab({ records }: { records: InvoiceMeta[] }) {
   );
 }
 
+// ── Society Quotation Comparison ──────────────────────────────────────────────
+
+const QUOTE_SETS_KEY = "jinvoice_society_quote_sets";
+
+interface QuoteSet {
+  id: string;
+  name: string;
+  invoiceIds: number[];
+  awardedId: number | null;
+  createdAt: string;
+  lockedAt: string | null;
+}
+
+function loadQuoteSets(): QuoteSet[] {
+  try { return JSON.parse(localStorage.getItem(QUOTE_SETS_KEY) ?? "[]"); }
+  catch { return []; }
+}
+function saveQuoteSets(sets: QuoteSet[]): void {
+  try { localStorage.setItem(QUOTE_SETS_KEY, JSON.stringify(sets)); } catch {}
+}
+
+function SocietyQuotesTab({ records }: { records: InvoiceMeta[] }) {
+  const [quoteSets, setQuoteSets] = useState<QuoteSet[]>(() => loadQuoteSets());
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [lineItemsMap, setLineItemsMap] = useState<Map<number, LineItemRow[]>>(new Map());
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+
+  const quotationInvoices = useMemo(() =>
+    records
+      .filter(r => {
+        const cat = r.docTypes?.[0] ?? r.docType ?? r.category;
+        return cat === "quotation";
+      })
+      .sort((a, b) => (b.invoiceDate ?? "").localeCompare(a.invoiceDate ?? "")),
+    [records]
+  );
+
+  useEffect(() => {
+    if (!expandedId) return;
+    const qs = quoteSets.find(s => s.id === expandedId);
+    if (!qs || qs.invoiceIds.length === 0) { setLineItemsMap(new Map()); return; }
+    db.lineItems.where("invoiceId").anyOf(qs.invoiceIds).toArray().then(items => {
+      const map = new Map<number, LineItemRow[]>();
+      for (const item of items) {
+        if (!map.has(item.invoiceId)) map.set(item.invoiceId, []);
+        map.get(item.invoiceId)!.push(item);
+      }
+      setLineItemsMap(map);
+    });
+  }, [expandedId, quoteSets]);
+
+  function createSet() {
+    if (!newName.trim() || selectedIds.size < 2) return;
+    const qs: QuoteSet = {
+      id: String(Date.now()),
+      name: newName.trim(),
+      invoiceIds: [...selectedIds],
+      awardedId: null,
+      createdAt: new Date().toISOString(),
+      lockedAt: null,
+    };
+    const next = [qs, ...quoteSets];
+    setQuoteSets(next);
+    saveQuoteSets(next);
+    setCreating(false);
+    setNewName("");
+    setSelectedIds(new Set());
+    setExpandedId(qs.id);
+  }
+
+  async function awardVendor(setId: string, invoiceId: number) {
+    const qs = quoteSets.find(s => s.id === setId);
+    if (!qs || qs.lockedAt) return;
+    const next = quoteSets.map(s =>
+      s.id === setId ? { ...s, awardedId: invoiceId, lockedAt: new Date().toISOString() } : s
+    );
+    setQuoteSets(next);
+    saveQuoteSets(next);
+    for (const id of qs.invoiceIds) {
+      const tag = id === invoiceId ? "Awarded" : "Rejected";
+      await db.invoices.update(id, { projectTag: tag, updatedAt: new Date().toISOString() });
+    }
+  }
+
+  function doDelete(setId: string) {
+    const next = quoteSets.filter(s => s.id !== setId);
+    setQuoteSets(next);
+    saveQuoteSets(next);
+    if (expandedId === setId) setExpandedId(null);
+    setConfirmDelete(null);
+  }
+
+  function toggleSelect(id: number) {
+    setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  }
+
+  return (
+    <div style={{ padding: "20px", maxWidth: 1100, margin: "0 auto" }}>
+      <div style={{ marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
+        <div>
+          <h2 style={{ fontSize: 18, fontWeight: 700, color: "var(--color-text)", margin: 0 }}>Quotation Comparison</h2>
+          <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 3 }}>Group vendor quotes for the same work, compare side-by-side, and mark the winner for the committee record</p>
+        </div>
+        {!creating && (
+          <button onClick={() => setCreating(true)}
+            style={{ padding: "8px 18px", borderRadius: 8, border: "none", background: "var(--color-primary)", color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600, flexShrink: 0 }}>
+            + New Quote Set
+          </button>
+        )}
+      </div>
+
+      {creating && (
+        <div style={{ background: "var(--color-surface)", border: "1.5px solid var(--color-primary)", borderRadius: 12, padding: "16px 20px", marginBottom: 20 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "var(--color-text)", marginBottom: 12 }}>New Quote Set</div>
+          <input type="text" placeholder="Project name — e.g. Exterior Painting 2026" value={newName} onChange={e => setNewName(e.target.value)}
+            style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "1px solid var(--color-border)", background: "var(--color-bg)", color: "var(--color-text)", fontSize: 13, marginBottom: 12, boxSizing: "border-box" as const }} />
+          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 8 }}>
+            Select Quotes to Compare ({selectedIds.size} selected — min 2)
+          </div>
+          {quotationInvoices.length === 0 ? (
+            <div style={{ fontSize: 12, color: "var(--color-text-secondary)", padding: "12px 0" }}>
+              No invoices categorised as "Quotation" yet. Upload vendor quotes and set their category to "Quotation" in the detail panel first.
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 240, overflowY: "auto", marginBottom: 12 }}>
+              {quotationInvoices.map(r => {
+                const id = r.id!;
+                const checked = selectedIds.has(id);
+                return (
+                  <label key={id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 8, background: checked ? "color-mix(in srgb, var(--color-primary) 8%, transparent)" : "var(--color-surface-2)", border: "1px solid", borderColor: checked ? "var(--color-primary)" : "var(--color-border)", cursor: "pointer" }}>
+                    <input type="checkbox" checked={checked} onChange={() => toggleSelect(id)} style={{ accentColor: "var(--color-primary)", width: 15, height: 15, flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.merchantName ?? "Unknown Vendor"}</div>
+                      <div style={{ fontSize: 11, color: "var(--color-text-secondary)" }}>
+                        {r.invoiceDate ? new Date(r.invoiceDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "No date"}
+                        {r.invoiceNumber ? ` · ${r.invoiceNumber}` : ""}
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "var(--color-text)", fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>{fmtRupee(r.grandTotalPaise ?? 0)}</div>
+                  </label>
+                );
+              })}
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            <button onClick={() => { setCreating(false); setNewName(""); setSelectedIds(new Set()); }}
+              style={{ padding: "7px 16px", borderRadius: 8, border: "1px solid var(--color-border)", background: "transparent", color: "var(--color-text-secondary)", cursor: "pointer", fontSize: 13 }}>Cancel</button>
+            <button onClick={createSet} disabled={!newName.trim() || selectedIds.size < 2}
+              style={{ padding: "7px 16px", borderRadius: 8, border: "none", background: newName.trim() && selectedIds.size >= 2 ? "var(--color-primary)" : "var(--color-border)", color: newName.trim() && selectedIds.size >= 2 ? "#fff" : "var(--color-text-tertiary)", cursor: newName.trim() && selectedIds.size >= 2 ? "pointer" : "not-allowed", fontSize: 13, fontWeight: 600 }}>
+              Create Quote Set
+            </button>
+          </div>
+        </div>
+      )}
+
+      {quoteSets.length === 0 && !creating ? (
+        <div style={{ textAlign: "center", padding: "48px 24px", color: "var(--color-text-secondary)", fontSize: 13, background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10 }}>
+          <div style={{ fontWeight: 600, marginBottom: 6 }}>No quote sets yet</div>
+          <div style={{ fontSize: 12, opacity: 0.8 }}>Upload vendor quotations, set their category to "Quotation" in the detail panel, then click "New Quote Set" to compare them side-by-side.</div>
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {quoteSets.map(qs => {
+            const isExpanded = expandedId === qs.id;
+            const isLocked = !!qs.lockedAt;
+            const qsInvoices = qs.invoiceIds.map(id => records.find(r => r.id === id)).filter(Boolean) as InvoiceMeta[];
+            const isConfirming = confirmDelete === qs.id;
+
+            return (
+              <div key={qs.id} style={{ background: "var(--color-surface)", border: "1.5px solid", borderColor: isLocked && qs.awardedId ? "#bbf7d0" : "var(--color-border)", borderRadius: 12, overflow: "hidden" }}>
+                <div onClick={() => setExpandedId(isExpanded ? null : qs.id)}
+                  style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", cursor: "pointer", background: isExpanded ? "color-mix(in srgb, var(--color-primary) 4%, transparent)" : "transparent" }}>
+                  <span style={{ fontSize: 11, color: "var(--color-primary)", opacity: 0.7 }}>{isExpanded ? "▼" : "▶"}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: "var(--color-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{qs.name}</div>
+                    <div style={{ fontSize: 11, color: "var(--color-text-secondary)", marginTop: 2 }}>
+                      {qs.invoiceIds.length} vendor{qs.invoiceIds.length !== 1 ? "s" : ""} · {new Date(qs.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+                    <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 20, background: isLocked && qs.awardedId ? "#dcfce7" : isLocked ? "#f1f5f9" : "#fef9c3", color: isLocked && qs.awardedId ? "#15803d" : isLocked ? "#64748b" : "#a16207" }}>
+                      {isLocked && qs.awardedId ? "Awarded" : isLocked ? "Closed" : "Open"}
+                    </span>
+                    {isConfirming ? (
+                      <>
+                        <span style={{ fontSize: 11, color: "#dc2626" }}>Delete?</span>
+                        <button onClick={() => doDelete(qs.id)} style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, border: "1px solid #dc2626", background: "#dc2626", color: "#fff", cursor: "pointer" }}>Yes</button>
+                        <button onClick={() => setConfirmDelete(null)} style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, border: "1px solid var(--color-border)", background: "transparent", color: "var(--color-text-secondary)", cursor: "pointer" }}>No</button>
+                      </>
+                    ) : (
+                      <button onClick={() => setConfirmDelete(qs.id)} style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, border: "1px solid var(--color-border)", background: "transparent", color: "var(--color-text-tertiary)", cursor: "pointer" }}>Delete</button>
+                    )}
+                  </div>
+                </div>
+
+                {isExpanded && (
+                  <div style={{ borderTop: "1px solid var(--color-border)", padding: "16px", overflowX: "auto" }}>
+                    {qsInvoices.length === 0 ? (
+                      <div style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>No matching invoices found in the database.</div>
+                    ) : (
+                      <>
+                        <table style={{ borderCollapse: "collapse", minWidth: Math.max(600, qsInvoices.length * 220) }}>
+                          <colgroup>
+                            <col style={{ width: 140 }} />
+                            {qsInvoices.map(r => <col key={r.id} style={{ width: 210 }} />)}
+                          </colgroup>
+                          <thead>
+                            <tr style={{ borderBottom: "1.5px solid var(--color-border)" }}>
+                              <th style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase" as const, letterSpacing: "0.06em", padding: "8px 12px", textAlign: "left" }}></th>
+                              {qsInvoices.map(r => {
+                                const isAwarded = qs.awardedId === r.id;
+                                const isRejected = isLocked && !isAwarded;
+                                return (
+                                  <th key={r.id} style={{ padding: "8px 12px", textAlign: "left", borderLeft: "1px solid var(--color-border)", background: isAwarded ? "#f0fdf4" : isRejected ? "color-mix(in srgb, #94a3b8 6%, transparent)" : "transparent" }}>
+                                    <div style={{ fontSize: 13, fontWeight: 700, color: isAwarded ? "#15803d" : isRejected ? "var(--color-text-tertiary)" : "var(--color-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                      {isAwarded ? "✓ " : isRejected ? "✗ " : ""}{r.merchantName ?? "Unknown"}
+                                    </div>
+                                    {isAwarded && <div style={{ fontSize: 10, fontWeight: 700, color: "#16a34a", marginTop: 2, letterSpacing: "0.04em" }}>AWARDED</div>}
+                                    {isRejected && <div style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", marginTop: 2, letterSpacing: "0.04em" }}>REJECTED</div>}
+                                  </th>
+                                );
+                              })}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <tr style={{ borderBottom: "1px solid var(--color-border)", background: "var(--color-surface-2)" }}>
+                              <td style={{ fontSize: 11, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase" as const, letterSpacing: "0.05em", padding: "9px 12px" }}>Total Amount</td>
+                              {qsInvoices.map(r => {
+                                const isAwarded = qs.awardedId === r.id;
+                                const lowestId = [...qsInvoices].sort((a, b) => (a.grandTotalPaise ?? 0) - (b.grandTotalPaise ?? 0))[0]?.id;
+                                const isLowest = lowestId === r.id;
+                                return (
+                                  <td key={r.id} style={{ padding: "9px 12px", borderLeft: "1px solid var(--color-border)", background: isAwarded ? "#f0fdf4" : "transparent" }}>
+                                    <span style={{ fontSize: 14, fontWeight: 700, color: isLowest ? "#16a34a" : "var(--color-text)", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(r.grandTotalPaise ?? 0)}</span>
+                                    {isLowest && !isLocked && <span style={{ fontSize: 9, fontWeight: 700, color: "#16a34a", marginLeft: 5, background: "#dcfce7", padding: "1px 5px", borderRadius: 4 }}>LOWEST</span>}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                            <tr style={{ borderBottom: "1px solid var(--color-border)" }}>
+                              <td style={{ fontSize: 11, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase" as const, letterSpacing: "0.05em", padding: "9px 12px" }}>Quote Date</td>
+                              {qsInvoices.map(r => (
+                                <td key={r.id} style={{ padding: "9px 12px", fontSize: 12.5, color: "var(--color-text-secondary)", borderLeft: "1px solid var(--color-border)", background: qs.awardedId === r.id ? "#f0fdf4" : "transparent" }}>
+                                  {r.invoiceDate ? new Date(r.invoiceDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—"}
+                                </td>
+                              ))}
+                            </tr>
+                            <tr style={{ borderBottom: "1px solid var(--color-border)", background: "var(--color-surface-2)" }}>
+                              <td style={{ fontSize: 11, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase" as const, letterSpacing: "0.05em", padding: "9px 12px" }}>Quote Ref</td>
+                              {qsInvoices.map(r => (
+                                <td key={r.id} style={{ padding: "9px 12px", fontSize: 12, color: "var(--color-text-secondary)", borderLeft: "1px solid var(--color-border)", background: qs.awardedId === r.id ? "#f0fdf4" : "transparent" }}>
+                                  {r.invoiceNumber ?? "—"}
+                                </td>
+                              ))}
+                            </tr>
+                            {/* Line items section */}
+                            {(() => {
+                              const allNames = [...new Set(qsInvoices.flatMap(r => (lineItemsMap.get(r.id!) ?? []).map(i => i.name)))];
+                              if (allNames.length === 0) return null;
+                              return (
+                                <>
+                                  <tr style={{ borderBottom: "1px solid var(--color-border)", background: "color-mix(in srgb, var(--color-primary) 5%, transparent)" }}>
+                                    <td colSpan={qsInvoices.length + 1} style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-primary)", textTransform: "uppercase" as const, letterSpacing: "0.06em", padding: "6px 12px" }}>Line Items</td>
+                                  </tr>
+                                  {allNames.map((name, ni) => (
+                                    <tr key={name} style={{ borderBottom: "1px solid var(--color-border)", background: ni % 2 === 0 ? "transparent" : "var(--color-surface-2)" }}>
+                                      <td style={{ fontSize: 11.5, color: "var(--color-text)", padding: "7px 12px 7px 20px", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={name}>{name}</td>
+                                      {qsInvoices.map(r => {
+                                        const item = (lineItemsMap.get(r.id!) ?? []).find(i => i.name === name);
+                                        return (
+                                          <td key={r.id} style={{ padding: "7px 12px", fontSize: 12.5, color: item ? "var(--color-text)" : "var(--color-text-tertiary)", textAlign: "right", fontVariantNumeric: "tabular-nums", borderLeft: "1px solid var(--color-border)", background: qs.awardedId === r.id ? "#f0fdf4" : "transparent" }}>
+                                            {item ? fmtRupee(item.totalPricePaise) : "—"}
+                                          </td>
+                                        );
+                                      })}
+                                    </tr>
+                                  ))}
+                                </>
+                              );
+                            })()}
+                          </tbody>
+                        </table>
+
+                        {!isLocked && (
+                          <div style={{ display: "flex", gap: 10, marginTop: 16, flexWrap: "wrap", alignItems: "center" }}>
+                            <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>Award this contract to:</span>
+                            {qsInvoices.map(r => (
+                              <button key={r.id} onClick={() => awardVendor(qs.id, r.id!)}
+                                style={{ padding: "7px 16px", borderRadius: 8, border: "1.5px solid #16a34a", background: "transparent", color: "#16a34a", cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
+                                {r.merchantName ?? `Vendor ${r.id}`}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+
+                        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 14 }}>
+                          <CsvButton onClick={() => {
+                            const rows: (string | number)[][] = [
+                              ["", ...qsInvoices.map(r => r.merchantName ?? "Unknown")],
+                              ["Total Amount (₹)", ...qsInvoices.map(r => ((r.grandTotalPaise ?? 0) / 100).toFixed(2))],
+                              ["Quote Date", ...qsInvoices.map(r => r.invoiceDate?.slice(0, 10) ?? "")],
+                              ["Quote Ref", ...qsInvoices.map(r => r.invoiceNumber ?? "")],
+                              ["Status", ...qsInvoices.map(r => qs.awardedId === r.id ? "Awarded" : qs.lockedAt ? "Rejected" : "Open")],
+                            ];
+                            const allNames = [...new Set(qsInvoices.flatMap(r => (lineItemsMap.get(r.id!) ?? []).map(i => i.name)))];
+                            for (const name of allNames) {
+                              rows.push([name, ...qsInvoices.map(r => {
+                                const item = (lineItemsMap.get(r.id!) ?? []).find(i => i.name === name);
+                                return item ? (item.totalPricePaise / 100).toFixed(2) : "";
+                              })]);
+                            }
+                            downloadCSV(`quote-comparison-${qs.name.replace(/\s+/g, "-").toLowerCase()}.csv`, rows);
+                          }} />
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Bookkeeper Ledger ─────────────────────────────────────────────────────────
 
 const BOOKKEEPER_ACCOUNT_HEADS: { key: string; label: string }[] = [
@@ -3381,7 +3711,7 @@ function visibleTabs(mode: string): ReportTab[] {
   if (GST_PROFILES.includes(mode as UserProfile)) tabs.unshift("gst");
   if (TAGS_PROFILES.includes(mode as UserProfile)) tabs.push("tags");
   if (mode === "personal")      tabs.push("personal_budget", "personal_tax");
-  if (mode === "society")       { tabs.push("society_ledger"); tabs.push("society_vendor"); tabs.push("society_dues"); tabs.push("society_sinking"); tabs.push("society_audit"); }
+  if (mode === "society")       { tabs.push("society_ledger"); tabs.push("society_vendor"); tabs.push("society_dues"); tabs.push("society_sinking"); tabs.push("society_quotes"); tabs.push("society_audit"); }
   if (mode === "bookkeeper")    tabs.push("bookkeeper_ledger");
   if (mode === "shopkeeper")    tabs.push("shop_purchase_register", "shop_expense_head", "shop_gst_summary");
   if (mode === "tax_consultant") tabs.push("tc_client_summary", "tc_tds_tracker", "tc_fy_comparison", "tc_gstr2a");
@@ -3412,6 +3742,7 @@ export function ReportScreen() {
     { id: "society_vendor",    label: "Vendors" },
     { id: "society_dues",      label: "Dues" },
     { id: "society_sinking",   label: "Sinking Fund" },
+    { id: "society_quotes",    label: "Quotes" },
     { id: "society_audit",     label: "Audit (I&E)" },
     { id: "bookkeeper_ledger", label: "Account Book" },
     { id: "shop_purchase_register", label: "Purchase Register" },
@@ -3473,6 +3804,7 @@ export function ReportScreen() {
         {activeTab === "society_vendor"    && <SocietyVendorTab      records={records} />}
         {activeTab === "society_dues"      && <SocietyDuesTab        records={records} />}
         {activeTab === "society_sinking"   && <SocietySinkingFundTab records={records} />}
+        {activeTab === "society_quotes"    && <SocietyQuotesTab      records={records} />}
         {activeTab === "society_audit"     && <SocietyAuditTab       records={records} />}
         {activeTab === "bookkeeper_ledger" && <BookkeeperLedgerTab   records={records} />}
         {activeTab === "shop_purchase_register" && <ShopkeeperPurchaseRegisterTab records={records} />}
