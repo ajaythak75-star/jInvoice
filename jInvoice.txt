@@ -720,6 +720,300 @@ No app in India today lets Store A fulfill a customer using Store B's stock with
 > The only platform that gives Indian consumers verified real-transaction price intelligence for touch-before-you-buy categories, and connects neighborhood stores into a shared Virtual Inventory Network — none of which any existing player is building.
 
 
+## Feature Backlog — Scoped & Pending Build
+
+Features below have been designed and scoped but not yet implemented. Each has enough detail to build from directly.
+
+---
+
+### Infra & Connectivity
+
+#### IMAP + Gmail App Password (replaces Google OAuth 2.0)
+Replace the current Google OAuth Gmail flow with direct IMAP access using a Gmail App Password. Eliminates Google Cloud Console setup, consent screen, and the 100-user OAuth cap.
+
+**Current state:** IMAP is already partially built.
+- `web/src/autoimport/ImapConnector.ts` — full client connector (status, save, test, disconnect, pollAndDownload)
+- `web/server/proxy.mjs:676–774` — 5 server routes via `imapflow` connecting to `imap.gmail.com:993`
+
+**Blocker:** Both sides require a Supabase JWT to identify the user. Since auth is disabled, `_imapGetUserId()` returns null → all routes return 401.
+
+**Chosen approach (Option A — localStorage):**
+- Store app password encrypted in localStorage
+- Send credentials in request body, not stored server-side
+- Remove Supabase JWT requirement from IMAP routes
+- Files to change:
+  1. `web/src/autoimport/ImapConnector.ts` — remove Supabase token logic, pass creds in body
+  2. `web/server/proxy.mjs` — remove `_imapGetUserId`/`_imapLoadCreds`/`_imapSaveCreds`; accept creds in body directly
+  3. `web/src/ui/autoimport/AutoImportSettings.tsx` — add IMAP credential input UI
+
+---
+
+#### Desktop Folder Storage for Imported PDFs
+Write imported PDFs to a user-chosen folder on their computer (in addition to IndexedDB), so they are browsable outside jInvoice. One subfolder per email account.
+
+```
+~/Desktop/jInvoice/
+  ├── ajay@gmail.com/
+  │   ├── Amazon_Invoice_Aug2026.pdf
+  │   └── Swiggy_Receipt.pdf
+  └── work@company.com/
+      └── Flipkart_Order.pdf
+```
+
+**Tech:** File System Access API (`showDirectoryPicker()`). Chrome / Edge only — does not work on Firefox or Safari.
+- Store `FileSystemDirectoryHandle` in IndexedDB, persists across sessions
+- On startup: if folder configured, trigger one `requestPermission({ mode: 'readwrite' })` click
+
+**Files to build:**
+1. `web/src/data/DesktopFolderStore.ts` — NEW: manage directory handle in IndexedDB
+2. `web/src/ui/settings/SettingsScreen.tsx` — add "Desktop Folder" section (pick, show path, clear)
+3. Import pipeline — after PDF saved to IndexedDB, also write to folder subfolder
+4. `web/src/App.tsx` — on startup permission trigger
+
+---
+
+#### Chrome Extension — Invoice Capture
+A Chrome extension that captures invoices directly from shopping sites without needing email import.
+
+**Capabilities:**
+1. **Invoice page detector** — content script scans the active tab for invoice/order PDF links (Amazon, Flipkart, Myntra, Swiggy, Zomato, etc.) and shows a "Send to jInvoice" button in the extension popup
+2. **Context menu** — right-click any PDF link → "Import to jInvoice"
+3. **Download intercept** — `chrome.downloads.onCreated` catches invoice-like PDF downloads and offers to import
+4. **Cache scanner** — `chrome.browsingData` API scans cached responses from known merchant domains for bulk import (useful for users with months of existing orders)
+5. **One-click send** — POSTs PDF binary to jInvoice extraction endpoint (`localhost:5173` or Render URL, configurable in extension popup)
+
+**Architecture:**
+```
+Extension (Manifest V3)
+  ├── content.js       — DOM scan for invoice PDF links on page
+  ├── background.js    — downloads.onCreated listener + context menu handler
+  ├── popup.html/js    — endpoint config + import button + status
+  └── chrome.storage   — stores jInvoice endpoint URL
+          │
+          ▼
+  POST /api/import (multipart PDF)
+          │
+          ▼
+  ExtractionPipeline.ts — existing flow unchanged
+```
+
+**Permissions:** `downloads`, `activeTab`, `storage`, `contextMenus`, `browsingData`
+
+**Files to build:**
+- `extension/manifest.json`, `extension/background.js`, `extension/content.js`, `extension/popup.html`, `extension/popup.js`
+- `web/server/proxy.mjs` — add `POST /api/import` accepting multipart PDF → calls `extractFilePreview`
+
+---
+
+#### Mobile ↔ Desktop Sync
+When a user scans or imports an invoice on mobile, it appears on their desktop jInvoice web app — and vice versa. The desktop folder (File System Access API) is auto-populated as invoices arrive from mobile.
+
+**What syncs:**
+- Invoice metadata: merchant name, date, total, category, docType, tags, sourceFilename
+- Line items (pro users only)
+- PDF binary: NOT transmitted through server — transferred via Supabase Storage signed URL (24h expiry)
+- Raw extracted text: NEVER transmitted (DPDP / GDPR constraint)
+
+**Architecture:**
+```
+Mobile (Android / iOS)
+  └── on extraction complete → POST metadata to /api/sync/delta
+                                    │
+                                    ▼
+                           Supabase / PostgreSQL
+                           (metadata only — no text)
+                                    │
+                              Realtime or polling
+                                    │
+                                    ▼
+                    Desktop Web App (SyncService.ts)
+                      ├── receives new invoice metadata
+                      ├── downloads PDF via signed URL
+                      ├── writes PDF to desktop folder (File System Access API)
+                      └── runs local extraction if not already done
+```
+
+**Conflict resolution:** last-write-wins on metadata; local extraction result is always authoritative.
+
+**Files to build:**
+- `web/src/sync/SyncService.ts` — NEW: delta sync client (Supabase Realtime or polling)
+- `web/server/proxy.mjs` — add `GET/POST /api/sync/delta` endpoints
+- `web/src/data/InvoiceDatabase.ts` — add `lastSyncedAt` field and sync queue table
+- `web/src/data/DesktopFolderStore.ts` — hook into sync delivery to write PDF to folder
+- Mobile (Android / iOS) — push sync on extraction complete
+
+---
+
+#### Desktop Folder Storage for Imported PDFs
+Point user's GoDaddy domain to the Render-hosted app.
+
+**Steps (not yet done):**
+1. Render dashboard → service Settings → Custom Domains → Add → get CNAME target
+2. GoDaddy DNS → Add CNAME: Name `www`, Value = Render CNAME target, TTL 600
+3. Render auto-provisions TLS after DNS propagates (~10–30 min)
+
+**Root domain note:** GoDaddy does not support CNAME on `@`. Use `www` subdomain + set GoDaddy redirect from `@` → `www`.
+
+---
+
+### Extraction & Routing Fixes
+
+#### Society Profile + Payroll Prompt Priority
+When a payslip is uploaded while the Society profile is active, `getExtractionPrompt` routes to `PROMPT_SOCIETY` because the `mode === "society"` check runs before the filename regex `/payslip|payroll|salaryslip|salary.?slip|paystub/i`. Fix: move the payroll filename check above all profile checks.
+
+**Files to change (all 3 must be updated together):**
+- `web/src/extraction/ClaudeExtractor.ts` — `getExtractionPrompt()`
+- `web/server/proxy.mjs` — server-side `getExtractionPrompt()`
+- `web/server/prod.mjs` — production server-side `getExtractionPrompt()`
+
+---
+
+#### Pro Gate on Line Items (Free vs Pro)
+Free users should not see the full items table on invoice detail cards. Wrap the items section in ViewScreen.tsx (around line 902) with a `prefs.isProActive` check:
+- **Free:** blurred/locked teaser showing item count only
+- **Pro:** full items table with quantities, unit prices, totals
+
+---
+
+### UI / Reports
+
+#### Report / Tag Drill-Down to Invoice List
+Clicking a report row (e.g. "Food & Dining ₹4,200") or a tag chip in ReportScreen should navigate to ViewScreen pre-filtered to matching invoices.
+
+**Implementation:** Pass filter params (category, tag, date range) to ViewScreen via shared state or `window.dispatchEvent(new CustomEvent("jinvoice:filter", { detail: { category, tag } }))` — same pattern used for sync events. Simplest path: tab switch from "gst" → "view" with filter pre-applied.
+
+---
+
+### Society Profile — Feature Queue
+
+All items below extend the existing Society profile (`mode === "society"`, `PROMPT_SOCIETY`, `SocietyExpenseDetector`).
+
+#### Quick wins
+
+| Feature | What it does | Key change |
+|---|---|---|
+| **Flat / Unit field** | Extract flat number from maintenance bills (e.g. "Flat B-204") and display on card | Add `flatUnit` to PROMPT_SOCIETY extraction; show on society_vendor card |
+| **Due date badge** | Show "Due in 5 days" / "Overdue" if `dueDate` is past today | PROMPT_SOCIETY already extracts `dueDate`; add badge render in UniversalDocView |
+| **Recurring bill detector** | Same society + same charge line each month → group + flag if amount jumped >15% vs last month | Post-extraction analysis on invoice list, no AI change needed |
+| **Vendor directory** | Auto-aggregate all unique vendors from society docs into a read-only list per category | Derived view over existing extracted data |
+
+#### Reports
+
+| Feature | What it does |
+|---|---|
+| **Monthly maintenance trend** | Bar chart: total spend per month across all society docs |
+| **Category breakdown** | Pie chart: Utilities / Security / Civil Work / Insurance for any date range, exportable as PDF |
+| **Annual society summary** | One-page year-end report: all categories, total outflow, top 3 vendors — for AGM or tax records |
+| **TDS tracker** | Flag contractor invoices (civil, security, housekeeping) where TDS u/s 194C should be deducted; show deducted vs not |
+
+#### Document-type enhancements
+
+| Feature | What it does |
+|---|---|
+| **AGM / Meeting record view** | Special card for `meeting_record` category: resolutions as bullets, attendance count |
+| **Share certificate card** | Structured view: share number, folio, member name, issue date |
+| **Legal doc timeline** | OC, possession letter, sale deed in chronological order — the "property story" for a flat |
+
+#### Quotation Comparison (medium effort)
+Housing societies must collect 3+ quotes before approving major work (painting, lift AMC, security, pest control). This feature gives a compare view and audit trail for AGM transparency.
+
+**Workflow:**
+1. User uploads 3 PDFs → AI extracts each as `docType: "quotation"` via PROMPT_SOCIETY
+2. User taps "Group as Quote Set" → names the project (e.g., "Exterior Painting 2026")
+3. All quotes linked to a `quote_set` in DB
+4. Compare screen: vendor | scope items | total | advance % | validity | warranty period
+5. Committee marks one "Awarded" → others auto-tagged "Rejected" → set locked for audit
+
+**What needs to be built:**
+- Extraction: Add `quotation` doc type to PROMPT_SOCIETY (extract `validUntil`, `paymentTerms`, `warrantyPeriod`)
+- DB: `quote_sets` table + `quote_set_id` FK on invoices
+- UI: Group picker on document card + Compare screen (side-by-side table)
+- Display: New `quotation` DocClass card + compare view with winner selection + locked audit state
+
+#### Larger scope (Phase 2+)
+
+| Feature | What it does |
+|---|---|
+| **Multi-flat management** | Committee member managing B-101/B-102/B-103 — group bills by flat, see which flat is overdue |
+| **Budget vs Actual** | Enter approved annual budget per category; auto-compare against extracted actuals |
+
+---
+
+### Professional Profiles — Feature Queue
+
+Each profile below gets its own extraction prompt (`PROMPT_REALESTATE`, `PROMPT_ADVOCATE`, etc.) and profile-specific category detector, following the same pattern as `PROMPT_SOCIETY` + `SocietyExpenseDetector`.
+
+---
+
+#### Real Estate Profile
+
+| Feature | What it does |
+|---|---|
+| **Property deal tracker** | Link all docs (agreement, possession letter, loan sanction, registration, OC) to a single deal timeline |
+| **Builder payment schedule** | Track milestone-based payments (10% booking, 20% foundation, etc.); flag overdue instalments |
+| **TDS on property (194IA)** | Auto-flag purchases above ₹50L where 1% TDS must be deducted; show paid vs pending |
+| **Capital gains calculator** | Sale price − indexed cost − improvements → short/long term gain; export for ITR Schedule CG |
+| **Rental income ledger** | Track rent agreements + monthly receipts per tenant; flag overdue rent |
+| **RERA document vault** | Store RERA number, OC, CC, possession letter with expiry reminders |
+| **Home loan EMI split** | From bank statement: split each EMI into principal vs interest; aggregate for Section 24(b) deduction |
+| **Stamp duty tracker** | Auto-extract stamp duty + registration fee from sale deed; categorise separately for tax |
+
+---
+
+#### Advocate Profile
+
+| Feature | What it does |
+|---|---|
+| **Matter ledger** | Link all expenses (court fees, travel, stamp paper) to a case/matter number |
+| **Disbursement tracker** | Expenses paid on behalf of client; separate from firm's own expenses; client-wise summary |
+| **Client billing summary** | What was billed vs what was paid per client/matter |
+| **PROMPT_ADVOCATE** | Recognises court filing fees, process fees, vakalatnama, stamp paper, appearance fees |
+| **Bar Council renewal reminder** | Alert before Bar Council membership expiry |
+| **Law library subscriptions** | Track SCC Online, Manupatra, LexisNexis, AIR — renewal dates and annual cost |
+| **GST on legal services** | Auto-flag 18% GST on professional fee invoices; input credit tracking |
+
+---
+
+#### CA Profile
+
+| Feature | What it does |
+|---|---|
+| **Client engagement tracker** | Link all documents (invoices, GST filings, audit reports) to a client PAN |
+| **GST compliance calendar** | Auto-reminders for GSTR-1, GSTR-3B, GSTR-9 due dates per client |
+| **Advance tax reminders** | Reminders for 15 Jun / 15 Sep / 15 Dec / 15 Mar instalments |
+| **TDS reconciliation** | Compare Form 26AS entries against uploaded invoices; flag mismatches |
+| **ICAI CPE tracker** | Log CPE hours from seminar/training invoices; show progress toward annual requirement |
+| **Software subscription tracker** | Track Tally, ClearTax, Computax, QuickO, MCA portal — renewal dates and costs |
+| **Audit fee categoriser** | Separate statutory audit / tax audit / internal audit fees in reports |
+| **DSC renewal reminder** | Alert before Digital Signature Certificate expiry |
+
+---
+
+#### Bookkeeper Profile
+
+| Feature | What it does |
+|---|---|
+| **Multi-client workspace** | Tag each invoice to a client; filter all views by client name |
+| **Purchase register auto-build** | All uploaded vendor invoices auto-populate a purchase register (date, vendor, GSTIN, amount, GST) |
+| **GST input credit tracker** | Running tally of eligible input tax credit from vendor invoices vs output tax liability |
+| **Vendor-wise spend summary** | Total paid to each vendor per period; flag vendors without GSTIN |
+| **Bank reconciliation assist** | Upload bank statement → match entries against uploaded invoices; flag unmatched transactions |
+| **Tally export** | Export extracted invoice data as Tally XML / CSV for direct import |
+
+---
+
+#### Freelancer Profile
+
+| Feature | What it does |
+|---|---|
+| **Project expense tracker** | Tag expenses to a project/client; build per-project P&L |
+| **Client invoice generator** | Generate a GST-compliant professional fee invoice to send to client |
+| **Section 44ADA tracker** | Track gross receipts; flag when ₹50L presumptive taxation threshold approaches |
+| **Software & tools tracker** | Subscriptions (Figma, GitHub, Notion, Adobe) — annual cost summary for expense deduction |
+| **Home office deduction** | Tag a % of rent/internet/electricity as home office expense |
+
+---
+
 ## Relevant Docs & References
 
 - [SQLite FTS5](https://www.sqlite.org/fts5.html)
