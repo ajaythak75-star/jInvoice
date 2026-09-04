@@ -145,8 +145,9 @@ function detectSensitiveData(r: InvoiceMeta): { sensitive: boolean; reasons: str
   }
 
   // Residential address patterns (flat, house no, apartment, etc.)
+  // "society" and "wing" excluded — they appear in society registered addresses, not private homes
   const addr = (r.merchantAddress ?? "").toLowerCase();
-  if (/\b(flat|apt\.?|apartment|house\s*(no\.?|num\.?|#)?|h\.?\s*no\.?|room\s*(no\.?)?|floor|plot\s*(no\.?|#)?|society|villa|bungalow|wing)\b/.test(addr)) {
+  if (/\b(flat|apt\.?|apartment|house\s*(no\.?|num\.?|#)?|h\.?\s*no\.?|room\s*(no\.?)?|bungalow|villa)\b/.test(addr)) {
     reasons.push("Residential address detected");
   }
 
