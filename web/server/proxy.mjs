@@ -1335,6 +1335,33 @@ app.patch("/api/admin/users/:email/features", async (req, res) => {
   res.json(data ?? patch);
 });
 
+// PATCH /api/subscription/profile — authenticated user reports their active profile;
+// stored in user_plans.profile so admin bulk-apply can target by profile type.
+app.patch("/api/subscription/profile", async (req, res) => {
+  const email = _verifyToken(_planToken(req));
+  if (!email) return res.status(401).json({ error: "unauthorized" });
+  const profile = (req.body?.profile ?? "personal").toString().trim() || "personal";
+  const { ok } = await _upsertPlan(email, { profile, updated_at: new Date().toISOString() });
+  res.json({ ok });
+});
+
+// POST /api/admin/profiles/apply-cloud-upload — reads profile_cloud_upload config and
+// bulk-updates user_plans.cloud_upload_enabled for all users per their stored profile.
+app.post("/api/admin/profiles/apply-cloud-upload", async (req, res) => {
+  if (!_requireSuperAdmin(req, res)) return;
+  const cfg = await _getConfig("profile_cloud_upload");
+  if (!cfg) return res.status(500).json({ error: "profile_cloud_upload config not found" });
+  const results = {};
+  for (const [profile, cloudEnabled] of Object.entries(cfg)) {
+    const { ok, status } = await _sbService(
+      `/user_plans?profile=eq.${encodeURIComponent(profile)}`,
+      { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ cloud_upload_enabled: Boolean(cloudEnabled), updated_at: new Date().toISOString() }) },
+    );
+    results[profile] = ok ? "ok" : `error:${status}`;
+  }
+  res.json({ applied: results });
+});
+
 // DELETE /api/admin/users/:email/access — remove from allowed_users
 app.delete("/api/admin/users/:email/access", async (req, res) => {
   if (!_requireAdmin(req, res)) return;

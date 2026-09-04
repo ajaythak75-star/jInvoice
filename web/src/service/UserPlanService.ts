@@ -60,6 +60,19 @@ async function applyProfileCloudUpload(): Promise<void> {
   }
 }
 
+async function syncProfileToServer(): Promise<void> {
+  try {
+    const profile = prefs.userType ?? "personal";
+    await fetch("/api/subscription/profile", {
+      method: "PATCH",
+      headers: authHeaders(),
+      body: JSON.stringify({ profile }),
+    });
+  } catch {
+    // fire-and-forget; never block app startup
+  }
+}
+
 export async function syncPlanFromServer(): Promise<ServerPlan | null> {
   if (!auth.token) return null;
   try {
@@ -67,6 +80,8 @@ export async function syncPlanFromServer(): Promise<ServerPlan | null> {
     if (!r.ok) return null;
     const plan: ServerPlan = await r.json();
     applyPlanToPrefs(plan);
+    // Report the user's current profile to the server (for admin bulk-apply)
+    syncProfileToServer();
     // Profile-level cloud upload block can override the per-user flag
     await applyProfileCloudUpload();
     return plan;

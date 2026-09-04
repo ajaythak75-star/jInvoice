@@ -527,6 +527,8 @@ function ProfilesTab() {
         fetch("/api/admin/config/profile_cloud_upload", { method: "PUT", headers: authHeaders(), body: JSON.stringify(cloudDraft) }),
       ]);
       if (!r1.ok || !r2.ok) { setError("Save failed."); return; }
+      // Immediately apply cloud upload changes to all users by their stored profile
+      await fetch("/api/admin/profiles/apply-cloud-upload", { method: "POST", headers: authHeaders() });
       setCfg(draft); setCloudCfg(cloudDraft); setSaved(true);
     } catch { setError("Network error."); }
     finally { setSaving(false); }
