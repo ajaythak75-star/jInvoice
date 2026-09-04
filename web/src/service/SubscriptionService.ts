@@ -1,4 +1,4 @@
-import { supabase } from "../data/supabase";
+import { auth } from "../data/AuthStore";
 
 export interface Subscription {
   plan: "free" | "pro_trial" | "pro_paid";
@@ -12,19 +12,18 @@ export interface Subscription {
   refund_requested_at: string | null;
 }
 
-async function token(): Promise<string | null> {
-  if (!supabase) return null;
-  const { data } = await supabase.auth.getSession();
-  return data.session?.access_token ?? null;
+function authHeaders(): Record<string, string> {
+  const h: Record<string, string> = { "Content-Type": "application/json" };
+  if (auth.token) h["Authorization"] = `Bearer ${auth.token}`;
+  return h;
 }
 
 async function call(path: string, opts: RequestInit = {}): Promise<Subscription | null> {
-  const t = await token();
-  if (!t) return null;
+  if (!auth.token) return null;
   try {
     const r = await fetch(path, {
       ...opts,
-      headers: { Authorization: `Bearer ${t}`, "Content-Type": "application/json", ...opts.headers },
+      headers: { ...authHeaders(), ...opts.headers },
     });
     if (!r.ok) return null;
     return r.json();
@@ -38,12 +37,11 @@ export const subscriptionService = {
   requestRefund: (): Promise<Subscription | null> => call("/api/subscription/request-refund", { method: "POST" }),
 
   async createCheckout(plan: "shared" | "own", billing: "monthly" | "yearly"): Promise<string | null> {
-    const t = await token();
-    if (!t) return null;
+    if (!auth.token) return null;
     try {
       const r = await fetch("/api/stripe-checkout", {
         method: "POST",
-        headers: { Authorization: `Bearer ${t}`, "Content-Type": "application/json" },
+        headers: { ...authHeaders(), },
         body: JSON.stringify({ plan, billing }),
       });
       if (!r.ok) return null;
