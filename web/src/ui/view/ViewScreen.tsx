@@ -970,7 +970,6 @@ export function ViewScreen() {
   const [bulkTaggingOpen, setBulkTaggingOpen] = useState(false);
   const [bulkTagPos, setBulkTagPos] = useState<{ bottom: number; left: number }>({ bottom: 0, left: 0 });
   const [bulkNewClientName, setBulkNewClientName] = useState("");
-  const [filterProject, setFilterProject] = useState<string | null>(null);
   const [projectTags, setProjectTags] = useState<string[]>(() => prefs.projects);
   const [projectTaggingId, setProjectTaggingId] = useState<number | null>(null);
   const projectTaggingPos = useRef({ top: 0, left: 0 });
@@ -1426,10 +1425,8 @@ export function ViewScreen() {
   }
 
   const allClients  = [...new Set(records.flatMap((r) => r.clientTags ?? []))].sort();
-  const allProjects = [...new Set(records.filter((r) => r.projectTag).map((r) => r.projectTag!))].sort();
   const filtered = records
     .filter((r) => filterClient == null || (r.clientTags ?? []).includes(filterClient))
-    .filter((r) => filterProject == null || r.projectTag === filterProject)
     .filter((r) => !query.trim() || matchesQuery(r, query.trim()));
   const sorted   = sortRecords(filtered, sortBy);
   const allSelected = sorted.length > 0 && sorted.every((r) => r.id != null && selected.has(r.id));
@@ -1544,21 +1541,6 @@ export function ViewScreen() {
                 onClick={() => setFilterClient(c === filterClient ? null : c)}
                 style={{ fontSize: 12, padding: "3px 10px", borderRadius: 20, border: "1.5px solid", borderColor: filterClient === c ? "#0891b2" : "var(--color-border)", background: filterClient === c ? "#ecfeff" : "transparent", color: filterClient === c ? "#0891b2" : "var(--color-text-secondary)", cursor: "pointer", flexShrink: 0 }}
               >{c}</button>
-            ))}
-          </div>
-        )}
-        {prefs.isProActive && allProjects.length > 0 && (
-          <div style={{ display: "flex", alignItems: "center", gap: 6, overflowX: "auto", marginBottom: 6, paddingBottom: 2 }}>
-            <span style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em", flexShrink: 0 }}>Project</span>
-            <button
-              onClick={() => setFilterProject(null)}
-              style={{ fontSize: 12, padding: "3px 10px", borderRadius: 20, border: "1.5px solid", borderColor: filterProject == null ? "#059669" : "var(--color-border)", background: filterProject == null ? "#ecfdf5" : "transparent", color: filterProject == null ? "#059669" : "var(--color-text-secondary)", cursor: "pointer", flexShrink: 0 }}
-            >All</button>
-            {allProjects.map((p) => (
-              <button key={p}
-                onClick={() => setFilterProject(p === filterProject ? null : p)}
-                style={{ fontSize: 12, padding: "3px 10px", borderRadius: 20, border: "1.5px solid", borderColor: filterProject === p ? "#059669" : "var(--color-border)", background: filterProject === p ? "#ecfdf5" : "transparent", color: filterProject === p ? "#059669" : "var(--color-text-secondary)", cursor: "pointer", flexShrink: 0 }}
-              >📁 {p}</button>
             ))}
           </div>
         )}
