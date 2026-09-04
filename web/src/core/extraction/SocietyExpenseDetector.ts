@@ -1,4 +1,5 @@
 export type SocietyExpenseCategory =
+  | "maintenance_receipt"
   | "utilities"
   | "lift_amc"
   | "security"
@@ -21,6 +22,24 @@ export type SocietyExpenseCategory =
   | "other";
 
 const SOCIETY_KEYWORDS: Array<{ cat: SocietyExpenseCategory; keywords: string[] }> = [
+  {
+    // Income receipts collected by the society from members
+    cat: "maintenance_receipt",
+    keywords: [
+      // Maintenance
+      "maintenance receipt", "maintenance charges", "monthly maintenance", "society maintenance",
+      "sinking fund", "repair fund", "common area charges",
+      // Parking / vehicle
+      "parking charges", "parking rent", "vehicle parking", "वाहनतळ", "parking slot",
+      // Shifting / moving
+      "shifting charges", "shifting fee", "shifting admin", "स्थलांतर शुल्क", "shifting receipt",
+      "lift usage charges", "entry charges", "exit charges", "प्रवेश शुल्क", "निर्गम शुल्क",
+      "security deposit", "transfer charges", "registration charges", "naamnoondani",
+      "non-occupancy", "non occupancy",
+      // Receipt number patterns from our generated PDFs
+      "ssc/vt/", "ssc/st/", "ssc/maint/",
+    ],
+  },
   {
     cat: "utilities",
     keywords: [
@@ -191,6 +210,7 @@ export function detectSocietyCategory(
 }
 
 export const SOCIETY_CATEGORY_LABEL: Record<SocietyExpenseCategory, string> = {
+  maintenance_receipt: "Maintenance Receipt",
   utilities:          "Utilities",
   lift_amc:           "Lift / AMC",
   security:           "Security",
