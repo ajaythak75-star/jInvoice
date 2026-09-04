@@ -1971,21 +1971,35 @@ function SocietyDuesTab({ records }: { records: InvoiceMeta[] }) {
   const [frequency, setFrequency] = useState<DueFrequency>(loadDueFrequency);
   const [expected, setExpected] = useState<Record<string, number>>(() => loadExpectedForFreq(loadDueFrequency()));
   const [globalAmt, setGlobalAmt] = useState("");
+  // incremented on every amount change so uncontrolled inputs remount with fresh defaultValue
+  const [amtVersion, setAmtVersion] = useState(0);
 
   const filtered = useMemo(() => filterByFY(records, fy), [records, fy]);
 
-  // Find all unique units from tagged records
+  // Find all unique units from tagged records (across all time, so all flats are tracked)
   const allUnits = useMemo(() => {
     const s = new Set<string>();
     records.forEach(r => { if (r.projectTag?.trim()) s.add(r.projectTag.trim()); });
     return [...s].sort();
   }, [records]);
 
-  const { from, to } = fy !== null ? fyBounds(fy) : { from: new Date(2000, 0, 1), to: new Date() };
+  // Oldest month that has any tagged record — used as floor for monthly "All Time"
+  const oldestTaggedMonth = useMemo(() => {
+    let oldest: Date | null = null;
+    for (const r of records) {
+      if (!r.projectTag?.trim()) continue;
+      const d = r.invoiceDate ?? r.createdAt;
+      if (!d) continue;
+      const dt = new Date(d);
+      if (!oldest || dt < oldest) oldest = dt;
+    }
+    return oldest ? new Date(oldest.getFullYear(), oldest.getMonth(), 1) : new Date();
+  }, [records]);
 
-  // Periods: months or years depending on frequency
+  // Periods: months or FY-years depending on frequency
   const periods: { key: string; label: string }[] = useMemo(() => {
     if (frequency === "monthly") {
+      const { from, to } = fy !== null ? fyBounds(fy) : { from: oldestTaggedMonth, to: new Date() };
       const result: { key: string; label: string }[] = [];
       const cur = new Date(from.getFullYear(), from.getMonth(), 1);
       while (cur <= to) {
@@ -1997,15 +2011,15 @@ function SocietyDuesTab({ records }: { records: InvoiceMeta[] }) {
       }
       return result;
     } else {
-      // yearly: one bucket per FY
       if (fy !== null) return [{ key: `fy-${fy}`, label: fyLabel(fy) }];
       return allFYs.map(f => ({ key: `fy-${f}`, label: fyLabel(f) }));
     }
-  }, [frequency, fy, from, to, allFYs]);
+  }, [frequency, fy, oldestTaggedMonth, allFYs]);
 
   // Map: unit → set of period keys that have at least one record
   const unitPeriods = useMemo(() => {
     const map = new Map<string, Set<string>>();
+    // For yearly, scan all records so we know which FYs each unit has paid regardless of FY filter
     const src = frequency === "yearly" ? records : filtered;
     for (const r of src) {
       const tag = r.projectTag?.trim();
@@ -2030,6 +2044,7 @@ function SocietyDuesTab({ records }: { records: InvoiceMeta[] }) {
     setFrequency(f);
     saveDueFrequency(f);
     setExpected(loadExpectedForFreq(f));
+    setAmtVersion(v => v + 1);
     setGlobalAmt("");
   }
 
@@ -2040,6 +2055,7 @@ function SocietyDuesTab({ records }: { records: InvoiceMeta[] }) {
     allUnits.forEach(u => { newExpected[u] = Math.round(amt * 100); });
     setExpected(newExpected);
     saveExpectedForFreq(newExpected, frequency);
+    setAmtVersion(v => v + 1);
     setGlobalAmt("");
   }
 
@@ -2063,7 +2079,7 @@ function SocietyDuesTab({ records }: { records: InvoiceMeta[] }) {
     <div style={{ padding: "20px", maxWidth: 900, margin: "0 auto" }}>
       <div style={{ marginBottom: 16 }}>
         <h2 style={{ fontSize: 18, fontWeight: 700, color: "var(--color-text)", margin: 0 }}>Outstanding Dues</h2>
-        <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 3 }}>Units with missing maintenance payments — based on months with no invoice tagged to that flat</p>
+        <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 3 }}>Units with missing maintenance payments — based on {frequency === "monthly" ? "months" : "years"} with no invoice tagged to that flat</p>
       </div>
 
       <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 8 }}>
@@ -2120,7 +2136,7 @@ function SocietyDuesTab({ records }: { records: InvoiceMeta[] }) {
 
           {dueRows.length === 0 ? (
             <div style={{ textAlign: "center", padding: "32px", color: "#16a34a", fontSize: 14, fontWeight: 600, background: "color-mix(in srgb, #16a34a 8%, var(--color-surface))", border: "1px solid color-mix(in srgb, #16a34a 25%, transparent)", borderRadius: 10 }}>
-              All units have records for every month in this period.
+              All units have records for every {frequency === "monthly" ? "month" : "year"} in this period.
             </div>
           ) : (
             <>
@@ -2141,7 +2157,7 @@ function SocietyDuesTab({ records }: { records: InvoiceMeta[] }) {
                   </thead>
                   <tbody>
                     {dueRows.map((r, i) => (
-                      <tr key={`${r.unit}-${r.period}`}
+                      <tr key={`${r.unit}-${r.period}-${amtVersion}`}
                         style={{ borderBottom: i < dueRows.length - 1 ? "1px solid var(--color-border)" : "none", background: i % 2 === 0 ? "transparent" : "var(--color-surface-2)" }}>
                         <td style={{ padding: "9px 14px" }}>
                           <span style={{ background: "color-mix(in srgb, #dc2626 10%, transparent)", color: "#dc2626", borderRadius: 4, padding: "2px 8px", fontSize: 12, fontWeight: 600 }}>{r.unit}</span>
@@ -2160,6 +2176,7 @@ function SocietyDuesTab({ records }: { records: InvoiceMeta[] }) {
                                 const newExpected = { ...expected, [r.unit]: Math.round(amt * 100) };
                                 setExpected(newExpected);
                                 saveExpectedForFreq(newExpected, frequency);
+                                setAmtVersion(v => v + 1);
                               }
                             }}
                             style={{ width: 90, padding: "4px 7px", borderRadius: 5, border: "1px solid var(--color-border)", background: "var(--color-bg)", color: "var(--color-text)", fontSize: 12, textAlign: "right" }}
