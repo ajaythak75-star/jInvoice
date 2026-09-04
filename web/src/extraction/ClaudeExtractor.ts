@@ -427,19 +427,22 @@ Rules:
 - For utility bills: list each charge component separately (e.g. "Energy Charges", "Fixed Charges", "Electricity Duty")
 - Amounts must be numbers in INR; discounts are positive numbers`;
 
+const MULTILINGUAL_RULE =
+  "\n- If the document is in a regional Indian language (Marathi, Hindi, Gujarati, Tamil, Bengali, Kannada, Telugu, Malayalam, etc.), translate ALL extracted text fields (shopName, address, item names, etc.) to English in your JSON response. Numeric values and dates must remain unchanged.";
+
 function getExtractionPrompt(filename?: string): string {
-  if (filename && /payslip|payroll|salaryslip|salary.?slip|paystub/i.test(filename)) return PROMPT_PAYROLL;
+  if (filename && /payslip|payroll|salaryslip|salary.?slip|paystub/i.test(filename)) return PROMPT_PAYROLL + MULTILINGUAL_RULE;
   const mode = prefs.activeMode;
-  if (mode === "society")        return PROMPT_SOCIETY;
-  if (mode === "tax_consultant") return PROMPT_TAX;
-  if (mode === "ca")             return PROMPT_CA;
-  if (mode === "real_estate")    return PROMPT_REALESTATE;
-  if (mode === "advocate")       return PROMPT_ADVOCATE;
-  if (mode === "bookkeeper")     return PROMPT_BOOKKEEPER;
-  if (mode === "freelancer")     return PROMPT_FREELANCER;
-  if (mode === "ngo")            return PROMPT_NGO;
-  if (mode === "personal")       return PROMPT_PERSONAL;
-  return PROMPT_INVOICE;
+  if (mode === "society")        return PROMPT_SOCIETY + MULTILINGUAL_RULE;
+  if (mode === "tax_consultant") return PROMPT_TAX + MULTILINGUAL_RULE;
+  if (mode === "ca")             return PROMPT_CA + MULTILINGUAL_RULE;
+  if (mode === "real_estate")    return PROMPT_REALESTATE + MULTILINGUAL_RULE;
+  if (mode === "advocate")       return PROMPT_ADVOCATE + MULTILINGUAL_RULE;
+  if (mode === "bookkeeper")     return PROMPT_BOOKKEEPER + MULTILINGUAL_RULE;
+  if (mode === "freelancer")     return PROMPT_FREELANCER + MULTILINGUAL_RULE;
+  if (mode === "ngo")            return PROMPT_NGO + MULTILINGUAL_RULE;
+  if (mode === "personal")       return PROMPT_PERSONAL + MULTILINGUAL_RULE;
+  return PROMPT_INVOICE + MULTILINGUAL_RULE;
 }
 
 const OPENAI_MODEL = "gpt-4o-mini";

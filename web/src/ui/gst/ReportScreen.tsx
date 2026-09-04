@@ -352,7 +352,7 @@ function periodLabel(k: string, view: PeriodView): string {
 
 function PeriodReportTab({ records }: { records: InvoiceMeta[] }) {
   const [view, setView] = useState<PeriodView>("monthly");
-  const [year, setYear] = useState<number | null>(null);
+  const [year, setYear] = useState<number | null>(currentFY());
   const [drillKey, setDrillKey] = useState<string | null>(null);
   const [filterClient, setFilterClient] = useState<string | null>(null);
   const [customFrom, setCustomFrom] = useState(() => {
@@ -546,7 +546,7 @@ function PeriodReportTab({ records }: { records: InvoiceMeta[] }) {
 // ── Vendor Report ─────────────────────────────────────────────────────────────
 
 function VendorReportTab({ records }: { records: InvoiceMeta[] }) {
-  const [year, setYear] = useState<number | null>(null);
+  const [year, setYear] = useState<number | null>(currentFY());
   const [sortBy, setSortBy] = useState<"total" | "count" | "name">("total");
   const [drillVendor, setDrillVendor] = useState<string | null>(null);
 
@@ -665,7 +665,7 @@ function VendorReportTab({ records }: { records: InvoiceMeta[] }) {
 // ── Tags Report ───────────────────────────────────────────────────────────────
 
 function TagsReportTab({ records }: { records: InvoiceMeta[] }) {
-  const [year, setYear] = useState<number | null>(null);
+  const [year, setYear] = useState<number | null>(currentFY());
   const [mode, setMode] = useState<"client" | "project">("client");
   const [drillTag, setDrillTag] = useState<string | null>(null);
 
@@ -885,7 +885,7 @@ function GroupSection({ title, rows, grandTotal, csvName, getDrillRecords }: {
 }
 
 function CategoryReportTab({ records }: { records: InvoiceMeta[] }) {
-  const [year, setYear] = useState<number | null>(null);
+  const [year, setYear] = useState<number | null>(currentFY());
   const [filterClient, setFilterClient] = useState<string | null>(null);
   const years = useMemo(() => availableYears(records), [records]);
   const filtered = useMemo(() => {
@@ -1609,9 +1609,15 @@ function SocietyAuditTab({ records }: { records: InvoiceMeta[] }) {
 
   const filtered = useMemo(() => filterByFY(records, fy), [records, fy]);
 
+  // Income = maintenance receipts tagged with a flat/unit (projectTag present)
+  const incomeRecords  = useMemo(() => filtered.filter(r => !!r.projectTag?.trim()), [filtered]);
+  const totalIncome    = useMemo(() => incomeRecords.reduce((s, r) => s + (r.grandTotalPaise ?? 0), 0), [incomeRecords]);
+
+  // Expenditure = vendor/expense invoices (no projectTag), grouped by doc type
+  const expenseRecords = useMemo(() => filtered.filter(r => !r.projectTag?.trim()), [filtered]);
   const expenditure = useMemo(() => {
     const map = new Map<string, { label: string; count: number; totalPaise: number }>();
-    for (const r of filtered) {
+    for (const r of expenseRecords) {
       const types = r.docTypes?.length ? r.docTypes : (r.docType ? [r.docType] : ["other"]);
       for (const t of types) {
         const label = ALL_DOC_TYPE_LABELS[t] ?? t;
@@ -1622,17 +1628,37 @@ function SocietyAuditTab({ records }: { records: InvoiceMeta[] }) {
       }
     }
     return [...map.values()].sort((a, b) => b.totalPaise - a.totalPaise);
-  }, [filtered]);
+  }, [expenseRecords]);
 
   const totalExpenditure = expenditure.reduce((s, e) => s + e.totalPaise, 0);
-  const maxExp = Math.max(...expenditure.map(e => e.totalPaise), 1);
-  const fyStr = fy !== null ? fyLabel(fy) : "All Time";
+  const surplus          = totalIncome - totalExpenditure;
+  const maxExp           = Math.max(...expenditure.map(e => e.totalPaise), 1);
+  const fyStr            = fy !== null ? fyLabel(fy) : "All Time";
+
+  function downloadIECsv() {
+    const rows: (string | number)[][] = [
+      [`Income & Expenditure Statement — ${fyStr}`, "", "", ""],
+      ["", "", "", ""],
+      ["INCOME", "", "", ""],
+      ["Particulars", "Units/Flats", "Amount (₹)", ""],
+      ["Maintenance Receipts (from tagged flats)", incomeRecords.length, (totalIncome / 100).toFixed(2), ""],
+      ["Total Income", "", (totalIncome / 100).toFixed(2), ""],
+      ["", "", "", ""],
+      ["EXPENDITURE", "", "", ""],
+      ["Head", "Bills", "Amount (₹)", "% of Total"],
+      ...expenditure.map(e => [e.label, e.count, (e.totalPaise / 100).toFixed(2), pct(e.totalPaise, totalExpenditure)]),
+      ["Total Expenditure", expenseRecords.length, (totalExpenditure / 100).toFixed(2), "100%"],
+      ["", "", "", ""],
+      [surplus >= 0 ? "Surplus" : "Deficit", "", ((Math.abs(surplus)) / 100).toFixed(2), ""],
+    ];
+    downloadCSV(`society-ie-${fy ?? "all"}.csv`, rows);
+  }
 
   return (
     <div style={{ padding: "20px", maxWidth: 900, margin: "0 auto" }}>
       <div style={{ marginBottom: 16 }}>
         <h2 style={{ fontSize: 18, fontWeight: 700, color: "var(--color-text)", margin: 0 }}>Income & Expenditure</h2>
-        <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 3 }}>Annual I&amp;E statement for committee audit — {fyStr}</p>
+        <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 3 }}>Annual I&amp;E statement for committee audit — {fyStr}. Income = unit-tagged records (maintenance receipts); Expenditure = untagged vendor payments.</p>
       </div>
 
       <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 14 }}>
@@ -1641,74 +1667,95 @@ function SocietyAuditTab({ records }: { records: InvoiceMeta[] }) {
       </div>
 
       {/* I&E summary boxes */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 20 }}>
         <div style={{ padding: "14px 16px", background: "color-mix(in srgb, #16a34a 8%, var(--color-surface))", borderRadius: 10, border: "1px solid color-mix(in srgb, #16a34a 25%, transparent)" }}>
           <div style={{ fontSize: 10.5, fontWeight: 700, color: "#16a34a", textTransform: "uppercase" as const, letterSpacing: "0.05em", marginBottom: 5 }}>Income (Receipts)</div>
-          <div style={{ fontSize: 20, fontWeight: 700, color: "#16a34a", fontVariantNumeric: "tabular-nums" }}>—</div>
-          <div style={{ fontSize: 10.5, color: "#16a34a", opacity: 0.7, marginTop: 3 }}>Receipt tracking coming soon</div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: "#16a34a", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(totalIncome)}</div>
+          <div style={{ fontSize: 10.5, color: "#16a34a", opacity: 0.7, marginTop: 3 }}>{incomeRecords.length} tagged receipts</div>
         </div>
         <div style={{ padding: "14px 16px", background: "color-mix(in srgb, #dc2626 8%, var(--color-surface))", borderRadius: 10, border: "1px solid color-mix(in srgb, #dc2626 25%, transparent)" }}>
           <div style={{ fontSize: 10.5, fontWeight: 700, color: "#dc2626", textTransform: "uppercase" as const, letterSpacing: "0.05em", marginBottom: 5 }}>Expenditure (Payments)</div>
           <div style={{ fontSize: 20, fontWeight: 700, color: "#dc2626", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(totalExpenditure)}</div>
-          <div style={{ fontSize: 10.5, color: "#dc2626", opacity: 0.7, marginTop: 3 }}>{filtered.length} bills / invoices</div>
+          <div style={{ fontSize: 10.5, color: "#dc2626", opacity: 0.7, marginTop: 3 }}>{expenseRecords.length} vendor bills</div>
+        </div>
+        <div style={{
+          padding: "14px 16px", borderRadius: 10,
+          background: `color-mix(in srgb, ${surplus >= 0 ? "#16a34a" : "#dc2626"} 8%, var(--color-surface))`,
+          border: `1px solid color-mix(in srgb, ${surplus >= 0 ? "#16a34a" : "#dc2626"} 25%, transparent)`,
+        }}>
+          <div style={{ fontSize: 10.5, fontWeight: 700, color: surplus >= 0 ? "#16a34a" : "#dc2626", textTransform: "uppercase" as const, letterSpacing: "0.05em", marginBottom: 5 }}>
+            {surplus >= 0 ? "Surplus" : "Deficit"}
+          </div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: surplus >= 0 ? "#16a34a" : "#dc2626", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(Math.abs(surplus))}</div>
+          <div style={{ fontSize: 10.5, color: surplus >= 0 ? "#16a34a" : "#dc2626", opacity: 0.7, marginTop: 3 }}>Income − Expenditure</div>
         </div>
       </div>
 
       <SummaryCards cards={[
-        { label: "Total Bills",    value: String(filtered.length) },
-        { label: "Expenditure",    value: fmtShort(totalExpenditure), color: "#dc2626" },
-        { label: "Tax Paid (GST)", value: fmtShort(filtered.reduce((s, r) => s + (r.taxPaise ?? 0), 0)) },
+        { label: "Income",         value: fmtShort(totalIncome),       color: "#16a34a" },
+        { label: "Expenditure",    value: fmtShort(totalExpenditure),   color: "#dc2626" },
+        { label: "Tax Paid (GST)", value: fmtShort(expenseRecords.reduce((s, r) => s + (r.taxPaise ?? 0), 0)) },
         { label: "Expense Heads",  value: String(expenditure.length) },
       ]} />
 
-      {expenditure.length === 0 ? (
-        <div style={{ textAlign: "center", padding: "48px 0", color: "var(--color-text-secondary)", fontSize: 13 }}>No expenditure data for this period.</div>
+      {expenditure.length === 0 && incomeRecords.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "48px 0", color: "var(--color-text-secondary)", fontSize: 13 }}>No records for this period.</div>
       ) : (
         <>
-          <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10, padding: "16px", marginBottom: 16 }}>
-            <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 12 }}>Expenditure by Head</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {expenditure.map(e => <BarRow key={e.label} label={e.label} value={e.totalPaise} max={maxExp} />)}
+          {expenditure.length > 0 && (
+            <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10, padding: "16px", marginBottom: 16 }}>
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 12 }}>Expenditure by Head</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {expenditure.map(e => <BarRow key={e.label} label={e.label} value={e.totalPaise} max={maxExp} />)}
+              </div>
             </div>
-          </div>
+          )}
 
           <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
-            <CsvButton onClick={() => downloadCSV(`society-ie-${fy ?? "all"}.csv`, [
-              ["Head", "Bills", "Amount (₹)", "% of Total"],
-              ...expenditure.map(e => [e.label, e.count, (e.totalPaise / 100).toFixed(2), pct(e.totalPaise, totalExpenditure)]),
-              ["TOTAL", filtered.length, (totalExpenditure / 100).toFixed(2), "100%"],
-            ])} />
+            <CsvButton onClick={downloadIECsv} />
           </div>
 
-          <div style={{ overflowX: "auto", background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10 }}>
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <thead>
-                <tr style={{ borderBottom: "1.5px solid var(--color-border)" }}>
-                  {["Expense Head", "Bills", "Amount", "% of Total"].map((h, i) => (
-                    <th key={h} style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase" as const, letterSpacing: "0.06em", padding: "9px 14px", textAlign: i === 0 ? "left" : "right" }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {expenditure.map((e, i) => (
-                  <tr key={e.label} style={{ borderBottom: i < expenditure.length - 1 ? "1px solid var(--color-border)" : "none", background: i % 2 === 0 ? "transparent" : "var(--color-surface-2)" }}>
-                    <td style={{ fontSize: 12.5, color: "var(--color-text)", padding: "10px 14px" }}>{e.label}</td>
-                    <td style={{ fontSize: 12.5, color: "var(--color-text-secondary)", padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{e.count}</td>
-                    <td style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-text)", padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(e.totalPaise)}</td>
-                    <td style={{ fontSize: 12, color: "var(--color-text-secondary)", padding: "10px 14px", textAlign: "right" }}>{pct(e.totalPaise, totalExpenditure)}</td>
+          {expenditure.length > 0 && (
+            <div style={{ overflowX: "auto", background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr style={{ borderBottom: "1.5px solid var(--color-border)" }}>
+                    {["Expense Head", "Bills", "Amount", "% of Total"].map((h, i) => (
+                      <th key={h} style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase" as const, letterSpacing: "0.06em", padding: "9px 14px", textAlign: i === 0 ? "left" : "right" }}>{h}</th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr style={{ borderTop: "1.5px solid var(--color-border)", background: "var(--color-surface-2)" }}>
-                  <td style={{ fontSize: 12, fontWeight: 700, color: "var(--color-text-secondary)", padding: "10px 14px" }}>Total Expenditure</td>
-                  <td style={{ fontSize: 12.5, fontWeight: 700, padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{filtered.length}</td>
-                  <td style={{ fontSize: 12.5, fontWeight: 700, padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(totalExpenditure)}</td>
-                  <td style={{ fontSize: 12, fontWeight: 700, padding: "10px 14px", textAlign: "right" }}>100%</td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {expenditure.map((e, i) => (
+                    <tr key={e.label} style={{ borderBottom: i < expenditure.length - 1 ? "1px solid var(--color-border)" : "none", background: i % 2 === 0 ? "transparent" : "var(--color-surface-2)" }}>
+                      <td style={{ fontSize: 12.5, color: "var(--color-text)", padding: "10px 14px" }}>{e.label}</td>
+                      <td style={{ fontSize: 12.5, color: "var(--color-text-secondary)", padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{e.count}</td>
+                      <td style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-text)", padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(e.totalPaise)}</td>
+                      <td style={{ fontSize: 12, color: "var(--color-text-secondary)", padding: "10px 14px", textAlign: "right" }}>{pct(e.totalPaise, totalExpenditure)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr style={{ borderTop: "1.5px solid var(--color-border)", background: "var(--color-surface-2)" }}>
+                    <td style={{ fontSize: 12, fontWeight: 700, color: "var(--color-text-secondary)", padding: "10px 14px" }}>Total Expenditure</td>
+                    <td style={{ fontSize: 12.5, fontWeight: 700, padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{expenseRecords.length}</td>
+                    <td style={{ fontSize: 12.5, fontWeight: 700, padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtRupee(totalExpenditure)}</td>
+                    <td style={{ fontSize: 12, fontWeight: 700, padding: "10px 14px", textAlign: "right" }}>100%</td>
+                  </tr>
+                  {surplus !== 0 && (
+                    <tr style={{ borderTop: "2px solid var(--color-border)", background: surplus >= 0 ? "color-mix(in srgb, #16a34a 6%, var(--color-surface-2))" : "color-mix(in srgb, #dc2626 6%, var(--color-surface-2))" }}>
+                      <td style={{ fontSize: 12, fontWeight: 700, color: surplus >= 0 ? "#16a34a" : "#dc2626", padding: "10px 14px" }} colSpan={2}>
+                        {surplus >= 0 ? "Surplus (Income − Expenditure)" : "Deficit (Expenditure − Income)"}
+                      </td>
+                      <td style={{ fontSize: 12.5, fontWeight: 800, color: surplus >= 0 ? "#16a34a" : "#dc2626", padding: "10px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums" }} colSpan={2}>
+                        {fmtRupee(Math.abs(surplus))}
+                      </td>
+                    </tr>
+                  )}
+                </tfoot>
+              </table>
+            </div>
+          )}
         </>
       )}
     </div>
@@ -3616,7 +3663,7 @@ function RERentalIncomeTab({ records }: { records: InvoiceMeta[] }) {
 
 function REAcquisitionCostTab({ records }: { records: InvoiceMeta[] }) {
   const allFYs = useMemo(() => availableFYs(records), [records]);
-  const [fy, setFY] = useState<number | null>(null);
+  const [fy, setFY] = useState<number | null>(currentFY);
   const ACQ_TYPES = ["legal", "financial", "tax", "other"];
 
   const filtered = useMemo(() => filterByFY(records, fy).filter(r => {
@@ -3794,7 +3841,7 @@ function visibleTabs(mode: string): ReportTab[] {
   if (GST_PROFILES.includes(mode as UserProfile)) tabs.unshift("gst");
   if (TAGS_PROFILES.includes(mode as UserProfile)) tabs.push("tags");
   if (mode === "personal")      tabs.push("personal_budget", "personal_tax");
-  if (mode === "society")       { tabs.push("society_ledger"); tabs.push("society_vendor"); tabs.push("society_dues"); tabs.push("society_sinking"); tabs.push("society_quotes"); tabs.push("society_audit"); }
+  if (mode === "society")       { tabs.push("society_ledger"); tabs.push("society_audit"); tabs.push("society_dues"); tabs.push("society_sinking"); tabs.push("society_vendor"); tabs.push("society_quotes"); }
   if (mode === "bookkeeper")    tabs.push("bookkeeper_ledger");
   if (mode === "shopkeeper")    tabs.push("shop_purchase_register", "shop_expense_head", "shop_gst_summary");
   if (mode === "tax_consultant") tabs.push("tc_client_summary", "tc_tds_tracker", "tc_fy_comparison", "tc_gstr2a");
@@ -3822,11 +3869,11 @@ export function ReportScreen() {
     { id: "personal_budget", label: "Budget" },
     { id: "personal_tax",    label: "Tax Savings" },
     { id: "society_ledger",    label: "Ledger" },
-    { id: "society_vendor",    label: "Vendors" },
+    { id: "society_audit",     label: "Audit (I&E)" },
     { id: "society_dues",      label: "Dues" },
     { id: "society_sinking",   label: "Sinking Fund" },
+    { id: "society_vendor",    label: "Vendors" },
     { id: "society_quotes",    label: "Quotes" },
-    { id: "society_audit",     label: "Audit (I&E)" },
     { id: "bookkeeper_ledger", label: "Account Book" },
     { id: "shop_purchase_register", label: "Purchase Register" },
     { id: "shop_expense_head",      label: "Expense Head" },

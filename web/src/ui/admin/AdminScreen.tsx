@@ -680,7 +680,7 @@ function PlanSettingsTab() {
   return (
     <div style={{ maxWidth: 540 }}>
       <p style={{ fontSize: 13, color: "var(--color-text-secondary)", marginBottom: 24 }}>
-        Configure the free trial period length and support response time shown on the Pricing screen.
+        Configure the free trial period length and support response time shown on the Pricing screen and Contact Support.
       </p>
 
       {/* Trial days */}

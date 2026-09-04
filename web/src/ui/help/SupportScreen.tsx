@@ -1,11 +1,40 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { prefs } from "../../data/AutoImportPreferences";
 
 const SUPPORT_EMAIL = "support@jinvoice.app";
+
+const DEFAULT_RESPONSE: Record<string, string> = {
+  free:      "7 days",
+  pro_trial: "7 days",
+  pro:       "48 hours",
+};
+
+function userTier(): "free" | "pro_trial" | "pro" {
+  if (prefs.isSubscribed) return "pro";
+  if (prefs.isInTrial)    return "pro_trial";
+  return "free";
+}
 
 export function SupportScreen() {
   const [subject, setSubject]   = useState("");
   const [message, setMessage]   = useState("");
   const [sent, setSent]         = useState(false);
+  const [responseTime, setResponseTime] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/config/plan_settings")
+      .then((r) => r.ok ? r.json() : null)
+      .then((cfg) => {
+        const times = cfg?.support_response ?? DEFAULT_RESPONSE;
+        const tier  = userTier();
+        setResponseTime(times[tier] ?? DEFAULT_RESPONSE[tier]);
+      })
+      .catch(() => setResponseTime(DEFAULT_RESPONSE[userTier()]));
+  }, []);
+
+  const displayTime = responseTime
+    ? (responseTime.toLowerCase().startsWith("within") ? responseTime : `Within ${responseTime}`)
+    : "Loading…";
 
   const handleSend = () => {
     if (!subject.trim() || !message.trim()) return;
@@ -24,7 +53,7 @@ export function SupportScreen() {
           Support
         </h1>
         <p style={{ fontSize: 14, color: "var(--color-text-secondary)", marginTop: 6 }}>
-          We're here to help. Reach us any time and we'll get back to you within 2 business days.
+          We're here to help. Reach us any time and we'll get back to you.
         </p>
       </div>
 
@@ -56,7 +85,7 @@ export function SupportScreen() {
           <span style={{ fontSize: 20 }}>🕐</span>
           <div>
             <div style={{ fontSize: 12, fontWeight: 700, color: "var(--color-text-secondary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Response time</div>
-            <div style={{ fontSize: 13, fontWeight: 600, marginTop: 2 }}>Within 2 business days</div>
+            <div style={{ fontSize: 13, fontWeight: 600, marginTop: 2 }}>{displayTime}</div>
           </div>
         </div>
       </div>
