@@ -1046,16 +1046,6 @@ export function AutoImportSettings() {
 
             {/* Add account buttons */}
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
-              <button className="btn-sm"
-                disabled={!prefs.isSubscribed && totalAccounts >= MAX_ACCOUNTS}
-                onClick={() => { if (!vm.state.gmail.hasConsent) { setPendingConsent("gmail"); } else { new GmailConnector().startSignIn(); } }}>
-                + Add Gmail
-              </button>
-              <button className="btn-sm"
-                disabled={!prefs.isSubscribed && totalAccounts >= MAX_ACCOUNTS}
-                onClick={() => { if (!vm.state.outlook.hasConsent) { setPendingConsent("outlook"); } else { new OutlookConnector().startSignIn(); } }}>
-                + Add Outlook
-              </button>
               {isImapAvailable() && (
                 <button className="btn-sm" onClick={() => {
                   if (!prefs.imapConsentGiven) { setPendingConsent("imap"); }
