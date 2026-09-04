@@ -702,53 +702,67 @@ export function AutoImportSettings() {
       {/* Plan — full width */}
       <section className="card">
         <h3>Plan</h3>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          {prefs.isSubscribed ? (
-            <span style={{ fontSize: 12, fontWeight: 700, background: "#22c55e", color: "#fff", borderRadius: 5, padding: "2px 10px" }}>Pro</span>
-          ) : isInTrial ? (
-            <span style={{ fontSize: 12, fontWeight: 700, background: "#f59e0b", color: "#fff", borderRadius: 5, padding: "2px 10px" }}>Trial</span>
-          ) : (
-            <span style={{ fontSize: 12, fontWeight: 700, background: "var(--color-border)", color: "var(--color-text-secondary)", borderRadius: 5, padding: "2px 10px" }}>Free</span>
-          )}
-          {/* Current profile chip */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {/* Row 1: plan badge left, profile label extreme right */}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            {prefs.isSubscribed ? (
+              <span style={{ fontSize: 12, fontWeight: 700, background: "#22c55e", color: "#fff", borderRadius: 5, padding: "2px 10px" }}>Pro</span>
+            ) : isInTrial ? (
+              <span style={{ fontSize: 12, fontWeight: 700, background: "#f59e0b", color: "#fff", borderRadius: 5, padding: "2px 10px" }}>Trial</span>
+            ) : (
+              <span style={{ fontSize: 12, fontWeight: 700, background: "var(--color-border)", color: "var(--color-text-secondary)", borderRadius: 5, padding: "2px 10px" }}>Free</span>
+            )}
+            {isInTrial && trialStartedAt && trialEndDate && (
+              <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
+                {new Date(trialStartedAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                {" → "}
+                {trialEndDate.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                <span style={{ marginLeft: 6, color: "#f59e0b", fontWeight: 600 }}>({trialDaysLeft}d left)</span>
+              </span>
+            )}
+            {prefs.isSubscribed && prefs.customerAccountCreatedAt && proEndDate && (
+              <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
+                {new Date(prefs.customerAccountCreatedAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                {" → "}
+                {new Date(proEndDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+              </span>
+            )}
+            {!prefs.isSubscribed && !isInTrial && (
+              <button className="btn-sm" style={{ fontWeight: 600 }} onClick={() => setShowProfileModal(true)}>
+                Start free trial
+              </button>
+            )}
+            {isInTrial && !prefs.isSubscribed && (
+              <button className="btn-sm" style={{ fontWeight: 600 }} onClick={openProModal}>
+                Upgrade
+              </button>
+            )}
+            {/* Profile label — extreme right */}
+            {(() => {
+              const mode = prefs.activeMode;
+              const label = mode === "personal"
+                ? "Personal"
+                : mode === "society"
+                  ? "Housing Society"
+                  : (PROFESSIONAL_PROFILE_LABEL[mode as ProfessionalProfile] ?? mode);
+              return (
+                <span style={{ marginLeft: "auto", fontSize: 12, fontWeight: 600, background: "color-mix(in srgb, var(--color-primary) 12%, transparent)", color: "var(--color-primary)", borderRadius: 5, padding: "2px 10px" }}>
+                  {label}
+                </span>
+              );
+            })()}
+          </div>
+          {/* Row 2: profile name (society name or customer name) */}
           {(() => {
             const mode = prefs.activeMode;
-            const label = mode === "personal"
-              ? "Personal"
-              : mode === "society"
-                ? "Housing Society"
-                : (PROFESSIONAL_PROFILE_LABEL[mode as ProfessionalProfile] ?? mode);
+            const name = mode === "society" ? prefs.societyName : prefs.customerName;
+            if (!name) return null;
             return (
-              <span style={{ fontSize: 12, fontWeight: 600, background: "color-mix(in srgb, var(--color-primary) 12%, transparent)", color: "var(--color-primary)", borderRadius: 5, padding: "2px 10px" }}>
-                {label}
-              </span>
+              <div style={{ fontSize: 13, color: "var(--color-text-secondary)", fontWeight: 500 }}>
+                {name}
+              </div>
             );
           })()}
-          {isInTrial && trialStartedAt && trialEndDate && (
-            <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
-              {new Date(trialStartedAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
-              {" → "}
-              {trialEndDate.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
-              <span style={{ marginLeft: 6, color: "#f59e0b", fontWeight: 600 }}>({trialDaysLeft}d left)</span>
-            </span>
-          )}
-          {prefs.isSubscribed && prefs.customerAccountCreatedAt && proEndDate && (
-            <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
-              {new Date(prefs.customerAccountCreatedAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
-              {" → "}
-              {new Date(proEndDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
-            </span>
-          )}
-          {!prefs.isSubscribed && !isInTrial && (
-            <button className="btn-sm" style={{ marginLeft: "auto", fontWeight: 600 }} onClick={() => setShowProfileModal(true)}>
-              Start free trial
-            </button>
-          )}
-          {isInTrial && !prefs.isSubscribed && (
-            <button className="btn-sm" style={{ marginLeft: "auto", fontWeight: 600 }} onClick={openProModal}>
-              Upgrade
-            </button>
-          )}
         </div>
       </section>
 
