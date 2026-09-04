@@ -1299,6 +1299,59 @@ app.delete("/api/admin/users/:email/access", async (req, res) => {
   res.json({ ok: true });
 });
 
+// ── App config (pricing, upload limits, profiles) ─────────────────────────────
+
+const CONFIG_DEFAULTS = {
+  plan_pricing: {
+    shared: { monthly: 999,  yearly: 9999 },
+    own:    { monthly: 499,  yearly: 4999 },
+  },
+  upload_limits: { free: 5, pro_trial: 50, pro_paid: -1 },
+  profile_enabled: {
+    personal: true, society: true, shopkeeper: true, tax_consultant: true,
+    ca: true, real_estate: true, advocate: true, bookkeeper: true, freelancer: true, ngo: true,
+  },
+};
+
+async function _getConfig(key) {
+  const { ok, data } = await _sbService(`/app_config?key=eq.${key}&select=value`);
+  if (ok && Array.isArray(data) && data.length > 0) return data[0].value;
+  return CONFIG_DEFAULTS[key] ?? null;
+}
+
+async function _setConfig(key, value) {
+  return _sbService("/app_config?on_conflict=key", {
+    method: "POST",
+    headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+    body: JSON.stringify({ key, value, updated_at: new Date().toISOString() }),
+  });
+}
+
+// GET /api/config/:key — public read (for PricingScreen, upload enforcement)
+app.get("/api/config/:key", async (req, res) => {
+  const allowed = Object.keys(CONFIG_DEFAULTS);
+  if (!allowed.includes(req.params.key)) return res.status(404).json({ error: "Unknown config key" });
+  res.json(await _getConfig(req.params.key));
+});
+
+// GET /api/admin/config/:key — admin read
+app.get("/api/admin/config/:key", async (req, res) => {
+  if (!_requireAdmin(req, res)) return;
+  const allowed = Object.keys(CONFIG_DEFAULTS);
+  if (!allowed.includes(req.params.key)) return res.status(404).json({ error: "Unknown config key" });
+  res.json(await _getConfig(req.params.key));
+});
+
+// PUT /api/admin/config/:key — admin write
+app.put("/api/admin/config/:key", async (req, res) => {
+  if (!_requireAdmin(req, res)) return;
+  const allowed = Object.keys(CONFIG_DEFAULTS);
+  if (!allowed.includes(req.params.key)) return res.status(404).json({ error: "Unknown config key" });
+  const { ok, data } = await _setConfig(req.params.key, req.body);
+  if (!ok) return res.status(500).json({ error: "Failed to save config" });
+  res.json(Array.isArray(data) ? data[0] : data);
+});
+
 // ── IMAP — credentials passed in request body, stored in client localStorage ──
 //  No Supabase JWT required. Client stores { email, appPassword } in localStorage
 //  and sends them with every test/poll request.
