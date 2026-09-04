@@ -766,18 +766,12 @@ export function AutoImportSettings() {
               <div style={{ width: 1, background: "var(--color-border)", flexShrink: 0 }} />
 
               {/* Right: Profile */}
-              <div style={{ padding: "14px 16px", minWidth: 130, display: "flex", flexDirection: "column", justifyContent: "center" }}>
-                {/* Row 1: PROFILE label */}
-                <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>
-                  Profile
-                </div>
-                {/* Row 2: profile type */}
+              <div style={{ padding: "14px 16px", minWidth: 130, display: "flex", flexDirection: "column", justifyContent: "flex-start" }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: "var(--color-primary)" }}>
                   {profileLabel}
                 </div>
-                {/* Row 3: profile name */}
                 {profileName && (
-                  <div style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 3, fontWeight: 500 }}>
+                  <div style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 4, fontWeight: 500 }}>
                     {profileName}
                   </div>
                 )}
