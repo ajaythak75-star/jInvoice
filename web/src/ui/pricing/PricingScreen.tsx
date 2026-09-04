@@ -104,10 +104,15 @@ const FREE_FEATURES = [
   "5 manual uploads per day",
   "1 month of data history",
   "1 email account",
-  "Mobile invoice capture",
-  "Cloud sync",
-  "Basic GST report",
   "Rewards points program",
+  "7-day support response",
+];
+
+const FREE_TRIAL_FEATURES = [
+  "10 invoices per day",
+  "1 month of data history",
+  "1 email account",
+  "Reports as per your profile",
   "7-day support response",
 ];
 
@@ -346,8 +351,8 @@ export function PricingScreen() {
         )}
       </div>
 
-      {/* Three plan cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginBottom: 28 }}>
+      {/* Four plan cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 16, marginBottom: 28 }}>
 
         {/* Free card */}
         <div style={{
@@ -377,6 +382,58 @@ export function PricingScreen() {
           </ul>
           <div style={{ marginTop: 18, fontSize: 13, color: "var(--color-text-secondary)", fontWeight: 600, textAlign: "center", padding: "8px 0" }}>
             {proActive ? "Downgrade anytime" : "Current plan"}
+          </div>
+        </div>
+
+        {/* Free Trial card */}
+        <div style={{
+          borderRadius: 14, border: inTrial ? "2px solid #f59e0b" : "1px solid var(--color-border)",
+          background: "var(--color-surface)", padding: "22px 20px",
+          display: "flex", flexDirection: "column", position: "relative",
+        }}>
+          <div style={{ position: "absolute", top: 12, left: 20, fontSize: 10.5, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", padding: "2px 8px", borderRadius: 20, background: "#f59e0b", color: "#fff" }}>
+            14-day Trial
+          </div>
+          {inTrial && (
+            <div style={{ position: "absolute", top: 12, right: 12, fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", padding: "2px 8px", borderRadius: 20, color: "#92400e", background: "#fef3c7" }}>
+              Active
+            </div>
+          )}
+          <div style={{ marginBottom: 16, marginTop: 22 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#d97706", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>
+              Free Trial
+            </div>
+            <div style={{ display: "flex", alignItems: "flex-end", gap: 4 }}>
+              <span style={{ fontSize: 28, fontWeight: 800, color: "var(--color-text)", lineHeight: 1 }}>₹0</span>
+              <span style={{ fontSize: 13, color: "var(--color-text-secondary)", marginBottom: 2 }}>/14 days</span>
+            </div>
+            <p style={{ fontSize: 12.5, color: "var(--color-text-secondary)", marginTop: 10, lineHeight: 1.5 }}>
+              Try Pro features free. No credit card required.
+            </p>
+          </div>
+          <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 8, flex: 1 }}>
+            {FREE_TRIAL_FEATURES.map((f) => (
+              <li key={f} style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12.5, color: "var(--color-text)" }}>
+                <span style={{ flexShrink: 0, marginTop: 1 }}><CheckIcon color="#d97706" /></span>
+                {f}
+              </li>
+            ))}
+          </ul>
+          <div style={{ marginTop: 18, textAlign: "center" }}>
+            {inTrial ? (
+              <div style={{ fontSize: 13, color: "#d97706", fontWeight: 700, padding: "8px 0" }}>
+                {daysLeft} day{daysLeft !== 1 ? "s" : ""} left
+              </div>
+            ) : trialUsed ? (
+              <div style={{ fontSize: 12.5, color: "var(--color-text-tertiary)", padding: "8px 0" }}>Trial used</div>
+            ) : (
+              <button
+                onClick={() => setShowProfileModal(true)}
+                style={{ width: "100%", padding: "9px 0", borderRadius: 8, border: "none", background: "#f59e0b", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer" }}
+              >
+                Start free trial
+              </button>
+            )}
           </div>
         </div>
 
@@ -607,38 +664,39 @@ export function PricingScreen() {
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
             <tr style={{ background: "var(--color-surface-2)" }}>
-              <th style={{ textAlign: "left", padding: "10px 16px", color: "var(--color-text-secondary)", fontWeight: 600, borderBottom: "1px solid var(--color-border)" }}>Feature</th>
-              <th style={{ textAlign: "center", padding: "10px 16px", color: "var(--color-text-secondary)", fontWeight: 600, borderBottom: "1px solid var(--color-border)" }}>Free</th>
-              <th style={{ textAlign: "center", padding: "10px 16px", color: "#7c3aed", fontWeight: 700, borderBottom: "1px solid var(--color-border)" }}>Shared API</th>
-              <th style={{ textAlign: "center", padding: "10px 16px", color: "#7c3aed", fontWeight: 700, borderBottom: "1px solid var(--color-border)" }}>Own API Key</th>
+              <th style={{ textAlign: "left", padding: "10px 14px", color: "var(--color-text-secondary)", fontWeight: 600, borderBottom: "1px solid var(--color-border)" }}>Feature</th>
+              <th style={{ textAlign: "center", padding: "10px 10px", color: "var(--color-text-secondary)", fontWeight: 600, borderBottom: "1px solid var(--color-border)" }}>Free</th>
+              <th style={{ textAlign: "center", padding: "10px 10px", color: "#d97706", fontWeight: 700, borderBottom: "1px solid var(--color-border)" }}>Trial</th>
+              <th style={{ textAlign: "center", padding: "10px 10px", color: "#7c3aed", fontWeight: 700, borderBottom: "1px solid var(--color-border)" }}>Shared API</th>
+              <th style={{ textAlign: "center", padding: "10px 10px", color: "#7c3aed", fontWeight: 700, borderBottom: "1px solid var(--color-border)" }}>Own API Key</th>
             </tr>
           </thead>
           <tbody>
             {([
-              ["Manual uploads",   "5 / day",   "50 / day", "Unlimited"  ],
-              ["Email imports",    "10 / day",  "50 / day", "Unlimited"  ],
-              ["Data history",     "1 month",   "3 months", "3 months"   ],
-              ["Email accounts",   "1",         "Up to 5",  "Up to 5"   ],
-              ["Extra user",       "—",         "₹249/user","₹249/user"  ],
-              ["Mobile capture",   "✓",         "✓",        "✓"          ],
-              ["Cloud sync",       "✓",         "✓",        "✓"          ],
-              ["Own API key",      "—",         "—",        "✓"          ],
-              ["Advanced reports", "—",         "✓",        "✓"          ],
-              ["Monthly price",    "Free",
+              ["Manual uploads",   "5 / day",  "10 / day",  "50 / day",  "Unlimited"  ],
+              ["Email imports",    "10 / day", "10 / day",  "50 / day",  "Unlimited"  ],
+              ["Data history",     "1 month",  "1 month",   "3 months",  "3 months"   ],
+              ["Email accounts",   "1",        "1",         "Up to 5",   "Up to 5"    ],
+              ["Reports",          "—",        "Per profile","Advanced",  "Advanced"   ],
+              ["Rewards points",   "✓",        "—",         "✓",         "✓"          ],
+              ["Extra user",       "—",        "—",         "₹249/user", "₹249/user"  ],
+              ["Own API key",      "—",        "—",         "—",         "✓"          ],
+              ["Monthly price",    "Free",     "Free",
                 `₹${plans.shared.monthlyPrice.toLocaleString("en-IN")}/mo`,
                 `₹${plans.own.monthlyPrice.toLocaleString("en-IN")}/mo`],
-              ["Yearly price",     "Free",
+              ["Yearly price",     "Free",     "Free",
                 `₹${plans.shared.yearlyPrice.toLocaleString("en-IN")}/yr`,
                 `₹${plans.own.yearlyPrice.toLocaleString("en-IN")}/yr`],
-            ] as [string, string, string, string][]).map(([feature, free, shared, own], i) => (
+            ] as [string, string, string, string, string][]).map(([feature, free, trial, shared, own], i) => (
               <tr
                 key={feature}
                 style={{ borderTop: i === 0 ? "none" : "1px solid var(--color-border)", background: i % 2 === 0 ? "var(--color-surface)" : "var(--color-surface-2)" }}
               >
-                <td style={{ padding: "9px 16px", color: "var(--color-text)", fontWeight: 500 }}>{feature}</td>
-                <td style={{ padding: "9px 16px", textAlign: "center", color: free === "—" ? "var(--color-text-tertiary)" : "var(--color-text)" }}>{free}</td>
-                <td style={{ padding: "9px 16px", textAlign: "center", color: shared === "—" ? "var(--color-text-tertiary)" : "#7c3aed", fontWeight: shared !== "—" ? 600 : 400 }}>{shared}</td>
-                <td style={{ padding: "9px 16px", textAlign: "center", color: own === "—" ? "var(--color-text-tertiary)" : "#7c3aed", fontWeight: own !== "—" ? 600 : 400 }}>{own}</td>
+                <td style={{ padding: "9px 14px", color: "var(--color-text)", fontWeight: 500 }}>{feature}</td>
+                <td style={{ padding: "9px 10px", textAlign: "center", color: free === "—" ? "var(--color-text-tertiary)" : "var(--color-text)" }}>{free}</td>
+                <td style={{ padding: "9px 10px", textAlign: "center", color: trial === "—" ? "var(--color-text-tertiary)" : "#d97706", fontWeight: trial !== "—" && trial !== "Free" ? 600 : 400 }}>{trial}</td>
+                <td style={{ padding: "9px 10px", textAlign: "center", color: shared === "—" ? "var(--color-text-tertiary)" : "#7c3aed", fontWeight: shared !== "—" && shared !== "Free" ? 600 : 400 }}>{shared}</td>
+                <td style={{ padding: "9px 10px", textAlign: "center", color: own === "—" ? "var(--color-text-tertiary)" : "#7c3aed", fontWeight: own !== "—" && own !== "Free" ? 600 : 400 }}>{own}</td>
               </tr>
             ))}
           </tbody>
