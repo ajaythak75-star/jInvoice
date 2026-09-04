@@ -713,28 +713,28 @@ export function AutoImportSettings() {
           const profileName = mode === "society" ? prefs.societyName : prefs.customerName;
 
           const dateNode = isInTrial && trialStartedAt && trialEndDate ? (
-            <div style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 4, lineHeight: 1.5 }}>
+            <span style={{ fontSize: 12, color: "var(--color-text-secondary)", lineHeight: 1.5 }}>
               {new Date(trialStartedAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
               {" → "}
               {trialEndDate.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
               <span style={{ marginLeft: 6, color: "#f59e0b", fontWeight: 600 }}>({trialDaysLeft}d left)</span>
-            </div>
+            </span>
           ) : prefs.isSubscribed && prefs.customerAccountCreatedAt && proEndDate ? (
-            <div style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 4 }}>
+            <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
               {new Date(prefs.customerAccountCreatedAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
               {" → "}
               {new Date(proEndDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
-            </div>
+            </span>
           ) : !prefs.isSubscribed && !isInTrial ? (
-            <div style={{ fontSize: 12, color: "var(--color-text-tertiary)", marginTop: 4 }}>No active subscription</div>
+            <span style={{ fontSize: 12, color: "var(--color-text-tertiary)" }}>No active subscription</span>
           ) : null;
 
           const actionBtn = !prefs.isSubscribed && !isInTrial ? (
-            <button className="btn-sm" style={{ marginTop: 12, fontWeight: 600 }} onClick={() => setShowProfileModal(true)}>
+            <button className="btn-sm" style={{ fontWeight: 600 }} onClick={() => setShowProfileModal(true)}>
               Start free trial
             </button>
           ) : isInTrial && !prefs.isSubscribed ? (
-            <button className="btn-sm" style={{ marginTop: 12, fontWeight: 600 }} onClick={openProModal}>
+            <button className="btn-sm" style={{ fontWeight: 600 }} onClick={openProModal}>
               Upgrade to Pro
             </button>
           ) : null;
@@ -748,15 +748,18 @@ export function AutoImportSettings() {
             }}>
               {/* Left: Plan */}
               <div style={{ flex: 1, padding: "14px 16px" }}>
-                <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>
-                  Plan
+                {/* Row 1: PLAN label + ● Free on same line */}
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.07em", flexShrink: 0 }}>
+                    Plan
+                  </span>
+                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: planColor, flexShrink: 0, boxShadow: `0 0 0 2px color-mix(in srgb, ${planColor === "var(--color-text-tertiary)" ? "#9898B8" : planColor} 22%, transparent)` }} />
+                  <span style={{ fontSize: 14, fontWeight: 800, color: "var(--color-text)", letterSpacing: "-0.01em" }}>{planLabel}</span>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-                  <span style={{ width: 9, height: 9, borderRadius: "50%", background: planColor, flexShrink: 0, boxShadow: `0 0 0 2px color-mix(in srgb, ${planColor === "var(--color-text-tertiary)" ? "#9898B8" : planColor} 22%, transparent)` }} />
-                  <span style={{ fontSize: 17, fontWeight: 800, color: "var(--color-text)", letterSpacing: "-0.01em" }}>{planLabel}</span>
-                </div>
-                {dateNode}
-                {actionBtn}
+                {/* Row 2: dates / "No active subscription" */}
+                {dateNode && <div style={{ marginTop: 5, paddingLeft: 2 }}>{dateNode}</div>}
+                {/* Row 3: action button */}
+                {actionBtn && <div style={{ marginTop: 10, paddingLeft: 2 }}>{actionBtn}</div>}
               </div>
 
               {/* Divider */}
@@ -764,12 +767,15 @@ export function AutoImportSettings() {
 
               {/* Right: Profile */}
               <div style={{ padding: "14px 16px", minWidth: 130, display: "flex", flexDirection: "column", justifyContent: "center" }}>
-                <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>
+                {/* Row 1: PROFILE label */}
+                <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>
                   Profile
                 </div>
+                {/* Row 2: profile type */}
                 <div style={{ fontSize: 13, fontWeight: 700, color: "var(--color-primary)" }}>
                   {profileLabel}
                 </div>
+                {/* Row 3: profile name */}
                 {profileName && (
                   <div style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 3, fontWeight: 500 }}>
                     {profileName}
