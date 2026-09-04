@@ -3119,10 +3119,10 @@ function AdvCourtFeesTab({ records }: { records: InvoiceMeta[] }) {
 
 // ── Profile-based tab visibility ──────────────────────────────────────────────
 
-type UserProfile = "personal" | "society" | "shopkeeper" | "tax_consultant" | "ca" | "real_estate" | "advocate" | "bookkeeper";
+type UserProfile = "personal" | "society" | "shopkeeper" | "tax_consultant" | "ca" | "real_estate" | "advocate" | "bookkeeper" | "freelancer" | "ngo";
 
-const GST_PROFILES: UserProfile[] = ["society", "shopkeeper", "tax_consultant", "ca", "real_estate", "advocate", "bookkeeper"];
-const TAGS_PROFILES: UserProfile[] = ["tax_consultant", "ca", "real_estate", "advocate", "bookkeeper"];
+const GST_PROFILES: UserProfile[] = ["society", "shopkeeper", "tax_consultant", "ca", "real_estate", "advocate", "bookkeeper", "freelancer", "ngo"];
+const TAGS_PROFILES: UserProfile[] = ["tax_consultant", "ca", "real_estate", "advocate", "bookkeeper", "freelancer", "ngo"];
 
 function visibleTabs(mode: string): ReportTab[] {
   const tabs: ReportTab[] = ["summary", "period", "vendor", "category"];

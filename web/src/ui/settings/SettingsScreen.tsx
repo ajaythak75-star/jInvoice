@@ -251,7 +251,7 @@ export function SettingsScreen({ onSignOut }: Props) {
                       outline: "none", cursor: "pointer",
                     }}
                   >
-                    {(["society", "shopkeeper", "tax_consultant", "ca", "real_estate", "advocate", "bookkeeper"] as Exclude<UserProfile, "personal">[]).map((profile) => (
+                    {(["society", "shopkeeper", "tax_consultant", "ca", "real_estate", "advocate", "bookkeeper", "freelancer", "ngo"] as Exclude<UserProfile, "personal">[]).map((profile) => (
                       <option key={profile} value={profile}>
                         {profile === "society" ? "Housing Society" : PROFESSIONAL_PROFILE_LABEL[profile as ProfessionalProfile]}
                       </option>

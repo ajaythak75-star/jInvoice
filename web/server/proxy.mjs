@@ -508,12 +508,157 @@ Extract the following fields and respond ONLY with valid JSON, no explanation or
 
 Rules: List ALL earnings first (prefixed "EARN: ") then ALL deductions (prefixed "DED: "). subtotalInr = total gross earnings. discountInr = total deductions. finalPaymentInr = net pay. gstNumber = employee PAN. Amounts must be positive numbers in INR.`;
 
+const EXTRACTION_PROMPT_REALESTATE = `You are a real estate document data extractor for Indian property transactions. This document may be a sale deed, registration receipt, stamp duty challan, RERA payment, home loan statement, rental agreement, TDS 194IA challan, or capital gains worksheet. Extract the following fields and respond ONLY with valid JSON, no explanation or markdown.
+
+{
+  "shopName": <seller / developer / bank / registrar name as string or null>,
+  "address": <property address as string or null>,
+  "pincode": <6-digit property PIN code as string or null>,
+  "phone": null,
+  "invoiceNumber": <registration / challan / receipt number as string or null>,
+  "gstNumber": <seller GSTIN or PAN as string or null>,
+  "gstPercent": <GST percent as number or null>,
+  "gstAmountInr": <GST amount in INR as number or null>,
+  "subtotalInr": <property value / loan principal / stamp duty base as number in INR or null>,
+  "dateOfPurchase": <transaction date in YYYY-MM-DD or null>,
+  "discountInr": null,
+  "finalPaymentInr": <total amount paid in INR as number or null>,
+  "items": [{"name": <component e.g. "Stamp Duty" / "Registration Fee" / "TDS 194IA" / "RERA Advance" / "EMI Principal" / "EMI Interest" / "Property Value">,"quantity": 1,"unitPriceInr": null,"discountInr": null,"amountInr": <positive INR amount>}]
+}
+
+Rules: shopName = seller/developer/bank/registrar. invoiceNumber = document/challan/receipt number. subtotalInr = base property value or stamp duty base. TDS 194IA applies when property value > ₹50,00,000. Split EMI into "EMI Principal" and "EMI Interest" items. List stamp duty and registration fee as separate items. All amounts positive INR.`;
+
+const EXTRACTION_PROMPT_ADVOCATE = `You are a legal professional document data extractor for Indian advocates and law firms. This document may be a court fee receipt, process fee receipt, stamp paper, vakalatnama, advocate fee invoice, law library subscription, or disbursement receipt. Extract the following fields and respond ONLY with valid JSON, no explanation or markdown.
+
+{
+  "shopName": <court / law firm / vendor / party name as string or null>,
+  "address": <address as string or null>,
+  "pincode": <6-digit PIN code as string or null>,
+  "phone": null,
+  "invoiceNumber": <case number / matter number / receipt number as string or null>,
+  "gstNumber": <vendor GSTIN or bar registration number as string or null>,
+  "gstPercent": <GST percent as number or null>,
+  "gstAmountInr": <GST amount in INR as number or null>,
+  "subtotalInr": <amount before GST in INR as number or null>,
+  "dateOfPurchase": <date in YYYY-MM-DD or null>,
+  "discountInr": null,
+  "finalPaymentInr": <total amount paid in INR as number or null>,
+  "items": [{"name": <component e.g. "Court Filing Fee" / "Process Fee" / "Stamp Paper" / "Advocate Fee" / "SCC Online Subscription" / "Manupatra Subscription" / "Travel Disbursement">,"quantity": 1,"unitPriceInr": null,"discountInr": null,"amountInr": <positive INR amount>}]
+}
+
+Rules: shopName = court/law firm/vendor. invoiceNumber = case/matter/receipt number. gstNumber = vendor GSTIN if available. subtotalInr = amount before GST. finalPaymentInr = total paid. All amounts positive INR.`;
+
+const EXTRACTION_PROMPT_CA = `You are a professional services document data extractor for Indian Chartered Accountants and accounting firms. This document may be a professional fee invoice, audit fee invoice, ICAI seminar/CPE receipt, software subscription (Tally, ClearTax, Computax, MCA portal), DSC renewal, or GST challan. Extract the following fields and respond ONLY with valid JSON, no explanation or markdown.
+
+{
+  "shopName": <firm / client / vendor / ICAI / software vendor name as string or null>,
+  "address": <address as string or null>,
+  "pincode": <6-digit PIN code as string or null>,
+  "phone": null,
+  "invoiceNumber": <invoice / engagement / receipt number as string or null>,
+  "gstNumber": <vendor GSTIN as string or null>,
+  "gstPercent": <GST percent as number (usually 18% on professional services) or null>,
+  "gstAmountInr": <GST amount in INR as number or null>,
+  "subtotalInr": <amount before GST in INR as number or null>,
+  "dateOfPurchase": <date in YYYY-MM-DD or null>,
+  "discountInr": null,
+  "finalPaymentInr": <total amount paid in INR as number or null>,
+  "items": [{"name": <service e.g. "Statutory Audit Fee" / "Tax Audit Fee" / "GST Filing Fee" / "Tally Prime Subscription" / "ClearTax Subscription" / "ICAI CPE Seminar" / "DSC Renewal" / "Professional Fee">,"quantity": 1,"unitPriceInr": null,"discountInr": null,"amountInr": <positive INR amount>}]
+}
+
+Rules: gstNumber = vendor GSTIN. 18% GST typically applies on professional services. subtotalInr = amount before GST. finalPaymentInr = total including GST. Identify audit type in item name (statutory/tax/internal). All amounts positive INR.`;
+
+const EXTRACTION_PROMPT_BOOKKEEPER = `You are a vendor invoice data extractor for Indian bookkeepers managing multiple client accounts. Extract all fields with special attention to GSTIN, HSN/SAC codes, and GST breakdown for purchase register compliance. Extract the following fields and respond ONLY with valid JSON, no explanation or markdown.
+
+{
+  "shopName": <vendor / supplier name as string or null>,
+  "address": <vendor address as string or null>,
+  "pincode": <6-digit vendor PIN code as string or null>,
+  "phone": null,
+  "invoiceNumber": <vendor invoice number as string or null>,
+  "gstNumber": <vendor GSTIN — critical, extract carefully as 15-char code or null>,
+  "gstPercent": <GST rate as number (0/5/12/18/28) or null>,
+  "gstAmountInr": <total GST amount CGST+SGST or IGST in INR as number or null>,
+  "subtotalInr": <taxable value before GST in INR as number or null>,
+  "dateOfPurchase": <invoice date in YYYY-MM-DD or null>,
+  "discountInr": <discount in INR as number or null>,
+  "finalPaymentInr": <total invoice amount including GST in INR as number or null>,
+  "items": [{"name": <item description with HSN/SAC code if visible e.g. "Office Supplies [HSN 4820]">,"quantity": <quantity as number>,"unitPriceInr": <unit price or null>,"discountInr": null,"amountInr": <positive line total in INR>}]
+}
+
+Rules: gstNumber = full 15-character GSTIN — extract with full accuracy. gstPercent = rate applied. subtotalInr = taxable value (for ITC). gstAmountInr = CGST+SGST or IGST total. Include HSN/SAC in item name. All amounts positive INR.`;
+
+const EXTRACTION_PROMPT_FREELANCER = `You are an expense document data extractor for Indian freelancers and independent professionals. This document may be a software/tool subscription, project expense, professional fee receipt, co-working space invoice, internet/utility bill, or hardware purchase. Extract the following fields and respond ONLY with valid JSON, no explanation or markdown.
+
+{
+  "shopName": <vendor / client / service provider name as string or null>,
+  "address": <vendor address as string or null>,
+  "pincode": <6-digit PIN code as string or null>,
+  "phone": null,
+  "invoiceNumber": <invoice / order / receipt number as string or null>,
+  "gstNumber": <vendor GSTIN as string or null>,
+  "gstPercent": <GST percent as number or null>,
+  "gstAmountInr": <GST amount in INR as number or null>,
+  "subtotalInr": <amount before GST in INR as number or null>,
+  "dateOfPurchase": <date in YYYY-MM-DD or null>,
+  "discountInr": <discount in INR as number or null>,
+  "finalPaymentInr": <total paid in INR as number or null>,
+  "items": [{"name": <prefixed item e.g. "SOFTWARE: Figma Pro" / "SOFTWARE: GitHub Copilot" / "HARDWARE: External SSD" / "COWORK: Seat Rental" / "UTIL: Internet Bill" / "CLIENT FEE: Project Name">,"quantity": <quantity>,"unitPriceInr": <unit price or null>,"discountInr": null,"amountInr": <positive INR amount>}]
+}
+
+Rules: Prefix items with category: SOFTWARE / HARDWARE / COWORK / UTIL / CLIENT FEE / TRAVEL / MISC. Include billing period in software item name if visible. subtotalInr = amount before GST. finalPaymentInr = total paid. All amounts positive INR.`;
+
+const EXTRACTION_PROMPT_NGO = `You are a financial document data extractor for Indian NGOs, charitable trusts, and non-profit societies. This document may be a donation receipt, 80G certificate, CSR grant receipt, project expense invoice, FCRA receipt, or staff payroll slip. Extract the following fields and respond ONLY with valid JSON, no explanation or markdown.
+
+{
+  "shopName": <donor / grantor / vendor / NGO name as string or null>,
+  "address": <address as string or null>,
+  "pincode": <6-digit PIN code as string or null>,
+  "phone": null,
+  "invoiceNumber": <receipt / certificate / grant reference / invoice number as string or null>,
+  "gstNumber": <GSTIN or PAN of the organization as string or null>,
+  "gstPercent": <GST percent or null>,
+  "gstAmountInr": <GST amount in INR as number or null>,
+  "subtotalInr": <amount before GST or total grant before deductions in INR as number or null>,
+  "dateOfPurchase": <receipt or transaction date in YYYY-MM-DD or null>,
+  "discountInr": null,
+  "finalPaymentInr": <total amount received or paid in INR as number or null>,
+  "items": [{"name": <description e.g. "Donation — General Corpus" / "CSR Grant — Health Camp" / "80G Certificate" / "Project Expense — Food Kits" / "FCRA Foreign Grant" / "Staff Salary">,"quantity": 1,"unitPriceInr": null,"discountInr": null,"amountInr": <positive INR amount>}]
+}
+
+Rules: Donation receipts — shopName = donor name; gstNumber = NGO PAN. 80G certificates — capture certificate number in invoiceNumber. CSR/grant — shopName = corporate or funding agency. FCRA — convert to INR equivalent. All amounts positive INR.`;
+
+const EXTRACTION_PROMPT_PERSONAL = `You are a personal expense data extractor for individual household purchases in India. This document may be a grocery bill, pharmacy receipt, restaurant bill, utility bill, online order invoice, clothing receipt, or any personal purchase receipt. Extract the following fields and respond ONLY with valid JSON, no explanation or markdown.
+
+{
+  "shopName": <store / merchant / app name as string or null>,
+  "address": <store address as string or null>,
+  "pincode": <6-digit PIN code as string or null>,
+  "phone": null,
+  "invoiceNumber": <bill / order ID / receipt number as string or null>,
+  "gstNumber": <merchant GSTIN if printed as string or null>,
+  "gstPercent": <GST rate as string e.g. "18%" or null>,
+  "gstAmountInr": <total GST amount in INR as number or null>,
+  "subtotalInr": <subtotal before GST and discount in INR as number or null>,
+  "dateOfPurchase": <purchase date in YYYY-MM-DD or null>,
+  "discountInr": <discount / coupon / cashback in INR as number or null>,
+  "finalPaymentInr": <grand total / amount paid in INR as number or null>,
+  "items": [{"name": <product or service name>,"quantity": <quantity or 1>,"unitPriceInr": <unit price or null>,"discountInr": <per-item discount or null>,"amountInr": <line total in INR>}]
+}
+
+Rules: Capture all visible line items. For restaurant bills list each dish separately. For utility bills list each charge component separately. Amounts must be numbers in INR.`;
+
 function getExtractionPrompt(mode, filename = "") {
-  if (mode === "society")                              return EXTRACTION_PROMPT_SOCIETY;
-  if (mode === "tax_consultant")                       return EXTRACTION_PROMPT_TAX;
-  if (mode === "ca")                                   return EXTRACTION_PROMPT_CORPORATE;
-  if (mode === "real_estate" || mode === "advocate")   return EXTRACTION_PROMPT_LEGAL;
   if (filename && /payslip|payroll|salaryslip|salary.?slip|paystub/i.test(filename)) return EXTRACTION_PROMPT_PAYROLL;
+  if (mode === "society")        return EXTRACTION_PROMPT_SOCIETY;
+  if (mode === "tax_consultant") return EXTRACTION_PROMPT_TAX;
+  if (mode === "ca")             return EXTRACTION_PROMPT_CA;
+  if (mode === "real_estate")    return EXTRACTION_PROMPT_REALESTATE;
+  if (mode === "advocate")       return EXTRACTION_PROMPT_ADVOCATE;
+  if (mode === "bookkeeper")     return EXTRACTION_PROMPT_BOOKKEEPER;
+  if (mode === "freelancer")     return EXTRACTION_PROMPT_FREELANCER;
+  if (mode === "ngo")            return EXTRACTION_PROMPT_NGO;
+  if (mode === "personal")       return EXTRACTION_PROMPT_PERSONAL;
   return EXTRACTION_PROMPT_INVOICE;
 }
 

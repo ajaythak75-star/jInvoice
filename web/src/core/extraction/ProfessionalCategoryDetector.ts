@@ -448,6 +448,216 @@ export function detectBookkeeperCategory(
   return "other";
 }
 
+// ─── Freelancer ─────────────────────────────────────────────────────────────
+
+export type FreelancerCategory =
+  | "software_tool"
+  | "hardware"
+  | "coworking"
+  | "utilities"
+  | "client_income"
+  | "travel"
+  | "other";
+
+export const FREELANCER_CATEGORY_LABEL: Record<FreelancerCategory, string> = {
+  software_tool:  "Software & Tools",
+  hardware:       "Hardware & Equipment",
+  coworking:      "Co-working Space",
+  utilities:      "Utilities",
+  client_income:  "Client Fee / Income",
+  travel:         "Travel",
+  other:          "Other",
+};
+
+const FREELANCER_KEYWORDS: { cat: FreelancerCategory; keywords: string[] }[] = [
+  { cat: "software_tool", keywords: [
+    "figma", "github", "notion", "adobe", "canva", "slack", "zoom", "linear",
+    "vercel", "netlify", "aws", "gcp", "azure", "digitalocean", "cloudflare",
+    "postman", "jira", "confluence", "dropbox", "google workspace", "microsoft 365",
+    "subscription", "saas", "software", "license", "annual plan", "monthly plan",
+  ]},
+  { cat: "hardware", keywords: [
+    "laptop", "monitor", "keyboard", "mouse", "ssd", "hard disk", "webcam",
+    "headphones", "microphone", "tablet", "ipad", "external drive", "usb hub",
+    "router", "hardware", "computer", "desktop", "printer",
+  ]},
+  { cat: "coworking", keywords: [
+    "coworking", "co-working", "co working", "hot desk", "dedicated desk",
+    "day pass", "meeting room", "office space", "seat rental", "workspace",
+  ]},
+  { cat: "utilities", keywords: [
+    "internet", "broadband", "electricity", "mobile recharge", "phone bill",
+    "wifi", "utility", "water bill",
+  ]},
+  { cat: "client_income", keywords: [
+    "professional fee", "consulting fee", "project fee", "retainer",
+    "client payment", "invoice raised", "service charges",
+  ]},
+  { cat: "travel", keywords: [
+    "flight", "train", "hotel", "cab", "taxi", "fuel", "travel", "accommodation",
+    "boarding", "lodging", "air ticket", "bus ticket",
+  ]},
+];
+
+export function detectFreelancerCategory(
+  merchantName: string | null,
+  lineItemNames: string[],
+  extraText?: string | null,
+): FreelancerCategory {
+  const haystack = buildHaystack(merchantName, lineItemNames, extraText);
+  for (const { cat, keywords } of FREELANCER_KEYWORDS) {
+    if (keywords.some((kw) => haystack.includes(kw))) return cat;
+  }
+  return "other";
+}
+
+// ─── NGO / Non-Profit ──────────────────────────────────────────────────────
+
+export type NGOCategory =
+  | "donation_receipt"
+  | "grant_csr"
+  | "project_expense"
+  | "staff_costs"
+  | "office_admin"
+  | "fcra"
+  | "80g_certificate"
+  | "other";
+
+export const NGO_CATEGORY_LABEL: Record<NGOCategory, string> = {
+  donation_receipt: "Donation Receipt",
+  grant_csr:        "Grant / CSR Funding",
+  project_expense:  "Project Expense",
+  staff_costs:      "Staff & HR",
+  office_admin:     "Office & Admin",
+  fcra:             "FCRA / Foreign Funds",
+  "80g_certificate":"80G Certificate",
+  other:            "Other",
+};
+
+const NGO_KEYWORDS: Array<{ cat: NGOCategory; keywords: string[] }> = [
+  { cat: "donation_receipt", keywords: [
+    "donation receipt", "charitable donation", "donation acknowledgment", "donor receipt",
+    "voluntary contribution", "corpus donation", "general donation", "trust donation",
+    "society donation", "ngo donation", "crowdfund",
+  ]},
+  { cat: "grant_csr", keywords: [
+    "csr", "corporate social responsibility", "grant", "funding letter", "grant agreement",
+    "project grant", "institutional grant", "bilateral grant", "ministry grant",
+    "government grant", "district fund", "mplads", "mlalads",
+  ]},
+  { cat: "project_expense", keywords: [
+    "project", "program expense", "activity expense", "fieldwork", "community",
+    "beneficiary", "distribution", "relief material", "aid", "camp expense",
+    "training expense", "awareness", "workshop expense",
+  ]},
+  { cat: "staff_costs", keywords: [
+    "salary", "wages", "stipend", "honorarium", "volunteer allowance", "payroll",
+    "staff", "employee", "pf", "provident fund", "esic", "gratuity",
+  ]},
+  { cat: "office_admin", keywords: [
+    "rent", "electricity", "broadband", "stationery", "printing", "courier",
+    "office maintenance", "audit fee", "ca fee", "legal fee", "registration fee",
+    "annual filing", "mca", "roc", "trust renewal",
+  ]},
+  { cat: "fcra", keywords: [
+    "fcra", "foreign contribution", "foreign currency", "foreign grant", "usd",
+    "eur", "gbp", "foreign fund", "nri donation", "overseas grant", "fcra receipt",
+  ]},
+  { cat: "80g_certificate", keywords: [
+    "80g", "section 80g", "80-g", "tax exemption certificate", "income tax exemption",
+    "form 10be", "donation certificate", "exemption u/s 80g",
+  ]},
+];
+
+export function detectNGOCategory(
+  merchantName: string | null,
+  lineItemNames: string[],
+  extraText?: string | null,
+): NGOCategory {
+  const haystack = buildHaystack(merchantName, lineItemNames, extraText);
+  for (const { cat, keywords } of NGO_KEYWORDS) {
+    if (keywords.some((kw) => haystack.includes(kw))) return cat;
+  }
+  return "other";
+}
+
+// ─── Personal ──────────────────────────────────────────────────────────────
+
+export type PersonalCategory =
+  | "grocery_household"
+  | "medical_health"
+  | "food_dining"
+  | "transport_fuel"
+  | "education"
+  | "entertainment"
+  | "utilities_bills"
+  | "clothing_lifestyle"
+  | "other";
+
+export const PERSONAL_CATEGORY_LABEL: Record<PersonalCategory, string> = {
+  grocery_household:  "Grocery & Household",
+  medical_health:     "Medical & Health",
+  food_dining:        "Food & Dining",
+  transport_fuel:     "Transport & Fuel",
+  education:          "Education",
+  entertainment:      "Entertainment",
+  utilities_bills:    "Utilities & Bills",
+  clothing_lifestyle: "Clothing & Lifestyle",
+  other:              "Other",
+};
+
+const PERSONAL_KEYWORDS: Array<{ cat: PersonalCategory; keywords: string[] }> = [
+  { cat: "grocery_household", keywords: [
+    "grocery", "supermarket", "dmart", "bigbasket", "blinkit", "zepto", "swiggy instamart",
+    "reliance fresh", "more", "nature's basket", "vegetables", "fruits", "household",
+    "cleaning", "detergent", "toiletries", "personal care",
+  ]},
+  { cat: "medical_health", keywords: [
+    "pharmacy", "medical", "hospital", "clinic", "doctor", "consultation",
+    "medicine", "tablet", "capsule", "health checkup", "lab test", "diagnostic",
+    "apollo", "practo", "netmeds", "1mg", "health insurance", "dental",
+  ]},
+  { cat: "food_dining", keywords: [
+    "restaurant", "cafe", "zomato", "swiggy", "hotel", "dhaba", "food",
+    "lunch", "dinner", "breakfast", "tea", "coffee", "pizza", "burger", "biryani",
+  ]},
+  { cat: "transport_fuel", keywords: [
+    "petrol", "diesel", "fuel", "ola", "uber", "rapido", "auto", "taxi",
+    "cab", "metro", "bus", "train ticket", "irctc", "toll", "fastag", "vehicle",
+  ]},
+  { cat: "education", keywords: [
+    "school", "college", "tuition", "coaching", "course", "exam fee", "udemy",
+    "coursera", "byju", "unacademy", "books", "stationery", "library", "admission",
+    "fees", "educational",
+  ]},
+  { cat: "entertainment", keywords: [
+    "movie", "cinema", "netflix", "hotstar", "amazon prime", "spotify", "youtube",
+    "gaming", "steam", "concert", "event ticket", "amusement", "park", "theatre",
+    "bookmyshow", "pvr", "inox",
+  ]},
+  { cat: "utilities_bills", keywords: [
+    "electricity", "water", "gas", "lpg", "broadband", "internet", "mobile recharge",
+    "dth", "tata sky", "airtel", "jio", "bsnl", "municipal", "maintenance",
+  ]},
+  { cat: "clothing_lifestyle", keywords: [
+    "clothing", "apparel", "fashion", "shoes", "footwear", "accessories",
+    "myntra", "ajio", "nykaa", "amazon", "flipkart", "salon", "spa", "beauty",
+    "jewellery", "watch",
+  ]},
+];
+
+export function detectPersonalCategory(
+  merchantName: string | null,
+  lineItemNames: string[],
+  extraText?: string | null,
+): PersonalCategory {
+  const haystack = buildHaystack(merchantName, lineItemNames, extraText);
+  for (const { cat, keywords } of PERSONAL_KEYWORDS) {
+    if (keywords.some((kw) => haystack.includes(kw))) return cat;
+  }
+  return "other";
+}
+
 // ─── Shared ────────────────────────────────────────────────────────────────
 
 function buildHaystack(
@@ -468,7 +678,9 @@ export type ProfessionalProfile =
   | "ca"
   | "real_estate"
   | "advocate"
-  | "bookkeeper";
+  | "bookkeeper"
+  | "freelancer"
+  | "ngo";
 
 export const PROFESSIONAL_PROFILE_LABEL: Record<ProfessionalProfile, string> = {
   shopkeeper:     "Shopkeeper",
@@ -477,6 +689,8 @@ export const PROFESSIONAL_PROFILE_LABEL: Record<ProfessionalProfile, string> = {
   real_estate:    "Real Estate Agent",
   advocate:       "Advocate / Lawyer",
   bookkeeper:     "Bookkeeper",
+  freelancer:     "Freelancer",
+  ngo:            "NGO / Trust / Society",
 };
 
 export function detectProfessionalCategory(
@@ -492,6 +706,8 @@ export function detectProfessionalCategory(
     case "real_estate":    return detectRealEstateCategory(merchantName, lineItemNames, extraText);
     case "advocate":       return detectAdvocateCategory(merchantName, lineItemNames, extraText);
     case "bookkeeper":     return detectBookkeeperCategory(merchantName, lineItemNames, extraText);
+    case "freelancer":     return detectFreelancerCategory(merchantName, lineItemNames, extraText);
+    case "ngo":            return detectNGOCategory(merchantName, lineItemNames, extraText);
   }
 }
 
@@ -503,5 +719,7 @@ export function getProfessionalCategoryLabel(profile: ProfessionalProfile, categ
     case "real_estate":    return REAL_ESTATE_CATEGORY_LABEL[category as RealEstateCategory] ?? category;
     case "advocate":       return ADVOCATE_CATEGORY_LABEL[category as AdvocateCategory] ?? category;
     case "bookkeeper":     return BOOKKEEPER_CATEGORY_LABEL[category as BookkeeperCategory] ?? category;
+    case "freelancer":     return FREELANCER_CATEGORY_LABEL[category as FreelancerCategory] ?? category;
+    case "ngo":            return NGO_CATEGORY_LABEL[category as NGOCategory] ?? category;
   }
 }
