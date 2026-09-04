@@ -66,13 +66,14 @@ function ActionBtn({ label, color, onClick }: { label: string; color: string; on
   );
 }
 
-type AdminTab = "users" | "pricing" | "limits" | "profiles";
+type AdminTab = "users" | "pricing" | "limits" | "profiles" | "settings";
 
 const TAB_LABELS: { id: AdminTab; label: string }[] = [
   { id: "users",    label: "Users" },
   { id: "pricing",  label: "Pricing" },
   { id: "limits",   label: "Upload Limits" },
   { id: "profiles", label: "Profiles" },
+  { id: "settings", label: "Plan Settings" },
 ];
 
 // ── Users tab ────────────────────────────────────────────────────────────────
@@ -534,6 +535,127 @@ function ProfilesTab() {
   );
 }
 
+// ── Plan Settings Tab ─────────────────────────────────────────────────────────
+
+interface PlanSettingsConfig {
+  trial_days: number;
+  support_response: { free: string; pro_trial: string; pro: string };
+}
+
+const PLAN_SETTINGS_DEFAULT: PlanSettingsConfig = {
+  trial_days: 14,
+  support_response: { free: "7 days", pro_trial: "7 days", pro: "48 hours" },
+};
+
+function PlanSettingsTab() {
+  const [cfg, setCfg]       = useState<PlanSettingsConfig | null>(null);
+  const [draft, setDraft]   = useState<PlanSettingsConfig | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved]   = useState(false);
+  const [error, setError]   = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/admin/config/plan_settings", { headers: authHeaders() })
+      .then((r) => r.json())
+      .then((d) => {
+        const merged = { ...PLAN_SETTINGS_DEFAULT, ...d, support_response: { ...PLAN_SETTINGS_DEFAULT.support_response, ...(d.support_response ?? {}) } };
+        setCfg(merged); setDraft(merged);
+      });
+  }, []);
+
+  const setTrialDays = (v: string) => {
+    const n = Math.max(1, parseInt(v, 10) || 1);
+    setDraft((prev) => prev ? { ...prev, trial_days: n } : prev);
+    setSaved(false);
+  };
+
+  const setSupport = (tier: keyof PlanSettingsConfig["support_response"], v: string) => {
+    setDraft((prev) => prev ? { ...prev, support_response: { ...prev.support_response, [tier]: v } } : prev);
+    setSaved(false);
+  };
+
+  const handleSave = async () => {
+    if (!draft) return;
+    setSaving(true); setError(null);
+    try {
+      const r = await fetch("/api/admin/config/plan_settings", {
+        method: "PUT", headers: authHeaders(), body: JSON.stringify(draft),
+      });
+      if (!r.ok) { setError("Save failed."); return; }
+      setCfg(draft); setSaved(true);
+    } catch { setError("Network error."); }
+    finally { setSaving(false); }
+  };
+
+  if (!draft) return <p style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>Loading…</p>;
+
+  const inp: React.CSSProperties = {
+    padding: "7px 10px", borderRadius: 6, border: "1px solid var(--color-border)",
+    background: "var(--color-bg)", color: "var(--color-text)", fontSize: 13, outline: "none",
+  };
+  const label: React.CSSProperties = {
+    fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em",
+    color: "var(--color-text-secondary)", marginBottom: 5, display: "block",
+  };
+
+  return (
+    <div style={{ maxWidth: 540 }}>
+      <p style={{ fontSize: 13, color: "var(--color-text-secondary)", marginBottom: 24 }}>
+        Configure the free trial period length and support response time shown on the Pricing screen.
+      </p>
+
+      {/* Trial days */}
+      <div style={{
+        padding: "18px 20px", border: "1px solid var(--color-border)",
+        borderRadius: 10, marginBottom: 20, background: "var(--color-surface)",
+      }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: "var(--color-text)", marginBottom: 14 }}>
+          Trial Period
+        </div>
+        <label style={label}>Number of trial days</label>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <input style={{ ...inp, width: 90 }} type="number" min={1} max={365}
+            value={draft.trial_days} onChange={(e) => setTrialDays(e.target.value)} />
+          <span style={{ fontSize: 12.5, color: "var(--color-text-secondary)" }}>days free trial for new Pro users</span>
+        </div>
+      </div>
+
+      {/* Support response times */}
+      <div style={{
+        padding: "18px 20px", border: "1px solid var(--color-border)",
+        borderRadius: 10, background: "var(--color-surface)",
+      }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: "var(--color-text)", marginBottom: 14 }}>
+          Support Response Time
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {([
+            { tier: "free",      tierLabel: "Free plan" },
+            { tier: "pro_trial", tierLabel: "Free Trial" },
+            { tier: "pro",       tierLabel: "Pro (Shared & Own API)" },
+          ] as { tier: keyof PlanSettingsConfig["support_response"]; tierLabel: string }[]).map(({ tier, tierLabel }) => (
+            <div key={tier}>
+              <label style={label}>{tierLabel}</label>
+              <input style={{ ...inp, width: "100%" }}
+                type="text" value={draft.support_response[tier]}
+                placeholder="e.g. 48 hours"
+                onChange={(e) => setSupport(tier, e.target.value)} />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ marginTop: 16, display: "flex", alignItems: "center", gap: 12 }}>
+        <button className="btn-primary" onClick={handleSave} disabled={saving || JSON.stringify(draft) === JSON.stringify(cfg)}>
+          {saving ? "Saving…" : "Save Settings"}
+        </button>
+        {saved && <span style={{ fontSize: 13, color: "#16a34a" }}>✓ Saved</span>}
+        {error && <span style={{ fontSize: 13, color: "#ef4444" }}>{error}</span>}
+      </div>
+    </div>
+  );
+}
+
 // ── Main AdminScreen ──────────────────────────────────────────────────────────
 
 export function AdminScreen() {
@@ -567,6 +689,7 @@ export function AdminScreen() {
       {tab === "pricing"  && <PricingTab />}
       {tab === "limits"   && <UploadLimitsTab />}
       {tab === "profiles" && <ProfilesTab />}
+      {tab === "settings" && <PlanSettingsTab />}
     </div>
   );
 }
