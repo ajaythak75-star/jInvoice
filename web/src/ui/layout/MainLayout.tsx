@@ -5,6 +5,7 @@ interface Props {
   active: string;
   onNav: (tab: string) => void;
   alertCount?: number;
+  isAdmin?: boolean;
 }
 
 const ImportIcon = () => (
@@ -73,6 +74,14 @@ const AboutIcon = () => (
   </svg>
 );
 
+const AdminIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 2a5 5 0 100 10A5 5 0 0012 2z" />
+    <path d="M20.59 21a8 8 0 10-17.18 0" />
+    <path d="M18 17l2 2 4-4" />
+  </svg>
+);
+
 const NAV_ITEMS = [
   { id: "import",   label: "Import",   Icon: ImportIcon   },
   { id: "view",     label: "View",     Icon: ViewIcon     },
@@ -107,7 +116,7 @@ const MoreIcon = () => (
   </svg>
 );
 
-export function MainLayout({ children, active, onNav, alertCount = 0 }: Props) {
+export function MainLayout({ children, active, onNav, alertCount = 0, isAdmin = false }: Props) {
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   const handleNav = (id: string) => {
@@ -115,7 +124,15 @@ export function MainLayout({ children, active, onNav, alertCount = 0 }: Props) {
     onNav(id);
   };
 
-  const moreActive = MORE_ITEMS.some((item) => item.id === active);
+  const navItems = isAdmin
+    ? [...NAV_ITEMS, { id: "admin", label: "Admin", Icon: AdminIcon }]
+    : NAV_ITEMS;
+
+  const moreItems = isAdmin
+    ? [...MORE_ITEMS, { id: "admin", label: "Admin", Icon: AdminIcon }]
+    : MORE_ITEMS;
+
+  const moreActive = moreItems.some((item) => item.id === active);
 
   return (
     <div className="app-shell">
@@ -126,7 +143,7 @@ export function MainLayout({ children, active, onNav, alertCount = 0 }: Props) {
           <span className="sidebar-logo-text">Invoice</span>
         </div>
         <nav className="sidebar-nav">
-          {NAV_ITEMS.map(({ id, label, Icon }) => (
+          {navItems.map(({ id, label, Icon }) => (
             <button
               key={id}
               className={`nav-item${active === id ? " active" : ""}`}
@@ -157,7 +174,7 @@ export function MainLayout({ children, active, onNav, alertCount = 0 }: Props) {
 
       {/* ── Mobile bottom nav ── */}
       <nav className="mobile-bottom-nav" aria-label="Main navigation">
-        {NAV_ITEMS.filter((item) => BOTTOM_PRIMARY.includes(item.id)).map(({ id, label, Icon }) => (
+        {navItems.filter((item) => BOTTOM_PRIMARY.includes(item.id)).map(({ id, label, Icon }) => (
           <button
             key={id}
             className={`mobile-nav-btn${active === id ? " active" : ""}`}
@@ -203,7 +220,7 @@ export function MainLayout({ children, active, onNav, alertCount = 0 }: Props) {
       <div className={`mobile-drawer${drawerOpen ? " open" : ""}`} aria-hidden={!drawerOpen}>
         <div className="mobile-drawer-handle" />
         <div className="mobile-drawer-grid">
-          {MORE_ITEMS.map(({ id, label, Icon }) => (
+          {moreItems.map(({ id, label, Icon }) => (
             <button
               key={id}
               className={`mobile-drawer-item${active === id ? " active" : ""}`}

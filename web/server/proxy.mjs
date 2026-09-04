@@ -92,6 +92,18 @@ async function _sbService(path, opts = {}) {
   } catch (e) { return { ok: false, data: null, error: String(e) }; }
 }
 
+// Insert one row into user_plan_events — fire-and-forget, never blocks the caller.
+// event: "plan_created" | "trial_started" | "trial_expired" | "pro_activated" | "cancelled"
+function _logPlanEvent(email, event, meta = {}) {
+  _sbService("/user_plan_events", {
+    method: "POST",
+    headers: { Prefer: "return=minimal" },
+    body: JSON.stringify({ email: email.toLowerCase(), event, meta, created_at: new Date().toISOString() }),
+  }).then(({ ok, status, data }) => {
+    if (!ok) console.error("[plan_events] insert failed:", status, JSON.stringify(data));
+  }).catch((e) => console.error("[plan_events] insert error:", e));
+}
+
 const app = express();
 
 // ── Stripe webhook (must be before express.json) ──────────────────────────────
@@ -1068,6 +1080,9 @@ app.post("/api/auth/verify-otp", async (req, res) => {
     method: "POST",
     headers: { Prefer: "resolution=ignore-duplicates,return=representation" },
     body: JSON.stringify({ email: email.toLowerCase(), plan: "free", status: "active", trial_used: false, updated_at: new Date().toISOString() }),
+  }).then(({ status }) => {
+    // status 201 = row was created (genuine first login); 200 with ignore-duplicates = already existed
+    if (status === 201) _logPlanEvent(email.toLowerCase(), "plan_created", { plan: "free" });
   }).catch((e) => console.error("[auth] user_plans upsert:", e));
 
   res.json({ ok: true, token: sessionToken });
@@ -1119,6 +1134,7 @@ app.post("/api/subscription/start-trial", async (req, res) => {
   const trialEnds = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
   const patch = { plan: "pro_trial", status: "active", trial_used: true, trial_started_at: now.toISOString(), trial_ends_at: trialEnds.toISOString(), updated_at: now.toISOString() };
   const { data: updated } = await _sbService(`/user_plans?email=eq.${encodeURIComponent(email)}`, { method: "PATCH", body: JSON.stringify(patch) });
+  _logPlanEvent(email, "trial_started", { trial_ends_at: trialEnds.toISOString() });
   res.json(Array.isArray(updated) ? updated[0] : (updated ?? { ...row, ...patch }));
 });
 
@@ -1153,9 +1169,124 @@ app.post("/api/subscription/cancel", async (req, res) => {
   if (!email) return res.status(401).json({ error: "unauthorized" });
   if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) return res.status(503).json({ error: "Supabase not configured" });
   const now = new Date().toISOString();
+  const { data: current } = await _sbService(`/user_plans?email=eq.${encodeURIComponent(email)}&limit=1`);
+  const currentPlan = (Array.isArray(current) ? current[0] : null)?.plan ?? "unknown";
   const patch = { plan: "free", status: "cancelled", cancelled_at: now, updated_at: now };
   const { data: updated } = await _sbService(`/user_plans?email=eq.${encodeURIComponent(email)}`, { method: "PATCH", body: JSON.stringify(patch) });
+  _logPlanEvent(email, "cancelled", { from_plan: currentPlan });
   res.json(Array.isArray(updated) ? updated[0] : (updated ?? { ..._FREE_PLAN, ...patch }));
+});
+
+// ── Dummy payment (dev/staging only — remove DUMMY_PAYMENT env var in prod) ───
+app.post("/api/payment/dummy-activate", async (req, res) => {
+  if (process.env.DUMMY_PAYMENT !== "true") return res.status(404).json({ error: "not found" });
+  const email = _verifyToken(_planToken(req));
+  if (!email) return res.status(401).json({ error: "unauthorized" });
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) return res.status(503).json({ error: "Supabase not configured" });
+  const now = new Date().toISOString();
+  const paidUntil = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
+  const { apiOption, billing } = req.body ?? {};
+  const patch = {
+    plan: "pro_paid",
+    status: "active",
+    trial_used: true,
+    paid_from: now,
+    paid_until: paidUntil,
+    cancelled_at: null,
+    updated_at: now,
+  };
+  const { data: updated } = await _sbService(`/user_plans?email=eq.${encodeURIComponent(email)}`, {
+    method: "PATCH",
+    headers: { Prefer: "return=representation" },
+    body: JSON.stringify(patch),
+  });
+  _logPlanEvent(email, "pro_activated", { via: "dummy_payment", api_option: apiOption ?? "shared", billing: billing ?? "monthly" });
+  res.json(Array.isArray(updated) ? updated[0] : (updated ?? { email, ...patch }));
+});
+
+// ── Admin endpoints ────────────────────────────────────────────────────────────
+
+function _requireAdmin(req, res) {
+  const email = _verifyToken(_planToken(req));
+  if (!email) { res.status(401).json({ error: "unauthorized" }); return null; }
+  if (!ADMIN_EMAIL || email.toLowerCase() !== ADMIN_EMAIL.toLowerCase()) {
+    res.status(403).json({ error: "forbidden" }); return null;
+  }
+  return email;
+}
+
+// GET /api/admin/users — all users with current plan
+app.get("/api/admin/users", async (req, res) => {
+  if (!_requireAdmin(req, res)) return;
+  const { data } = await _sbService("/user_plans?order=updated_at.desc&limit=200");
+  res.json(Array.isArray(data) ? data : []);
+});
+
+// GET /api/admin/users/:email/events — plan history for one user
+app.get("/api/admin/users/:email/events", async (req, res) => {
+  if (!_requireAdmin(req, res)) return;
+  const email = decodeURIComponent(req.params.email).toLowerCase();
+  const { data } = await _sbService(`/user_plan_events?email=eq.${encodeURIComponent(email)}&order=created_at.desc&limit=50`);
+  res.json(Array.isArray(data) ? data : []);
+});
+
+// POST /api/admin/users/add — add user to allowed_users and create free plan row
+app.post("/api/admin/users/add", async (req, res) => {
+  if (!_requireAdmin(req, res)) return;
+  const { email } = req.body ?? {};
+  if (!email || !email.includes("@")) return res.status(400).json({ error: "Invalid email" });
+  const emailLower = email.toLowerCase();
+  await _sbService("/allowed_users", {
+    method: "POST",
+    headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
+    body: JSON.stringify({ email: emailLower }),
+  });
+  const { status } = await _sbService("/user_plans", {
+    method: "POST",
+    headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
+    body: JSON.stringify({ email: emailLower, plan: "free", status: "active", trial_used: false, updated_at: new Date().toISOString() }),
+  });
+  if (status === 201) _logPlanEvent(emailLower, "plan_created", { plan: "free", by: "admin" });
+  res.json({ ok: true });
+});
+
+// PATCH /api/admin/users/:email/plan — manually set a user's plan
+app.patch("/api/admin/users/:email/plan", async (req, res) => {
+  if (!_requireAdmin(req, res)) return;
+  const email = decodeURIComponent(req.params.email).toLowerCase();
+  const { plan } = req.body ?? {};
+  if (!["free", "pro_trial", "pro_paid"].includes(plan)) return res.status(400).json({ error: "Invalid plan" });
+  const now = new Date();
+  const patch = { plan, status: "active", updated_at: now.toISOString() };
+  if (plan === "pro_trial") {
+    const trialEnds = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
+    patch.trial_used = true;
+    patch.trial_started_at = now.toISOString();
+    patch.trial_ends_at = trialEnds.toISOString();
+  }
+  if (plan === "pro_paid") {
+    patch.paid_from = now.toISOString();
+    patch.paid_until = new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000).toISOString();
+  }
+  if (plan === "free") {
+    patch.status = "cancelled";
+    patch.cancelled_at = now.toISOString();
+  }
+  const { data } = await _sbService(`/user_plans?email=eq.${encodeURIComponent(email)}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+  const eventName = plan === "pro_paid" ? "pro_activated" : plan === "pro_trial" ? "trial_started" : "cancelled";
+  _logPlanEvent(email, eventName, { by: "admin", plan });
+  res.json(Array.isArray(data) ? data[0] : (data ?? patch));
+});
+
+// DELETE /api/admin/users/:email/access — remove from allowed_users
+app.delete("/api/admin/users/:email/access", async (req, res) => {
+  if (!_requireAdmin(req, res)) return;
+  const email = decodeURIComponent(req.params.email).toLowerCase();
+  await _sbService(`/allowed_users?email=eq.${encodeURIComponent(email)}`, { method: "DELETE" });
+  res.json({ ok: true });
 });
 
 // ── IMAP — credentials passed in request body, stored in client localStorage ──

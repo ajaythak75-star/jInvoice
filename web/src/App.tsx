@@ -12,6 +12,7 @@ import { PricingScreen } from "./ui/pricing/PricingScreen";
 import { FAQScreen } from "./ui/help/FAQScreen";
 import { AboutScreen } from "./ui/help/AboutScreen";
 import { LoginScreen } from "./ui/auth/LoginScreen";
+import { AdminScreen } from "./ui/admin/AdminScreen";
 import { auth } from "./data/AuthStore";
 import { prefs } from "./data/AutoImportPreferences";
 import { schedulePolling } from "./service/AutoImportService";
@@ -98,9 +99,12 @@ function applyOAuthHash(): boolean {
 applyOAuthHash();
 
 
+const ADMIN_EMAIL = "ajaythak75@gmail.com";
+
 export function App() {
   const [loggedIn, setLoggedIn] = useState(auth.isLoggedIn);
   const [tab, setTab] = useState("import");
+  const isAdmin = auth.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
   const [alertCount, setAlertCount] = useState(0);
   const [showTrialBanner, setShowTrialBanner] = useState(false);
 
@@ -170,7 +174,7 @@ export function App() {
   }
 
   return (
-    <MainLayout active={tab} onNav={setTab} alertCount={alertCount}>
+    <MainLayout active={tab} onNav={setTab} alertCount={alertCount} isAdmin={isAdmin}>
       {showTrialBanner && (
         <TrialExpiredBanner
           onSubscribe={() => { setTab("pricing"); }}
@@ -192,6 +196,7 @@ export function App() {
       {tab === "settings" && <SettingsScreen onSignOut={() => setLoggedIn(false)} />}
       {tab === "faq"      && <FAQScreen />}
       {tab === "about"    && <AboutScreen />}
+      {tab === "admin"    && isAdmin && <AdminScreen />}
     </MainLayout>
   );
 }

@@ -77,6 +77,24 @@ export async function cancelPlan(): Promise<ServerPlan> {
   return plan;
 }
 
+export async function activateDummyPro(
+  apiOption: "shared" | "own",
+  billing: "monthly" | "yearly",
+): Promise<ServerPlan> {
+  const r = await fetch("/api/payment/dummy-activate", {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ apiOption, billing }),
+  });
+  if (!r.ok) {
+    const body = await r.json().catch(() => ({}));
+    throw new Error((body as any).error ?? "Dummy activation failed.");
+  }
+  const plan: ServerPlan = await r.json();
+  applyPlanToPrefs(plan);
+  return plan;
+}
+
 export async function requestProAccess(): Promise<void> {
   const r = await fetch("/api/subscription/request-pro", { method: "POST", headers: authHeaders() });
   if (!r.ok) {

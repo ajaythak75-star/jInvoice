@@ -11,6 +11,9 @@ import {
 } from "../../service/SubscriptionService";
 import { startTrial as startTrialServer, requestProAccess } from "../../service/UserPlanService";
 import { BusinessProfileModal } from "../shared/BusinessProfileModal";
+import { DummyPaymentModal } from "../payment/DummyPaymentModal";
+
+const DUMMY_PAYMENT = import.meta.env.VITE_DUMMY_PAYMENT === "true";
 
 const inpStyle: React.CSSProperties = {
   width: "100%", padding: "8px 10px", borderRadius: 6,
@@ -144,6 +147,7 @@ export function PricingScreen() {
   const [requestSent,      setRequestSent]      = useState(false);
   const [requestingAccess, setRequestingAccess] = useState(false);
   const [trialError,       setTrialError]       = useState<string | null>(null);
+  const [showDummyPayment, setShowDummyPayment] = useState(false);
 
   useEffect(() => {
     subscriptionService.get().then((s) => {
@@ -230,6 +234,10 @@ export function PricingScreen() {
   };
 
   const handleSubscribe = async () => {
+    if (DUMMY_PAYMENT) {
+      setShowDummyPayment(true);
+      return;
+    }
     setCheckoutLoading(true);
     setCheckoutError(null);
     const url = await subscriptionService.createCheckout(apiOption, billing);
@@ -690,6 +698,21 @@ export function PricingScreen() {
         <GeminiApiKeyModal
           onConfirm={() => { setShowApiKeyModal(false); handleStartTrial(); }}
           onClose={() => setShowApiKeyModal(false)}
+        />
+      )}
+
+      {showDummyPayment && (
+        <DummyPaymentModal
+          apiOption={apiOption}
+          billing={billing}
+          totalPaise={displayTotal * 100}
+          onSuccess={(plan) => {
+            setShowDummyPayment(false);
+            setSub(plan as unknown as Subscription);
+            setPostPayment(true);
+            if (!prefs.businessProfileCompleted) setShowProfileModal(true);
+          }}
+          onClose={() => setShowDummyPayment(false)}
         />
       )}
     </div>
