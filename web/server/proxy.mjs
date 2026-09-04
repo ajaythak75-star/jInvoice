@@ -950,8 +950,7 @@ app.post("/api/openai", async (req, res) => {
 //        client → POST /api/auth/verify-otp → server verifies code, returns Supabase token_hash
 //        client → sb.auth.verifyOtp({ token_hash, type:"magiclink" }) → gets session
 
-const _otpStore      = new Map(); // email → { code, expiresAt }
-const _magicLinkStore = new Map(); // token → { email, expiresAt }
+const _otpStore = new Map(); // email → { code, expiresAt }
 
 const RESEND_API_KEY    = process.env.RESEND_API_KEY    ?? "";
 const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL ?? "onboarding@resend.dev";
@@ -1064,78 +1063,6 @@ app.post("/api/auth/verify-otp", async (req, res) => {
   }).catch((e) => console.error("[auth] user_plans upsert:", e));
 
   res.json({ ok: true, token: sessionToken });
-});
-
-// ── Magic-link auth ────────────────────────────────────────────────────────────
-
-app.post("/api/auth/send-magic-link", async (req, res) => {
-  const { email } = req.body ?? {};
-  if (!email || !email.includes("@")) return res.status(400).json({ error: "Valid email required" });
-
-  if (SUPABASE_URL && SUPABASE_SERVICE_KEY) {
-    try {
-      const chk = await fetch(
-        `${SUPABASE_URL}/rest/v1/allowed_users?email=eq.${encodeURIComponent(email.toLowerCase())}&select=email&limit=1`,
-        { headers: { apikey: SUPABASE_SERVICE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_KEY}` } }
-      );
-      const rows = await chk.json();
-      if (!Array.isArray(rows) || rows.length === 0) {
-        return res.status(403).json({ error: "This email is not registered for access. Contact the admin to request access." });
-      }
-    } catch {
-      return res.status(503).json({ error: "Access check unavailable. Please try again shortly." });
-    }
-  }
-
-  const token    = crypto.randomBytes(32).toString("hex");
-  const appBase  = RENDER_URL ?? `${req.protocol}://${req.get("host")}`;
-  const magicUrl = `${appBase}/?magic=${token}`;
-  _magicLinkStore.set(token, { email: email.toLowerCase(), expiresAt: Date.now() + 15 * 60_000 });
-
-  const timeout = setTimeout(() => {
-    if (!res.headersSent) res.status(504).json({ error: "Email send timed out. Try again." });
-  }, 20_000);
-  try {
-    await _sendEmail(
-      email,
-      "Sign in to jInvoice",
-      `<div style="font-family:sans-serif;max-width:420px;margin:40px auto;padding:32px;border:1px solid #e5e7eb;border-radius:12px">
-        <h2 style="margin:0 0 8px;color:#111">jInvoice</h2>
-        <p style="margin:0 0 24px;color:#555">Click the button below to sign in. This link expires in 15 minutes and works only once.</p>
-        <a href="${magicUrl}" style="display:inline-block;padding:12px 28px;background:#4f46e5;color:#fff;text-decoration:none;border-radius:8px;font-weight:700;font-size:15px">Sign in to jInvoice</a>
-        <p style="margin:24px 0 0;color:#888;font-size:13px">If you didn't request this, you can safely ignore this email.</p>
-      </div>`
-    );
-    clearTimeout(timeout);
-    if (!res.headersSent) res.json({ ok: true });
-  } catch (e) {
-    clearTimeout(timeout);
-    _magicLinkStore.delete(token);
-    if (!res.headersSent) res.status(500).json({ error: String(e) });
-  }
-});
-
-app.get("/api/auth/verify-magic-link", async (req, res) => {
-  const token = req.query?.token;
-  if (!token || typeof token !== "string") return res.status(400).json({ error: "token required" });
-
-  const stored = _magicLinkStore.get(token);
-  if (!stored || Date.now() > stored.expiresAt) {
-    _magicLinkStore.delete(token);
-    return res.status(401).json({ error: "This sign-in link has expired or already been used." });
-  }
-  _magicLinkStore.delete(token); // one-time use
-
-  const { email } = stored;
-  const sessionToken = _signToken(email);
-
-  _sbService("/user_plans", {
-    method: "POST",
-    headers: { Prefer: "resolution=ignore-duplicates,return=representation" },
-    body: JSON.stringify({ email, plan: "free", status: "active", trial_used: false, updated_at: new Date().toISOString() }),
-  }).catch((e) => console.error("[auth] user_plans upsert:", e));
-
-  res.json({ ok: true, token: sessionToken, email });
 });
 
 // ── Subscription / plan endpoints ─────────────────────────────────────────────

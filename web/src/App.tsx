@@ -113,15 +113,6 @@ export function App() {
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
 
-  // Handle magic-link token in URL: ?magic=<token>
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const magicToken = params.get("magic");
-    if (!magicToken || auth.isLoggedIn) return;
-    window.history.replaceState({}, "", "/"); // clean URL immediately
-    auth.verifyMagicLink(magicToken).then(() => setLoggedIn(true)).catch(() => {});
-  }, []);
-
   // Sync subscription plan from Supabase on every login/startup
   useEffect(() => {
     if (!loggedIn) return;
