@@ -9,7 +9,7 @@ import { desktopConnector } from "../../service/AutoImportService";
 import { prefs } from "../../data/AutoImportPreferences";
 import { ImapConnector } from "../../autoimport/ImapConnector";
 import { extractFilePreview, extractInvoiceWithAI, resolveCategory } from "../../extraction/ExtractionPipeline";
-import { getBulkExtractionState, runBulkExtraction, type BulkState } from "../../service/BulkExtractionService";
+import { getBulkExtractionState, runBulkExtraction, runBulkReExtraction, type BulkState } from "../../service/BulkExtractionService";
 import type { ExtractedInvoice } from "../../core/extraction/models";
 import { detectCategory } from "../../core/extraction/CategoryDetector";
 import { detectDocType, DOC_TYPE_LABELS } from "../../extraction/DocTypeDetector";
@@ -1405,6 +1405,15 @@ export function ViewScreen() {
     runBulkExtraction(ids);
   };
 
+  const handleBulkReExtract = () => {
+    const ids = records
+      .filter((r) => r.id != null && selected.has(r.id) && r.status !== "pending_extraction")
+      .map((r) => r.id!);
+    if (ids.length === 0) return;
+    pendingBulkIds.current = ids;
+    runBulkReExtraction(ids);
+  };
+
   if (loading) return <div className="placeholder-screen"><p>Loading…</p></div>;
 
   if (records.length === 0) {
@@ -1764,6 +1773,24 @@ export function ViewScreen() {
           >
             🏷 Tag
           </button>
+          {(() => {
+            const reExtractIds = records.filter(
+              (r) => r.id != null && selected.has(r.id) && r.status !== "pending_extraction"
+            );
+            if (reExtractIds.length === 0) return null;
+            return (
+              <button
+                className="btn-sm"
+                disabled={bulkState.running}
+                style={{ background: "#7c3aed", color: "#fff", border: "none", fontWeight: 700, opacity: bulkState.running ? 0.6 : 1 }}
+                onClick={() => { setQuotaError(null); handleBulkReExtract(); }}
+              >
+                {bulkState.running
+                  ? `Re-extracting ${bulkState.done}/${bulkState.total}…`
+                  : `Re-extract AI (${reExtractIds.length})`}
+              </button>
+            );
+          })()}
           {isSupabaseEnabled() && (() => {
             const selectedRecords = records.filter((r) => r.id != null && selected.has(r.id!));
             const anyS = selectedRecords.some((r) => detectSensitiveData(r).sensitive);

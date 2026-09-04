@@ -18,6 +18,44 @@ function notify() {
   );
 }
 
+export async function runBulkReExtraction(ids: number[]): Promise<void> {
+  if (_state.running) return;
+  if (ids.length === 0) return;
+
+  _state = { running: true, done: 0, total: ids.length };
+  notify();
+
+  const queue = [...ids];
+  let quotaExhausted = false;
+
+  await Promise.all(
+    Array.from({ length: Math.min(CONCURRENCY, ids.length) }, async () => {
+      while (queue.length > 0 && !quotaExhausted) {
+        const id = queue.shift()!;
+        try {
+          await extractInvoiceWithAI(id);
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          if (msg.includes("daily quota exhausted")) {
+            quotaExhausted = true;
+            window.dispatchEvent(new CustomEvent("jinvoice:quota-exhausted", { detail: { message: msg } }));
+          } else {
+            console.error("[BulkReExtract] failed for id", id, e);
+          }
+        }
+        _state = { ..._state, done: _state.done + 1 };
+        notify();
+        window.dispatchEvent(new CustomEvent("jinvoice:sync-progress"));
+        if (queue.length > 0 && !quotaExhausted) await new Promise((r) => setTimeout(r, INTER_REQUEST_DELAY_MS));
+      }
+    })
+  );
+
+  _state = { running: false, done: 0, total: 0 };
+  notify();
+  window.dispatchEvent(new CustomEvent("jinvoice:sync-complete"));
+}
+
 export async function runBulkExtraction(ids: number[]): Promise<void> {
   if (_state.running) return;
 
