@@ -1320,6 +1320,20 @@ export function ViewScreen() {
     setBulkNewClientName("");
   };
 
+  const deleteGlobalCustomTag = async (tag: string) => {
+    const updated = clientTags.filter((t) => t !== tag);
+    prefs.clientTags = updated;
+    setClientTags(updated);
+    const affected = records.filter((r) => r.clientTags?.includes(tag));
+    for (const rec of affected) {
+      await db.invoices.update(rec.id!, {
+        clientTags: (rec.clientTags ?? []).filter((t) => t !== tag),
+        updatedAt: new Date().toISOString(),
+      });
+    }
+    load();
+  };
+
   const handleDelete = async () => {
     const toDelete = records.filter((r) => r.id != null && selected.has(r.id));
     await db.transaction("rw", db.invoices, db.lineItems, db.rawTexts, async () => {
@@ -1840,47 +1854,85 @@ export function ViewScreen() {
 
       {bulkTaggingOpen && (() => {
         const selectedIds = [...selected];
+        const mode = prefs.activeMode;
+        const bulkCategoryEntries: Array<[string, string]> = mode === "society"
+          ? Object.entries(SOCIETY_CATEGORY_LABEL)
+          : getProfessionalCategoryEntries(mode as ProfessionalProfile | "personal");
+        const bulkCategoryLabels = bulkCategoryEntries.map(([, label]) => label);
+        const bulkCustomTags = clientTags.filter(t => !bulkCategoryLabels.includes(t));
+        const anyHaveAnyTag = selectedIds.some((id) => (records.find((r) => r.id === id)?.clientTags ?? []).length > 0);
         return (
           <>
             <div style={{ position: "fixed", inset: 0, zIndex: 199 }} onClick={() => setBulkTaggingOpen(false)} />
-            <div style={{ position: "fixed", bottom: bulkTagPos.bottom, left: bulkTagPos.left, zIndex: 200, background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 8, boxShadow: "0 -4px 16px rgba(0,0,0,.14)", minWidth: 220, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em", padding: "8px 12px 4px" }}>
-                Tag {selectedIds.length} selected
+            <div style={{ position: "fixed", bottom: bulkTagPos.bottom, left: bulkTagPos.left, zIndex: 200, background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10, boxShadow: "0 -4px 20px rgba(0,0,0,.16)", minWidth: 230, maxWidth: 270, display: "flex", flexDirection: "column", overflow: "hidden", maxHeight: "min(500px, 82vh)" }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em", padding: "10px 12px 4px" }}>
+                Tag {selectedIds.length} Document{selectedIds.length !== 1 ? "s" : ""}
               </div>
-              {clientTags.length === 0 && (
-                <div style={{ fontSize: 12, color: "var(--color-text-secondary)", padding: "4px 12px 8px" }}>No clients yet — add one below</div>
-              )}
-              {clientTags.map((tag) => {
-                const allHave = selectedIds.every((id) => {
-                  const rec = records.find((r) => r.id === id);
-                  return rec?.clientTags?.includes(tag) ?? false;
-                });
-                const someHave = !allHave && selectedIds.some((id) => {
-                  const rec = records.find((r) => r.id === id);
-                  return rec?.clientTags?.includes(tag) ?? false;
-                });
+
+              {/* Profile categories */}
+              <div style={{ fontSize: 10, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em", padding: "4px 12px 2px" }}>
+                Categories
+              </div>
+              <div style={{ overflowY: "auto", maxHeight: 220 }}>
+                {bulkCategoryEntries.map(([key, label]) => {
+                  const allHave = selectedIds.every((id) => records.find((r) => r.id === id)?.clientTags?.includes(label) ?? false);
+                  const someHave = !allHave && selectedIds.some((id) => records.find((r) => r.id === id)?.clientTags?.includes(label) ?? false);
+                  return (
+                    <label key={key}
+                      onClick={(e) => e.stopPropagation()}
+                      style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", fontSize: 12.5, cursor: "pointer", background: allHave ? "color-mix(in srgb, var(--color-primary) 8%, transparent)" : "none", userSelect: "none" }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={allHave}
+                        ref={(el) => { if (el) el.indeterminate = someHave; }}
+                        onChange={() => bulkToggleClientTag(label)}
+                        style={{ accentColor: "var(--color-primary)", width: 14, height: 14, flexShrink: 0, cursor: "pointer" }}
+                      />
+                      <span style={{ flex: 1, color: "var(--color-text)" }}>{label}</span>
+                      {allHave && <span style={{ fontSize: 10, color: "var(--color-primary)", fontWeight: 700 }}>All ✓</span>}
+                      {someHave && <span style={{ fontSize: 10, color: "#6b7280", fontWeight: 600 }}>Some</span>}
+                    </label>
+                  );
+                })}
+              </div>
+
+              {/* Custom tags */}
+              <div style={{ borderTop: "1px solid var(--color-border)", fontSize: 10, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em", padding: "6px 12px 2px" }}>
+                Custom Tags
+              </div>
+              {bulkCustomTags.length === 0 ? (
+                <div style={{ fontSize: 12, color: "var(--color-text-tertiary)", padding: "4px 12px 6px", fontStyle: "italic" }}>None added yet</div>
+              ) : bulkCustomTags.map((tag) => {
+                const allHave = selectedIds.every((id) => records.find((r) => r.id === id)?.clientTags?.includes(tag) ?? false);
+                const someHave = !allHave && selectedIds.some((id) => records.find((r) => r.id === id)?.clientTags?.includes(tag) ?? false);
                 return (
-                  <label key={tag}
-                    onClick={(e) => e.stopPropagation()}
-                    style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", fontSize: 12.5, cursor: "pointer", background: allHave ? "var(--color-surface-2)" : "none", userSelect: "none" }}
+                  <div key={tag} onClick={(e) => e.stopPropagation()}
+                    style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", fontSize: 12.5, background: allHave ? "color-mix(in srgb, var(--color-primary) 8%, transparent)" : "none" }}
                   >
                     <input
                       type="checkbox"
                       checked={allHave}
                       ref={(el) => { if (el) el.indeterminate = someHave; }}
                       onChange={() => bulkToggleClientTag(tag)}
-                      style={{ accentColor: "#0891b2", width: 14, height: 14, flexShrink: 0, cursor: "pointer" }}
+                      style={{ accentColor: "var(--color-primary)", width: 14, height: 14, flexShrink: 0, cursor: "pointer" }}
                     />
-                    <span style={{ flex: 1, color: "var(--color-text)" }}>{tag}</span>
-                    {allHave && <span style={{ fontSize: 10, color: "#0891b2", fontWeight: 700 }}>All ✓</span>}
+                    <span style={{ flex: 1, color: "var(--color-text)", userSelect: "none", cursor: "pointer" }} onClick={() => bulkToggleClientTag(tag)}>{tag}</span>
+                    {allHave && <span style={{ fontSize: 10, color: "var(--color-primary)", fontWeight: 700 }}>All ✓</span>}
                     {someHave && <span style={{ fontSize: 10, color: "#6b7280", fontWeight: 600 }}>Some</span>}
-                  </label>
+                    <button
+                      title="Delete tag"
+                      onClick={(e) => { e.stopPropagation(); deleteGlobalCustomTag(tag); }}
+                      style={{ background: "none", border: "none", cursor: "pointer", color: "#ef4444", fontSize: 14, lineHeight: 1, padding: "0 2px", flexShrink: 0 }}
+                    >×</button>
+                  </div>
                 );
               })}
-              {selectedIds.some((id) => (records.find((r) => r.id === id)?.clientTags ?? []).length > 0) && (
+
+              {anyHaveAnyTag && (
                 <button
                   onClick={(e) => { e.stopPropagation(); bulkToggleClientTag(null); }}
-                  style={{ padding: "7px 12px", fontSize: 12, border: "none", borderTop: clientTags.length ? "1px solid var(--color-border)" : "none", background: "none", cursor: "pointer", color: "#ef4444", textAlign: "left" }}
+                  style={{ padding: "7px 12px", fontSize: 12, border: "none", borderTop: "1px solid var(--color-border)", background: "none", cursor: "pointer", color: "#ef4444", textAlign: "left" }}
                 >Clear all tags</button>
               )}
               <div style={{ borderTop: "1px solid var(--color-border)", padding: "7px 10px", display: "flex", gap: 6 }} onClick={(e) => e.stopPropagation()}>
@@ -1889,7 +1941,7 @@ export function ViewScreen() {
                   value={bulkNewClientName}
                   onChange={(e) => setBulkNewClientName(e.target.value)}
                   onKeyDown={(e) => { if (e.key === "Enter" && bulkNewClientName.trim()) bulkToggleClientTag(bulkNewClientName.trim()); e.stopPropagation(); }}
-                  placeholder="New client…"
+                  placeholder="Custom tag…"
                   style={{ flex: 1, fontSize: 12, padding: "3px 6px", border: "1px solid var(--color-border)", borderRadius: 4, background: "var(--color-surface)", color: "var(--color-text)", outline: "none" }}
                 />
                 <button
@@ -2502,9 +2554,8 @@ export function ViewScreen() {
               ) : customTags.map((tag) => {
                 const checked = assigned.includes(tag);
                 return (
-                  <label key={tag}
-                    onClick={(e) => e.stopPropagation()}
-                    style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", fontSize: 12.5, cursor: "pointer", background: checked ? "color-mix(in srgb, var(--color-primary) 8%, transparent)" : "none", userSelect: "none" }}
+                  <div key={tag} onClick={(e) => e.stopPropagation()}
+                    style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", fontSize: 12.5, background: checked ? "color-mix(in srgb, var(--color-primary) 8%, transparent)" : "none" }}
                   >
                     <input
                       type="checkbox"
@@ -2512,9 +2563,14 @@ export function ViewScreen() {
                       onChange={() => toggleClientTag(taggingId, tag)}
                       style={{ accentColor: "var(--color-primary)", width: 14, height: 14, flexShrink: 0, cursor: "pointer" }}
                     />
-                    <span style={{ flex: 1, color: "var(--color-text)" }}>{tag}</span>
+                    <span style={{ flex: 1, color: "var(--color-text)", userSelect: "none", cursor: "pointer" }} onClick={() => toggleClientTag(taggingId, tag)}>{tag}</span>
                     {checked && <span style={{ fontSize: 10, color: "var(--color-primary)", fontWeight: 700 }}>✓</span>}
-                  </label>
+                    <button
+                      title="Delete tag"
+                      onClick={(e) => { e.stopPropagation(); deleteGlobalCustomTag(tag); }}
+                      style={{ background: "none", border: "none", cursor: "pointer", color: "#ef4444", fontSize: 14, lineHeight: 1, padding: "0 2px", flexShrink: 0 }}
+                    >×</button>
+                  </div>
                 );
               })}
 
