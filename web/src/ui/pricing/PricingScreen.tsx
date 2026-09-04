@@ -12,7 +12,7 @@ import {
 import { startTrial as startTrialServer, requestProAccess } from "../../service/UserPlanService";
 import { BusinessProfileModal } from "../shared/BusinessProfileModal";
 import { DummyPaymentModal } from "../payment/DummyPaymentModal";
-import { getCachedConfig, fetchAndCacheConfig, type PlanPricing } from "../../service/ConfigService";
+import { getCachedConfig, fetchAndCacheConfig, type PlanPricing, type UploadLimits, type PlanSettings } from "../../service/ConfigService";
 
 const inpStyle: React.CSSProperties = {
   width: "100%", padding: "8px 10px", borderRadius: 6,
@@ -100,31 +100,40 @@ function pricingToPlans(p: PlanPricing) {
   return { shared: mk("shared"), own: mk("own") };
 }
 
-const FREE_FEATURES = [
-  "5 manual uploads per day",
-  "1 month of data history",
-  "1 email account",
-  "Rewards points program",
-  "7-day support response",
-];
+function buildFreeFeatures(lim: UploadLimits, settings: PlanSettings) {
+  const cap = lim.free === -1 ? "Unlimited" : `${lim.free} / day`;
+  return [
+    `${cap} manual uploads`,
+    "1 month of data history",
+    "1 email account",
+    "Rewards points program",
+    `${settings.support_response.free} support response`,
+  ];
+}
 
-const FREE_TRIAL_FEATURES = [
-  "10 invoices per day",
-  "1 month of data history",
-  "1 email account",
-  "Reports as per your profile",
-  "7-day support response",
-];
+function buildTrialFeatures(lim: UploadLimits, settings: PlanSettings) {
+  const cap = lim.pro_trial === -1 ? "Unlimited" : `${lim.pro_trial}`;
+  return [
+    `${cap} invoices per day`,
+    "1 month of data history",
+    "1 email account",
+    "Reports as per your profile",
+    `${settings.support_response.pro_trial} support response`,
+  ];
+}
 
-const SHARED_FEATURES = [
-  "50 invoices/day",
-  "3 months data history",
-  "Up to 5 email accounts",
-  "₹249/user for extra accounts; limit = 50 × users/day",
-  "Advanced reports",
-  "AI via shared OpenAI quota",
-  "48-hour support response",
-];
+function buildSharedFeatures(lim: UploadLimits, settings: PlanSettings) {
+  const cap = lim.pro_paid === -1 ? "Unlimited" : `${lim.pro_paid}`;
+  return [
+    `${cap} invoices/day`,
+    "3 months data history",
+    "Up to 5 email accounts",
+    "₹249/user for extra accounts",
+    "Advanced reports",
+    "AI via shared OpenAI quota",
+    `${settings.support_response.pro} support response`,
+  ];
+}
 
 const OWN_API_FEATURES = [
   "Everything in Shared plan",
@@ -148,6 +157,8 @@ export function PricingScreen() {
   const [sub, setSub]                 = useState<Subscription | null>(null);
   const [loading, setLoading]         = useState(true);
   const [plans, setPlans]             = useState(() => pricingToPlans(getCachedConfig("plan_pricing")));
+  const [uploadLimits, setUploadLimits] = useState<UploadLimits>(() => getCachedConfig("upload_limits"));
+  const [planSettings, setPlanSettings] = useState<PlanSettings>(() => getCachedConfig("plan_settings"));
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showApiKeyModal,  setShowApiKeyModal]  = useState(false);
   const [postPayment,      setPostPayment]      = useState(false);
@@ -159,6 +170,8 @@ export function PricingScreen() {
 
   useEffect(() => {
     fetchAndCacheConfig("plan_pricing").then((p) => setPlans(pricingToPlans(p)));
+    fetchAndCacheConfig("upload_limits").then(setUploadLimits);
+    fetchAndCacheConfig("plan_settings").then(setPlanSettings);
     subscriptionService.get().then((s) => {
       setSub(s);
       setLoading(false);
@@ -262,6 +275,33 @@ export function PricingScreen() {
 
   const plan            = plans[apiOption];
   const billingLabel    = billing === "monthly" ? "/month" : "/year";
+
+  const comparisonRows: [string, string, string, string, string][] = (() => {
+    const freeUpload  = uploadLimits.free      === -1 ? "Unlimited" : `${uploadLimits.free} / day`;
+    const trialUpload = uploadLimits.pro_trial === -1 ? "Unlimited" : `${uploadLimits.pro_trial} / day`;
+    const proUpload   = uploadLimits.pro_paid  === -1 ? "Unlimited" : `${uploadLimits.pro_paid} / day`;
+    const supFree  = planSettings.support_response.free;
+    const supTrial = planSettings.support_response.pro_trial;
+    const supPro   = planSettings.support_response.pro;
+    return [
+      ["Manual uploads",  freeUpload,  trialUpload, proUpload,   "Unlimited"  ],
+      ["Email imports",   freeUpload,  trialUpload, proUpload,   "Unlimited"  ],
+      ["Data history",    "1 month",   "1 month",   "3 months",  "3 months"   ],
+      ["Email accounts",  "1",         "1",         "Up to 5",   "Up to 5"    ],
+      ["Reports",         "—",         "Per profile","Advanced", "Advanced"   ],
+      ["Rewards points",  "✓",         "—",         "✓",         "✓"          ],
+      ["Extra user",      "—",         "—",         "₹249/user", "₹249/user"  ],
+      ["Own API key",     "—",         "—",         "—",         "✓"          ],
+      ["Support",         supFree,     supTrial,    supPro,      supPro       ],
+      ["Trial period",    "—",         `${planSettings.trial_days} days`, "—", "—"],
+      ["Monthly price",   "Free",      "Free",
+        `₹${plans.shared.monthlyPrice.toLocaleString("en-IN")}/mo`,
+        `₹${plans.own.monthlyPrice.toLocaleString("en-IN")}/mo`],
+      ["Yearly price",    "Free",      "Free",
+        `₹${plans.shared.yearlyPrice.toLocaleString("en-IN")}/yr`,
+        `₹${plans.own.yearlyPrice.toLocaleString("en-IN")}/yr`],
+    ];
+  })();
   const extraUserFee    = (licences - 1) * 249; // ₹249/user/month for extra users
   const displayTotal    = billing === "monthly"
     ? plan.monthlyPrice + extraUserFee
@@ -373,7 +413,7 @@ export function PricingScreen() {
             </p>
           </div>
           <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 8, flex: 1 }}>
-            {FREE_FEATURES.map((f) => (
+            {buildFreeFeatures(uploadLimits, planSettings).map((f) => (
               <li key={f} style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12.5, color: "var(--color-text)" }}>
                 <span style={{ flexShrink: 0, marginTop: 1 }}><CheckIcon color="#16a34a" /></span>
                 {f}
@@ -392,7 +432,7 @@ export function PricingScreen() {
           display: "flex", flexDirection: "column", position: "relative",
         }}>
           <div style={{ position: "absolute", top: 12, left: 20, fontSize: 10.5, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", padding: "2px 8px", borderRadius: 20, background: "#f59e0b", color: "#fff" }}>
-            14-day Trial
+            {planSettings.trial_days}-day Trial
           </div>
           {inTrial && (
             <div style={{ position: "absolute", top: 12, right: 12, fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", padding: "2px 8px", borderRadius: 20, color: "#92400e", background: "#fef3c7" }}>
@@ -405,14 +445,14 @@ export function PricingScreen() {
             </div>
             <div style={{ display: "flex", alignItems: "flex-end", gap: 4 }}>
               <span style={{ fontSize: 28, fontWeight: 800, color: "var(--color-text)", lineHeight: 1 }}>₹0</span>
-              <span style={{ fontSize: 13, color: "var(--color-text-secondary)", marginBottom: 2 }}>/14 days</span>
+              <span style={{ fontSize: 13, color: "var(--color-text-secondary)", marginBottom: 2 }}>/{planSettings.trial_days} days</span>
             </div>
             <p style={{ fontSize: 12.5, color: "var(--color-text-secondary)", marginTop: 10, lineHeight: 1.5 }}>
               Try Pro features free. No credit card required.
             </p>
           </div>
           <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 8, flex: 1 }}>
-            {FREE_TRIAL_FEATURES.map((f) => (
+            {buildTrialFeatures(uploadLimits, planSettings).map((f) => (
               <li key={f} style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12.5, color: "var(--color-text)" }}>
                 <span style={{ flexShrink: 0, marginTop: 1 }}><CheckIcon color="#d97706" /></span>
                 {f}
@@ -476,7 +516,7 @@ export function PricingScreen() {
             </p>
           </div>
           <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 8, flex: 1 }}>
-            {SHARED_FEATURES.map((f) => (
+            {buildSharedFeatures(uploadLimits, planSettings).map((f) => (
               <li key={f} style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12.5, color: "var(--color-text)" }}>
                 <span style={{ flexShrink: 0, marginTop: 1 }}><CheckIcon color="#7c3aed" /></span>
                 {f}
@@ -672,22 +712,7 @@ export function PricingScreen() {
             </tr>
           </thead>
           <tbody>
-            {([
-              ["Manual uploads",   "5 / day",  "10 / day",  "50 / day",  "Unlimited"  ],
-              ["Email imports",    "10 / day", "10 / day",  "50 / day",  "Unlimited"  ],
-              ["Data history",     "1 month",  "1 month",   "3 months",  "3 months"   ],
-              ["Email accounts",   "1",        "1",         "Up to 5",   "Up to 5"    ],
-              ["Reports",          "—",        "Per profile","Advanced",  "Advanced"   ],
-              ["Rewards points",   "✓",        "—",         "✓",         "✓"          ],
-              ["Extra user",       "—",        "—",         "₹249/user", "₹249/user"  ],
-              ["Own API key",      "—",        "—",         "—",         "✓"          ],
-              ["Monthly price",    "Free",     "Free",
-                `₹${plans.shared.monthlyPrice.toLocaleString("en-IN")}/mo`,
-                `₹${plans.own.monthlyPrice.toLocaleString("en-IN")}/mo`],
-              ["Yearly price",     "Free",     "Free",
-                `₹${plans.shared.yearlyPrice.toLocaleString("en-IN")}/yr`,
-                `₹${plans.own.yearlyPrice.toLocaleString("en-IN")}/yr`],
-            ] as [string, string, string, string, string][]).map(([feature, free, trial, shared, own], i) => (
+            {comparisonRows.map(([feature, free, trial, shared, own], i) => (
               <tr
                 key={feature}
                 style={{ borderTop: i === 0 ? "none" : "1px solid var(--color-border)", background: i % 2 === 0 ? "var(--color-surface)" : "var(--color-surface-2)" }}
