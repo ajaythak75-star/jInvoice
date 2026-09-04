@@ -150,9 +150,10 @@ interface Props {
   items: LineItemRow[];
   category: string;
   activeMode: string;
+  rawText?: string | null;
 }
 
-export function UniversalDocView({ rec, items, category, activeMode }: Props) {
+export function UniversalDocView({ rec, items, category, activeMode, rawText }: Props) {
   const docTypes = rec.docTypes ?? (rec.docType ? [rec.docType] : []);
   const docClass = classifyDoc(docTypes, activeMode, category);
   const cfg = DOC_CONFIGS[docClass];
@@ -377,18 +378,75 @@ export function UniversalDocView({ rec, items, category, activeMode }: Props) {
         </div>
       )}
 
-      {cfg.itemLayout !== "none" && items.length === 0 && (
+      {cfg.itemLayout !== "none" && items.length === 0 && !rawText && (
         <div style={{ padding: "12px 20px 0", fontSize: 13, color: "var(--color-text-secondary)" }}>
           {rec.grandTotalPaise != null ? "Single-amount document — no itemised breakdown." : "No items extracted."}
         </div>
       )}
 
-      {/* Amount summary */}
+      {/* Document text for non-financial text captures */}
+      {rawText && rec.grandTotalPaise == null && (() => {
+        const blocks = rawText
+          .replace(/\r\n/g, "\n")
+          .replace(/\n{3,}/g, "\n\n")
+          .trim()
+          .split(/\n\n+/)
+          .map((b) => b.trim())
+          .filter(Boolean);
+        return (
+          <div style={{ padding: "16px 20px 0" }}>
+            <div style={sectionLbl}>Document Content</div>
+            <div style={{
+              fontSize: 13, color: "var(--color-text)", lineHeight: 1.8,
+              maxHeight: 440, overflowY: "auto",
+              padding: "14px 16px",
+              background: `${cfg.accent}07`,
+              border: `1px solid ${cfg.accent}28`,
+              borderRadius: 10,
+            }}>
+              {blocks.map((block, i) => {
+                const isHeading = block.length < 100 && block === block.toUpperCase() && /[A-Z]/.test(block);
+                const isItem = /^\d+[.)]\s/.test(block) || /^[•\-–]\s/.test(block);
+                if (isHeading) {
+                  return (
+                    <div key={i} style={{
+                      fontWeight: 700, fontSize: 12.5, color: cfg.accent,
+                      textTransform: "uppercase", letterSpacing: "0.04em",
+                      marginTop: i > 0 ? 16 : 0, marginBottom: 6,
+                    }}>
+                      {block}
+                    </div>
+                  );
+                }
+                if (isItem) {
+                  return (
+                    <div key={i} style={{
+                      marginBottom: 5, paddingLeft: 14,
+                      borderLeft: `2px solid ${cfg.accent}30`,
+                      color: "var(--color-text)",
+                    }}>
+                      {block.split("\n").join(" ")}
+                    </div>
+                  );
+                }
+                return (
+                  <div key={i} style={{ marginBottom: 10, color: "var(--color-text)" }}>
+                    {block.split("\n").join(" ")}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Amount summary — only for financial documents */}
       <div style={{
         margin: "16px 20px 24px",
         background: `${cfg.accent}09`,
         border: `1px solid ${cfg.accent}28`,
         borderRadius: 10, padding: "14px 16px",
+        display: rawText && rec.grandTotalPaise == null ? "none" : undefined,
       }}>
         <div style={sectionLbl}>Amount Summary</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>

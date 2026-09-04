@@ -2276,7 +2276,7 @@ export function ViewScreen() {
 
               {/* Detail body: Universal format for Pro, existing format for Free */}
               {prefs.isProActive && !isPreviewMode ? (
-                <UniversalDocView rec={r} items={detailItems} category={detailCategory} activeMode={prefs.activeMode} />
+                <UniversalDocView rec={r} items={detailItems} category={detailCategory} activeMode={prefs.activeMode} rawText={detailRawText} />
               ) : (
                 <>
                   {/* Merchant card */}
