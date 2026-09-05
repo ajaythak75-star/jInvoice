@@ -1341,9 +1341,9 @@ app.post("/api/admin/users/add", async (req, res) => {
   res.json({ ok: true });
 });
 
-// PATCH /api/admin/users/:email/plan — manually set a user's plan
+// PATCH /api/admin/users/:email/plan — manually set a user's plan (super admin only)
 app.patch("/api/admin/users/:email/plan", async (req, res) => {
-  if (!_requireAdmin(req, res)) return;
+  if (!_requireSuperAdmin(req, res)) return;
   const email = decodeURIComponent(req.params.email).toLowerCase();
   const { plan } = req.body ?? {};
   if (!["free", "pro_trial", "pro_paid"].includes(plan)) return res.status(400).json({ error: "Invalid plan" });
@@ -1372,9 +1372,9 @@ app.patch("/api/admin/users/:email/plan", async (req, res) => {
   res.json(saved ?? patch);
 });
 
-// PATCH /api/admin/users/:email/features — toggle per-user feature flags (cloud_upload_enabled, etc.)
+// PATCH /api/admin/users/:email/features — toggle per-user feature flags (super admin only)
 app.patch("/api/admin/users/:email/features", async (req, res) => {
-  if (!_requireAdmin(req, res)) return;
+  if (!_requireSuperAdmin(req, res)) return;
   const email = decodeURIComponent(req.params.email).toLowerCase();
   const allowed = ["cloud_upload_enabled"];
   const patch = {};
@@ -1415,9 +1415,9 @@ app.post("/api/admin/profiles/apply-cloud-upload", async (req, res) => {
   res.json({ applied: results });
 });
 
-// DELETE /api/admin/users/:email/access — remove from allowed_users
+// DELETE /api/admin/users/:email/access — remove from allowed_users (super admin only)
 app.delete("/api/admin/users/:email/access", async (req, res) => {
-  if (!_requireAdmin(req, res)) return;
+  if (!_requireSuperAdmin(req, res)) return;
   const email = decodeURIComponent(req.params.email).toLowerCase();
   await _sbService(`/allowed_users?email=eq.${encodeURIComponent(email)}`, { method: "DELETE" });
   res.json({ ok: true });
