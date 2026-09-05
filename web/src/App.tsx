@@ -21,7 +21,8 @@ import { startMobileSync } from "./service/MobileSyncService";
 import { syncPlanFromServer } from "./service/UserPlanService";
 import { refreshAllConfig } from "./service/ConfigService";
 import { getActiveSentinels } from "./service/ExpirySentinel";
-import { getActiveSecurityAlerts } from "./data/InvoiceDatabase";
+import { getActiveSecurityAlerts, db } from "./data/InvoiceDatabase";
+import { detectSocietyCategory } from "./core/extraction/SocietyExpenseDetector";
 
 function TrialExpiredBanner({ onSubscribe, onContinueFree }: { onSubscribe: () => void; onContinueFree: () => void }) {
   return (
@@ -160,6 +161,36 @@ export function App() {
         body: JSON.stringify({ secret }),
       }).catch(() => {});
     }
+  }, [loggedIn]);
+
+  // One-time migration: re-classify society invoices that were falsely saved as
+  // "maintenance_receipt" before meeting_record was moved to position 1 in SOCIETY_KEYWORDS.
+  useEffect(() => {
+    if (!loggedIn) return;
+    const MIGRATION_KEY = "jinvoice_migration_v1_society_category";
+    if (localStorage.getItem(MIGRATION_KEY)) return;
+    (async () => {
+      try {
+        const candidates = await db.invoices
+          .where("category").equals("maintenance_receipt")
+          .toArray();
+        let fixed = 0;
+        for (const inv of candidates) {
+          const rawRow = await db.rawTexts.where("invoiceId").equals(inv.id!).first();
+          const newCat = detectSocietyCategory(
+            inv.merchantName ?? null,
+            [],
+            rawRow?.rawText ?? null,
+          );
+          if (newCat === "meeting_record") {
+            await db.invoices.update(inv.id!, { category: "meeting_record", updatedAt: new Date().toISOString() });
+            fixed++;
+          }
+        }
+        if (fixed > 0) window.dispatchEvent(new Event("jinvoice:sync-complete"));
+      } catch {}
+      localStorage.setItem(MIGRATION_KEY, "1");
+    })();
   }, [loggedIn]);
 
   // Start the schedule-aware poller on mount; check expiry alerts now and after every sync
