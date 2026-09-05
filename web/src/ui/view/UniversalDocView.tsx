@@ -1,7 +1,7 @@
 import React from "react";
 import type { InvoiceMeta, LineItemRow } from "../../data/InvoiceDatabase";
 import { SOCIETY_CATEGORY_LABEL, type SocietyExpenseCategory } from "../../core/extraction/SocietyExpenseDetector";
-import { getProfessionalCategoryLabel, type ProfessionalProfile } from "../../core/extraction/ProfessionalCategoryDetector";
+import { getProfessionalCategoryLabel, getProfessionalCategoryEntries, type ProfessionalProfile } from "../../core/extraction/ProfessionalCategoryDetector";
 
 type DocClass = "invoice" | "tax" | "financial" | "payroll" | "legal" | "society_vendor"
   | "utility" | "medical" | "insurance" | "education" | "rent" | "shopping" | "travel" | "other";
@@ -152,7 +152,7 @@ interface Props {
   activeMode: string;
   rawText?: string | null;
   onEditProjectTag?: (invoiceId: number, anchor: DOMRect) => void;
-  onCategoryChange?: (cat: SocietyExpenseCategory) => void;
+  onCategoryChange?: (cat: string) => void;
 }
 
 export function UniversalDocView({ rec, items, category, activeMode, rawText, onEditProjectTag, onCategoryChange }: Props) {
@@ -243,22 +243,28 @@ export function UniversalDocView({ rec, items, category, activeMode, rawText, on
         }}>
           {cfg.badge}
         </span>
-        {activeMode === "society" && onCategoryChange ? (
-          <select
-            value={category || "other"}
-            onChange={(e) => onCategoryChange(e.target.value as SocietyExpenseCategory)}
-            style={{
-              fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 20,
-              background: "var(--color-surface-2)", color: "var(--color-text-secondary)",
-              border: "1px solid var(--color-border)", cursor: "pointer",
-              appearance: "auto",
-            }}
-          >
-            {(Object.entries(SOCIETY_CATEGORY_LABEL) as [SocietyExpenseCategory, string][]).map(([k, v]) => (
-              <option key={k} value={k}>{v}</option>
-            ))}
-          </select>
-        ) : categoryLabel ? (
+        {onCategoryChange ? (() => {
+          const entries: Array<[string, string]> =
+            activeMode === "society"
+              ? (Object.entries(SOCIETY_CATEGORY_LABEL) as [SocietyExpenseCategory, string][])
+              : getProfessionalCategoryEntries(activeMode as ProfessionalProfile | "personal");
+          return (
+            <select
+              value={category || "other"}
+              onChange={(e) => onCategoryChange(e.target.value)}
+              style={{
+                fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 20,
+                background: "var(--color-surface-2)", color: "var(--color-text-secondary)",
+                border: "1px solid var(--color-border)", cursor: "pointer",
+                appearance: "auto",
+              }}
+            >
+              {entries.map(([k, v]) => (
+                <option key={k} value={k}>{v}</option>
+              ))}
+            </select>
+          );
+        })() : categoryLabel ? (
           <span style={{
             fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 20,
             background: "var(--color-surface-2)", color: "var(--color-text-secondary)",

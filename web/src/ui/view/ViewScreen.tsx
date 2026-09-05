@@ -2310,7 +2310,7 @@ export function ViewScreen() {
                   activeMode={prefs.activeMode}
                   rawText={detailRawText}
                   onEditProjectTag={r.id != null ? openProjectTagPicker : undefined}
-                  onCategoryChange={prefs.activeMode === "society" && r.id != null ? async (newCat) => {
+                  onCategoryChange={r.id != null ? async (newCat) => {
                     setDetailCategory(newCat);
                     await db.invoices.update(r.id!, { category: newCat, updatedAt: new Date().toISOString() });
                     setDetailRec(prev => prev ? { ...prev, category: newCat } : null);

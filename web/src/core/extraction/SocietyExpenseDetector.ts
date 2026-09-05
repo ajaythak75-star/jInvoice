@@ -23,6 +23,16 @@ export type SocietyExpenseCategory =
 
 const SOCIETY_KEYWORDS: Array<{ cat: SocietyExpenseCategory; keywords: string[] }> = [
   {
+    // meeting_record MUST come first — AGM/SGM notices mention "sinking fund", "agenda",
+    // "managing committee" etc. which would otherwise match maintenance_receipt or agreement.
+    cat: "meeting_record",
+    keywords: [
+      "agm", "annual general meeting", "special general meeting", "sgm",
+      "managing committee", "meeting notice", "minutes of meeting",
+      "resolution", "agenda", "attendance register",
+    ],
+  },
+  {
     // Income receipts collected by the society from members
     cat: "maintenance_receipt",
     keywords: [
@@ -142,15 +152,6 @@ const SOCIETY_KEYWORDS: Array<{ cat: SocietyExpenseCategory; keywords: string[] 
       "lock-in period", "lock in period",
       "rental agreement", "rent agreement", "tenancy agreement",
       "monthly rent", "rent per month", "refundable deposit",
-    ],
-  },
-  {
-    // meeting_record MUST come before agreement — AGM notices contain the word "agreement"
-    cat: "meeting_record",
-    keywords: [
-      "agm", "annual general meeting", "special general meeting", "sgm",
-      "managing committee", "meeting notice", "minutes of meeting",
-      "resolution", "agenda", "attendance register",
     ],
   },
   {
