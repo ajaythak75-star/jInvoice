@@ -397,25 +397,25 @@ Rules:
 - FCRA receipts: note foreign currency equivalent if shown; convert to INR equivalent in amounts
 - All amounts must be positive numbers in INR`;
 
-const PROMPT_PERSONAL = `You are a personal expense data extractor for individual household purchases in India.
-This document may be a grocery bill, pharmacy/medical receipt, restaurant bill, utility bill, online order invoice, clothing receipt, or any personal purchase receipt.
+const PROMPT_PERSONAL = `You are a personal finance document data extractor for individuals in India.
+This document may be a grocery bill, pharmacy/medical receipt, restaurant bill, utility bill, online order invoice, clothing receipt, bank account statement, credit card statement, train/flight ticket, loan EMI receipt, insurance premium receipt, or any other personal financial document.
 Extract the following fields and respond ONLY with a valid JSON object, no explanation or markdown.
 
 {
-  "shopName": <store / merchant / app / service provider name as string, or null>,
-  "address": <store address as string, or null>,
+  "shopName": <store / bank / card issuer / airline / merchant / service provider name as string, or null>,
+  "address": <merchant or bank branch address as string, or null>,
   "pincode": <6-digit PIN code as string, or null>,
-  "invoiceNumber": <bill number / order ID / receipt number as string, or null>,
+  "invoiceNumber": <bill number / order ID / receipt number / PNR / account number (masked) / statement reference as string, or null>,
   "gstNumber": <merchant GSTIN if printed as string, or null>,
   "gstPercent": <GST rate as string e.g. "18%" or "5%", or null>,
   "gstAmountInr": <total GST/tax amount as number in INR, or null>,
-  "subtotalInr": <subtotal before GST and discount as number in INR, or null>,
-  "dateOfPurchase": <purchase date in YYYY-MM-DD format — assume ${new Date().getFullYear()} if year missing, or null>,
-  "discountInr": <discount / coupon / cashback as number in INR, or null>,
-  "finalPaymentInr": <grand total / amount paid as number in INR, or null>,
+  "subtotalInr": <subtotal before GST and discount / total deposits / total credits as number in INR, or null>,
+  "dateOfPurchase": <purchase / statement / travel / payment date in YYYY-MM-DD format — assume ${new Date().getFullYear()} if year missing, or null>,
+  "discountInr": <discount / coupon / cashback / total withdrawals / total debits as number in INR, or null>,
+  "finalPaymentInr": <grand total paid / closing balance / new card balance / ticket fare / net amount as number in INR, or null>,
   "items": [
     {
-      "name": <product/item name as string>,
+      "name": <item / transaction description as string>,
       "quantity": <quantity as number, use 1 if not shown>,
       "unitPriceInr": <unit price in INR as number, or null>,
       "discountInr": <per-item discount in INR as number, or null>,
@@ -424,12 +424,50 @@ Extract the following fields and respond ONLY with a valid JSON object, no expla
   ]
 }
 
-Rules:
-- shopName = store name or app name (e.g. "D-Mart", "Blinkit", "Zomato", "Apollo Pharmacy")
-- Capture all line items visible — products, services, delivery charges, platform fees
-- For restaurant bills: list each dish as a separate item
-- For utility bills: list each charge component separately (e.g. "Energy Charges", "Fixed Charges", "Electricity Duty")
-- Amounts must be numbers in INR; discounts are positive numbers`;
+Rules — match by document type:
+
+RETAIL BILL (grocery, pharmacy, restaurant, e-commerce, clothing, utility):
+- shopName = store or app name (e.g. "D-Mart", "Blinkit", "Zomato", "Apollo Pharmacy")
+- invoiceNumber = bill/order/receipt number
+- finalPaymentInr = grand total / amount paid
+- items = each product, dish, or charge component as a separate item
+- For utility bills: list each charge component separately (Energy Charges, Fixed Charges, etc.)
+
+BANK ACCOUNT STATEMENT:
+- shopName = bank name (e.g. "HDFC Bank", "SBI", "ICICI Bank")
+- invoiceNumber = account number (masked, as printed)
+- dateOfPurchase = statement period end date
+- subtotalInr = total deposits / total credits for the period
+- discountInr = total withdrawals / total debits for the period
+- finalPaymentInr = closing balance
+- items = each transaction as a separate item; prefix "CR: " for credits and "DR: " for debits (e.g. "CR: Payroll Deposit", "DR: Grocery Mart", "DR: Electricity Bill"); use the transaction amount as amountInr (always positive)
+
+CREDIT CARD STATEMENT:
+- shopName = card issuer name (e.g. "HDFC Bank", "SBI Card", "ICICI Credit Card")
+- invoiceNumber = card number (masked, as printed) or statement reference
+- dateOfPurchase = statement date
+- subtotalInr = total new purchases amount
+- discountInr = payments received (amount paid toward the card)
+- finalPaymentInr = new balance (amount owed / outstanding)
+- items = each merchant transaction as a separate item; prefix category if shown (e.g. "Groceries: Fictional Grocery Co-op", "Travel: Airline Booking", "Dining: Restaurant Name"); use transaction amount as amountInr
+
+TRAIN / FLIGHT / BUS TICKET:
+- shopName = booking platform or carrier name (e.g. "IRCTC", "RailYatri", "MakeMyTrip", "IndiGo")
+- invoiceNumber = PNR or booking reference number
+- dateOfPurchase = journey / travel date
+- finalPaymentInr = total fare paid
+- items = each fare component as a separate item (e.g. "Base Fare", "IRCTC Convenience Fee", "GST", "Agent Service Charge", "Travel Insurance"); for passengers, list as "Passenger: Name (Seat/Berth)" with the per-passenger fare if available
+
+LOAN EMI / INSURANCE PREMIUM:
+- shopName = bank / NBFC / insurer name
+- invoiceNumber = loan account / policy number
+- dateOfPurchase = payment date
+- finalPaymentInr = EMI amount / premium paid
+- items = EMI components (Principal, Interest, Processing Fee) or premium breakdown
+
+General:
+- Amounts must be numbers in INR; discounts/withdrawals are positive numbers
+- Capture all visible line items or transactions`;
 
 const MULTILINGUAL_RULE =
   "\n- If the document is in a regional Indian language (Marathi, Hindi, Gujarati, Tamil, Bengali, Kannada, Telugu, Malayalam, etc.), translate ALL extracted text fields (shopName, address, item names, etc.) to English in your JSON response. Numeric values and dates must remain unchanged.";
