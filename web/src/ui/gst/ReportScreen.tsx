@@ -4444,6 +4444,12 @@ function GenerateAGMModal({ meetings, importedDocs, onClose }: {
       .sort((a, b) => b.date.localeCompare(a.date))[0] ?? null,
     [meetings, prevFY]);
 
+  // Imported document from prev FY tagged as AGM — used as the format reference
+  const prevAGMDoc = useMemo(() =>
+    importedDocs.filter(d => d.meetingType === "agm" && fyContainsMtg(d.date, prevFY))
+      .sort((a, b) => b.date.localeCompare(a.date))[0] ?? null,
+    [importedDocs, prevFY]);
+
   const curManual = useMemo(() =>
     meetings.filter(m => fyContainsMtg(m.date, curFY)).sort((a, b) => a.date.localeCompare(b.date)),
     [meetings, curFY]);
@@ -4455,13 +4461,16 @@ function GenerateAGMModal({ meetings, importedDocs, onClose }: {
   const [selected, setSelected] = useState<Set<string>>(() => {
     const s = new Set<string>();
     if (prevAGM) s.add(`prev_${prevAGM.id}`);
+    if (prevAGMDoc) s.add(`prevdoc_${prevAGMDoc.id}`);
     curManual.forEach(m => s.add(`manual_${m.id}`));
     curDocs.forEach(d => s.add(`doc_${d.id}`));
     return s;
   });
 
-  const [step, setStep]           = useState<"select" | "report">("select");
-  const [reportText, setReportText] = useState("");
+  const [step, setStep]             = useState<"select" | "report">("select");
+  const [reportText, setReportText]  = useState("");
+  const [loading, setLoading]        = useState(false);
+  const [genError, setGenError]      = useState<string | null>(null);
 
   const toggle = (key: string) => setSelected(prev => {
     const next = new Set(prev);
@@ -4469,39 +4478,38 @@ function GenerateAGMModal({ meetings, importedDocs, onClose }: {
     return next;
   });
 
-  const handleGenerate = () => {
-    const usePrevAGM  = prevAGM && selected.has(`prev_${prevAGM.id}`);
-    const selManual   = curManual.filter(m => selected.has(`manual_${m.id}`));
-    const selDocs     = curDocs.filter(d => selected.has(`doc_${d.id}`));
-    const hr          = "═".repeat(50);
-    const hr2         = "─".repeat(30);
-    const fyLbl       = fyLabel(curFY);
-    const prevFyLbl   = fyLabel(prevFY);
+  const buildFallbackText = (
+    selManual: SocietyMeeting[],
+    selDocs: ImportedMeetingDoc[],
+    prevRef: SocietyMeeting | null,
+  ): string => {
+    const hr        = "═".repeat(50);
+    const hr2       = "─".repeat(30);
+    const fyLbl     = fyLabel(curFY);
+    const prevFyLbl = fyLabel(prevFY);
     const lines: string[] = [];
 
     lines.push(`AGM REPORT — ${fyLbl}`);
     lines.push(hr);
     lines.push("");
 
-    // Section 1 — previous year's AGM (reference)
     lines.push(`PREVIOUS AGM REFERENCE (${prevFyLbl})`);
     lines.push(hr2);
-    if (usePrevAGM && prevAGM) {
-      lines.push(`Date    : ${new Date(prevAGM.date + "T00:00:00").toLocaleDateString("en-IN", { weekday: "long", day: "2-digit", month: "long", year: "numeric" })}`);
-      if (prevAGM.venue) lines.push(`Venue   : ${prevAGM.venue}`);
-      if (prevAGM.attendees != null || prevAGM.totalMembers != null) {
-        const pct = prevAGM.attendees != null && prevAGM.totalMembers ? ` (${Math.round((prevAGM.attendees / prevAGM.totalMembers) * 100)}%)` : "";
-        lines.push(`Attended: ${prevAGM.attendees ?? "—"} / ${prevAGM.totalMembers ?? "—"} members${pct}`);
+    if (prevRef) {
+      lines.push(`Date    : ${new Date(prevRef.date + "T00:00:00").toLocaleDateString("en-IN", { weekday: "long", day: "2-digit", month: "long", year: "numeric" })}`);
+      if (prevRef.venue) lines.push(`Venue   : ${prevRef.venue}`);
+      if (prevRef.attendees != null || prevRef.totalMembers != null) {
+        const pct = prevRef.attendees != null && prevRef.totalMembers ? ` (${Math.round((prevRef.attendees / prevRef.totalMembers) * 100)}%)` : "";
+        lines.push(`Attended: ${prevRef.attendees ?? "—"} / ${prevRef.totalMembers ?? "—"} members${pct}`);
       }
-      if (prevAGM.agenda) { lines.push(""); lines.push("Agenda:"); prevAGM.agenda.split("\\n").forEach(l => { if (l.trim()) lines.push(`  • ${l.trim()}`); }); }
-      if (prevAGM.resolutions) { lines.push(""); lines.push("Resolutions carried forward:"); prevAGM.resolutions.split("\\n").forEach(l => { if (l.trim()) lines.push(`  ✓ ${l.trim()}`); }); }
-      if (prevAGM.notes) { lines.push(""); lines.push(`Notes: ${prevAGM.notes}`); }
+      if (prevRef.agenda) { lines.push(""); lines.push("Agenda:"); prevRef.agenda.split("\\n").forEach(l => { if (l.trim()) lines.push(`  • ${l.trim()}`); }); }
+      if (prevRef.resolutions) { lines.push(""); lines.push("Resolutions carried forward:"); prevRef.resolutions.split("\\n").forEach(l => { if (l.trim()) lines.push(`  ✓ ${l.trim()}`); }); }
+      if (prevRef.notes) { lines.push(""); lines.push(`Notes: ${prevRef.notes}`); }
     } else {
       lines.push(`No AGM reference selected for ${prevFyLbl}.`);
     }
     lines.push("");
 
-    // Section 2 — this FY's AGM
     const thisAGM = selManual.find(m => m.type === "agm") ?? null;
     lines.push(`ANNUAL GENERAL MEETING — ${fyLbl}`);
     lines.push(hr2);
@@ -4521,7 +4529,6 @@ function GenerateAGMModal({ meetings, importedDocs, onClose }: {
       lines.push("");
     }
 
-    // Section 3 — other meetings this FY
     const nonAgm = selManual.filter(m => m.type !== "agm");
     if (nonAgm.length > 0) {
       lines.push(`MEETINGS DURING ${fyLbl} (${nonAgm.length})`);
@@ -4543,12 +4550,11 @@ function GenerateAGMModal({ meetings, importedDocs, onClose }: {
       lines.push("");
     }
 
-    // Section 4 — selected imported docs
     if (selDocs.length > 0) {
       lines.push(`MEETING DOCUMENTS — ${fyLbl} (${selDocs.length})`);
       lines.push(hr2);
       for (const doc of selDocs) {
-        const docDate  = new Date(doc.date + "T00:00:00").toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+        const docDate   = new Date(doc.date + "T00:00:00").toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
         const typeLabel = doc.meetingType ? `[${MTG_LABEL[doc.meetingType]}] ` : "";
         lines.push(`📄  ${typeLabel}${doc.title}`);
         lines.push(`    Date: ${docDate}`);
@@ -4556,7 +4562,6 @@ function GenerateAGMModal({ meetings, importedDocs, onClose }: {
       }
     }
 
-    // Section 5 — compiled resolutions
     const withRes = selManual.filter(m => m.resolutions);
     if (withRes.length > 0) {
       lines.push(hr);
@@ -4571,8 +4576,118 @@ function GenerateAGMModal({ meetings, importedDocs, onClose }: {
 
     lines.push(hr2);
     lines.push(`Generated by jInvoice on ${new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "long", year: "numeric" })}`);
-    setReportText(lines.join("\n"));
-    setStep("report");
+    return lines.join("\n");
+  };
+
+  const handleGenerate = async () => {
+    const usePrevManual = prevAGM  && selected.has(`prev_${prevAGM.id}`);
+    const usePrevDoc    = prevAGMDoc && selected.has(`prevdoc_${prevAGMDoc.id}`);
+    const selManual     = curManual.filter(m => selected.has(`manual_${m.id}`));
+    const selDocs       = curDocs.filter(d => selected.has(`doc_${d.id}`));
+    const fyLbl         = fyLabel(curFY);
+    const prevFyLbl     = fyLabel(prevFY);
+
+    setLoading(true);
+    setGenError(null);
+
+    // Try to fetch the prev AGM document's raw text or PDF bytes for format reference
+    let prevDocRawText: string | null = null;
+    let prevDocPdfB64: string | null  = null;
+
+    if (usePrevDoc && prevAGMDoc) {
+      const numId = Number(prevAGMDoc.id);
+      if (!isNaN(numId)) {
+        const rawRec = await db.rawTexts.where("invoiceId").equals(numId).first().catch(() => null);
+        prevDocRawText = rawRec?.rawText ?? null;
+        if (!prevDocRawText) {
+          const pdfRec = await db.pdfFiles.where("invoiceId").equals(numId).first().catch(() => null);
+          if (pdfRec?.bytes) {
+            const binary = Array.from(pdfRec.bytes).map(b => String.fromCharCode(b)).join("");
+            prevDocPdfB64 = btoa(binary);
+          }
+        }
+      }
+    }
+
+    // Build the Gemini prompt
+    const buildPromptParts = (): object[] => {
+      const parts: object[] = [];
+
+      // Reference: last year's AGM
+      if (prevDocRawText) {
+        parts.push({ text: `You are generating formal AGM minutes for an Indian housing cooperative society.\n\nFINANCIAL YEAR: ${fyLbl}\n\nLAST YEAR'S AGM DOCUMENT (${prevFyLbl}) — USE THIS AS FORMAT REFERENCE:\n\n${prevDocRawText.slice(0, 5000)}\n\n--- END OF LAST YEAR'S AGM ---\n\nIMPORTANT: Generate the new AGM minutes following the EXACT same format, section headings, and structure as the reference document above. Keep the same formal language style.\n` });
+      } else if (prevDocPdfB64) {
+        parts.push({ text: `You are generating formal AGM minutes for an Indian housing cooperative society.\n\nFINANCIAL YEAR: ${fyLbl}\n\nThe attached PDF is LAST YEAR'S AGM DOCUMENT (${prevFyLbl}). Use it as the FORMAT REFERENCE — follow its exact structure, headings, and formal language for the new report.\n` });
+        parts.push({ inlineData: { mimeType: "application/pdf", data: prevDocPdfB64 } });
+        parts.push({ text: `--- END OF REFERENCE PDF ---\n` });
+      } else if (usePrevManual && prevAGM) {
+        let ref = `You are generating formal AGM minutes for an Indian housing cooperative society.\n\nFINANCIAL YEAR: ${fyLbl}\n\nPREVIOUS YEAR AGM REFERENCE (${prevFyLbl}):\n`;
+        ref += `Date: ${prevAGM.date}\n`;
+        if (prevAGM.venue) ref += `Venue: ${prevAGM.venue}\n`;
+        if (prevAGM.attendees != null) ref += `Attendance: ${prevAGM.attendees}${prevAGM.totalMembers ? ` / ${prevAGM.totalMembers}` : ""} members\n`;
+        if (prevAGM.agenda) ref += `Agenda items:\n${prevAGM.agenda}\n`;
+        if (prevAGM.resolutions) ref += `Resolutions passed:\n${prevAGM.resolutions}\n`;
+        ref += `\nFollow the format of standard Indian housing cooperative society AGM minutes.\n`;
+        parts.push({ text: ref });
+      } else {
+        parts.push({ text: `You are generating formal AGM minutes for an Indian housing cooperative society.\n\nFINANCIAL YEAR: ${fyLbl}\n\nFollow the format of standard Indian housing cooperative society AGM minutes.\n` });
+      }
+
+      // Current year meeting data
+      let meetingData = `\nMEETINGS AND POINTS TO INCLUDE IN THE NEW ${fyLbl} REPORT:\n`;
+      for (const m of selManual) {
+        meetingData += `\n[${MTG_LABEL[m.type]} — ${m.date}]\n`;
+        meetingData += `Title: ${m.title}\n`;
+        if (m.venue) meetingData += `Venue: ${m.venue}\n`;
+        if (m.attendees != null) meetingData += `Attendance: ${m.attendees}${m.totalMembers ? ` out of ${m.totalMembers}` : ""} members\n`;
+        if (m.agenda) meetingData += `Agenda:\n${m.agenda}\n`;
+        if (m.resolutions) meetingData += `Resolutions:\n${m.resolutions}\n`;
+        if (m.notes) meetingData += `Notes: ${m.notes}\n`;
+      }
+      for (const d of selDocs) {
+        meetingData += `\n[Imported Document — ${d.date}]\n`;
+        meetingData += `Title: ${d.title}\n`;
+        if (d.meetingType) meetingData += `Meeting type: ${MTG_LABEL[d.meetingType]}\n`;
+      }
+
+      meetingData += `\nINSTRUCTIONS:\n`;
+      meetingData += `1. Generate complete, formal AGM minutes for ${fyLbl}\n`;
+      meetingData += `2. Use formal language throughout: "Resolved that...", "The Chairman called the meeting to order..."\n`;
+      meetingData += `3. Number all agenda items and resolutions\n`;
+      meetingData += `4. Include attendance statistics from the data above\n`;
+      meetingData += `5. Consolidate agenda points and resolutions from all meetings listed\n`;
+      meetingData += `6. Include signature blocks for Chairman and Secretary/Manager at the end\n`;
+      meetingData += `7. Do NOT invent names, flat numbers, or figures not provided in the data above\n`;
+      meetingData += `8. Output only the formatted minutes document — no preamble or explanation\n`;
+
+      parts.push({ text: meetingData });
+      return parts;
+    };
+
+    try {
+      const res = await fetch("/api/gemini", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "gemini-2.0-flash",
+          contents: [{ role: "user", parts: buildPromptParts() }],
+          generationConfig: { temperature: 0.3, maxOutputTokens: 4096 },
+        }),
+      });
+      if (!res.ok) throw new Error(`Gemini returned ${res.status}`);
+      const data = await res.json();
+      const text = (data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "").trim();
+      if (!text) throw new Error("Empty response from Gemini");
+      setReportText(text);
+      setStep("report");
+    } catch (e) {
+      const errMsg = e instanceof Error ? e.message : String(e);
+      setGenError(`AI generation failed (${errMsg}). Showing structured summary instead.`);
+      setReportText(buildFallbackText(selManual, selDocs, usePrevManual ? prevAGM : null));
+      setStep("report");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleCopy = () => { navigator.clipboard.writeText(reportText).catch(() => {}); };
@@ -4608,28 +4723,55 @@ function GenerateAGMModal({ meetings, importedDocs, onClose }: {
           <>
             <div style={{ flex: 1, overflowY: "auto", padding: "16px 24px" }}>
 
-              {/* Previous year AGM */}
+              {/* Previous year AGM reference */}
               <div style={{ marginBottom: 18 }}>
                 <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 8 }}>
-                  Last Year's AGM — {prevFyLbl} (Reference)
+                  Last Year's AGM — {prevFyLbl} (Format Reference)
                 </div>
-                {prevAGM ? (
-                  <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer", padding: "10px 12px", borderRadius: 8, background: selected.has(`prev_${prevAGM.id}`) ? "#7c3aed11" : "var(--color-surface-2)", border: `1.5px solid ${selected.has(`prev_${prevAGM.id}`) ? "#7c3aed44" : "var(--color-border)"}` }}>
-                    <input type="checkbox" checked={selected.has(`prev_${prevAGM.id}`)} onChange={() => toggle(`prev_${prevAGM.id}`)} style={{ marginTop: 3, accentColor: "#7c3aed", flexShrink: 0 }} />
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: "var(--color-text)" }}>🏛️ {prevAGM.title}</div>
-                      <div style={{ fontSize: 11.5, color: "var(--color-text-secondary)", marginTop: 2 }}>
-                        📅 {new Date(prevAGM.date + "T00:00:00").toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
-                        {prevAGM.venue ? ` · 📍 ${prevAGM.venue}` : ""}
-                        {prevAGM.resolutions ? " · ✓ Has resolutions" : ""}
-                      </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {/* Imported AGM document — used as format template via raw text / PDF */}
+                  {prevAGMDoc && (() => {
+                    const key = `prevdoc_${prevAGMDoc.id}`;
+                    const isChk = selected.has(key);
+                    return (
+                      <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer", padding: "10px 12px", borderRadius: 8, background: isChk ? "#7c3aed11" : "var(--color-surface-2)", border: `1.5px solid ${isChk ? "#7c3aed44" : "var(--color-border)"}` }}>
+                        <input type="checkbox" checked={isChk} onChange={() => toggle(key)} style={{ marginTop: 3, accentColor: "#7c3aed", flexShrink: 0 }} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: "var(--color-text)" }}>📄 {prevAGMDoc.title}</div>
+                          <div style={{ fontSize: 11.5, color: "var(--color-text-secondary)", marginTop: 2 }}>
+                            <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 5px", borderRadius: 3, background: "#7c3aed22", color: "#7c3aed", marginRight: 6 }}>AGM Document</span>
+                            📅 {new Date(prevAGMDoc.date + "T00:00:00").toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                            {" · ✦ AI reads this PDF to copy its format"}
+                          </div>
+                        </div>
+                      </label>
+                    );
+                  })()}
+                  {/* Manually logged AGM entry */}
+                  {prevAGM && (() => {
+                    const key = `prev_${prevAGM.id}`;
+                    const isChk = selected.has(key);
+                    return (
+                      <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer", padding: "10px 12px", borderRadius: 8, background: isChk ? "#7c3aed11" : "var(--color-surface-2)", border: `1.5px solid ${isChk ? "#7c3aed44" : "var(--color-border)"}` }}>
+                        <input type="checkbox" checked={isChk} onChange={() => toggle(key)} style={{ marginTop: 3, accentColor: "#7c3aed", flexShrink: 0 }} />
+                        <div>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: "var(--color-text)" }}>🏛️ {prevAGM.title}</div>
+                          <div style={{ fontSize: 11.5, color: "var(--color-text-secondary)", marginTop: 2 }}>
+                            <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 5px", borderRadius: 3, background: "var(--color-surface)", border: "1px solid var(--color-border)", marginRight: 6 }}>Manual entry</span>
+                            📅 {new Date(prevAGM.date + "T00:00:00").toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                            {prevAGM.venue ? ` · 📍 ${prevAGM.venue}` : ""}
+                            {prevAGM.resolutions ? " · ✓ Has resolutions" : ""}
+                          </div>
+                        </div>
+                      </label>
+                    );
+                  })()}
+                  {!prevAGM && !prevAGMDoc && (
+                    <div style={{ fontSize: 12, color: "var(--color-text-tertiary)", fontStyle: "italic", padding: "8px 12px", background: "var(--color-surface-2)", borderRadius: 8 }}>
+                      No AGM recorded for {prevFyLbl}. Tag an imported PDF as AGM in the Meetings tab to use it as a format reference.
                     </div>
-                  </label>
-                ) : (
-                  <div style={{ fontSize: 12, color: "var(--color-text-tertiary)", fontStyle: "italic", padding: "8px 12px", background: "var(--color-surface-2)", borderRadius: 8 }}>
-                    No AGM recorded for {prevFyLbl}
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
 
               {/* Current FY meetings */}
@@ -4691,24 +4833,41 @@ function GenerateAGMModal({ meetings, importedDocs, onClose }: {
               <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>{totalSel} item{totalSel !== 1 ? "s" : ""} selected</span>
               <div style={{ display: "flex", gap: 8 }}>
                 <button onClick={onClose} style={{ fontSize: 13, padding: "7px 14px", borderRadius: 7, border: "1.5px solid var(--color-border)", background: "transparent", color: "var(--color-text-secondary)", cursor: "pointer" }}>Cancel</button>
-                <button onClick={handleGenerate} disabled={totalSel === 0} style={{ fontSize: 13, padding: "7px 16px", borderRadius: 7, border: "none", background: totalSel === 0 ? "var(--color-surface-2)" : "#7c3aed", color: totalSel === 0 ? "var(--color-text-tertiary)" : "#fff", cursor: totalSel === 0 ? "not-allowed" : "pointer", fontWeight: 600 }}>
-                  Generate Report →
+                <button onClick={handleGenerate} disabled={totalSel === 0 || loading} style={{ fontSize: 13, padding: "7px 16px", borderRadius: 7, border: "none", background: (totalSel === 0 || loading) ? "var(--color-surface-2)" : "#7c3aed", color: (totalSel === 0 || loading) ? "var(--color-text-tertiary)" : "#fff", cursor: (totalSel === 0 || loading) ? "not-allowed" : "pointer", fontWeight: 600 }}>
+                  {loading ? "✦ Generating…" : "Generate Report →"}
                 </button>
               </div>
             </div>
           </>
         ) : (
           <>
-            <div style={{ flex: 1, overflowY: "auto", padding: "16px 24px" }}>
-              <pre style={{ fontFamily: "monospace", fontSize: 12, lineHeight: 1.7, whiteSpace: "pre-wrap", color: "var(--color-text)", margin: 0, background: "var(--color-surface-2)", padding: 16, borderRadius: 8, border: "1px solid var(--color-border)" }}>
-                {reportText}
-              </pre>
-            </div>
+            {loading ? (
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 40, gap: 14 }}>
+                <div style={{ fontSize: 28 }}>🏛️</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: "var(--color-text)" }}>Generating AGM Report…</div>
+                <div style={{ fontSize: 12, color: "var(--color-text-secondary)", textAlign: "center", maxWidth: 320 }}>
+                  {(selected.has(`prevdoc_${prevAGMDoc?.id}`) && prevAGMDoc)
+                    ? "Reading last year's AGM document and generating new minutes in the same format"
+                    : "Using meeting data to generate formal AGM minutes"}
+                </div>
+              </div>
+            ) : (
+              <div style={{ flex: 1, overflowY: "auto", padding: "16px 24px" }}>
+                {genError && (
+                  <div style={{ fontSize: 11.5, color: "#92400e", background: "#fef3c7", border: "1px solid #fde68a", borderRadius: 7, padding: "8px 12px", marginBottom: 12 }}>
+                    ⚠️ {genError}
+                  </div>
+                )}
+                <pre style={{ fontFamily: "monospace", fontSize: 12, lineHeight: 1.7, whiteSpace: "pre-wrap", color: "var(--color-text)", margin: 0, background: "var(--color-surface-2)", padding: 16, borderRadius: 8, border: "1px solid var(--color-border)" }}>
+                  {reportText}
+                </pre>
+              </div>
+            )}
             <div style={{ padding: "14px 24px", borderTop: "1px solid var(--color-border)", display: "flex", justifyContent: "space-between", flexShrink: 0 }}>
-              <button onClick={() => setStep("select")} style={{ fontSize: 13, padding: "7px 14px", borderRadius: 7, border: "1.5px solid var(--color-border)", background: "transparent", color: "var(--color-text-secondary)", cursor: "pointer" }}>← Back</button>
+              <button onClick={() => { setStep("select"); setGenError(null); }} style={{ fontSize: 13, padding: "7px 14px", borderRadius: 7, border: "1.5px solid var(--color-border)", background: "transparent", color: "var(--color-text-secondary)", cursor: "pointer" }}>← Back</button>
               <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={handleCopy} style={{ fontSize: 13, padding: "7px 16px", borderRadius: 7, border: "1.5px solid var(--color-border)", background: "transparent", color: "var(--color-text-secondary)", cursor: "pointer" }}>📋 Copy</button>
-                <button onClick={handlePrint} style={{ fontSize: 13, padding: "7px 16px", borderRadius: 7, border: "none", background: "#7c3aed", color: "#fff", cursor: "pointer", fontWeight: 600 }}>🖨️ Print / Save PDF</button>
+                <button onClick={handleCopy} disabled={loading} style={{ fontSize: 13, padding: "7px 16px", borderRadius: 7, border: "1.5px solid var(--color-border)", background: "transparent", color: loading ? "var(--color-text-tertiary)" : "var(--color-text-secondary)", cursor: loading ? "not-allowed" : "pointer" }}>📋 Copy</button>
+                <button onClick={handlePrint} disabled={loading} style={{ fontSize: 13, padding: "7px 16px", borderRadius: 7, border: "none", background: loading ? "var(--color-surface-2)" : "#7c3aed", color: loading ? "var(--color-text-tertiary)" : "#fff", cursor: loading ? "not-allowed" : "pointer", fontWeight: 600 }}>🖨️ Print / Save PDF</button>
               </div>
             </div>
           </>
