@@ -103,7 +103,7 @@ function formatDate(iso: string | null | undefined): string {
 }
 
 function fileLabel(inv: InvoiceMeta | undefined): string | null {
-  if (!inv?.isRenamed || !inv.sourceFilename) return null;
+  if (!inv?.sourceFilename) return null;
   return inv.sourceFilename.replace(/\.[^.]+$/, "");
 }
 
@@ -290,6 +290,17 @@ function AddAlertModal({ onClose, onAdded }: { onClose: () => void; onAdded: () 
     if (!label.trim()) { setErr("Enter a description for this alert."); return; }
     if (!startDate)    { setErr("Select a start date."); return; }
     if (months == null){ setErr("Select a duration in months."); return; }
+
+    // Duplicate check
+    const existing = await db.sentinelRecords.where("status").equals("active").toArray();
+    const isDuplicate = linkedInvoiceId > 0
+      ? existing.some((s) => s.invoiceId === linkedInvoiceId && s.type === type)
+      : existing.some((s) => s.invoiceId === 0 && s.type === type && s.label.trim().toLowerCase() === label.trim().toLowerCase());
+    if (isDuplicate) {
+      setErr(`An active ${TYPE_LABEL[type]} alert already exists for this file. Dismiss the existing one first.`);
+      return;
+    }
+
     setSaving(true);
     try {
       await addManualAlert(label.trim(), type, expiryDate!, reminderDays ?? undefined, linkedInvoiceId);
