@@ -4669,7 +4669,7 @@ function GenerateAGMModal({ meetings, importedDocs, onClose }: {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "gemini-2.0-flash",
+          model: "gemini-3.6-flash",
           contents: [{ role: "user", parts: buildPromptParts() }],
           generationConfig: { temperature: 0.3, maxOutputTokens: 4096 },
         }),
