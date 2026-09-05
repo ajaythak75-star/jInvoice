@@ -2310,7 +2310,7 @@ export function ViewScreen() {
                   activeMode={prefs.activeMode}
                   rawText={detailRawText}
                   onEditProjectTag={r.id != null ? openProjectTagPicker : undefined}
-                  onCategoryChange={r.id != null ? async (newCat) => {
+                  onCategoryChange={r.id != null && prefs.isProActive ? async (newCat) => {
                     setDetailCategory(newCat);
                     await db.invoices.update(r.id!, { category: newCat, updatedAt: new Date().toISOString() });
                     setDetailRec(prev => prev ? { ...prev, category: newCat } : null);
@@ -2364,7 +2364,7 @@ export function ViewScreen() {
                         : getProfessionalCategoryLabel(mode as ProfessionalProfile, detailCategory)
                       : null;
 
-                    if (mode === "society" && r.id != null) {
+                    if (mode === "society" && r.id != null && prefs.isProActive) {
                       return (
                         <div style={{ padding: "12px 20px 0" }}>
                           <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>
