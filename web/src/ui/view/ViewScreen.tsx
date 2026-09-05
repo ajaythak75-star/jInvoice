@@ -1179,7 +1179,12 @@ export function ViewScreen() {
     const items = await db.lineItems.where("invoiceId").equals(rec.id!).toArray();
     setDetailItems(items);
     setDetailRec(rec);
-    setDetailCategory(rec.docTypes?.[0] ?? rec.docType ?? rec.category ?? "");
+    // Society mode: category is a specific SocietyExpenseCategory, not the generic docType ("society")
+    setDetailCategory(
+      prefs.activeMode === "society"
+        ? (rec.category ?? "")
+        : (rec.docTypes?.[0] ?? rec.docType ?? rec.category ?? ""),
+    );
     const rawRec = await db.rawTexts.where("invoiceId").equals(rec.id!).first();
     setDetailRawText(rawRec?.rawText ?? null);
   };
@@ -2351,7 +2356,7 @@ export function ViewScreen() {
                             onChange={async (e) => {
                               const newCat = e.target.value as SocietyExpenseCategory;
                               setDetailCategory(newCat);
-                              await db.invoices.update(r.id!, { docType: newCat, docTypes: [newCat], category: newCat, updatedAt: new Date().toISOString() });
+                              await db.invoices.update(r.id!, { category: newCat, updatedAt: new Date().toISOString() });
                             }}
                             style={{ fontSize: 13, fontWeight: 600, padding: "4px 10px", borderRadius: 6, border: "1px solid var(--color-border)", background: "var(--color-surface)", color: "var(--color-accent, #6366f1)", cursor: "pointer", appearance: "auto" }}
                           >

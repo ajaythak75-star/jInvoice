@@ -523,7 +523,7 @@ async function persistResultWithNote(
 
     const status = result.kind === "success" ? "imported" : "pending_review";
     const lineItemNames = inv.lineItems.map((li) => li.name);
-    const category = resolveCategory(inv.merchantName, lineItemNames);
+    const category = resolveCategory(inv.merchantName, lineItemNames, inv.rawText);
     const docTypes = detectDocType(inv.merchantName, lineItemNames, sourceFilename, meta?.subject, inv.rawText);
     const docType  = docTypes[0];
     console.log("[Pipeline]", sourceFilename, "docTypes:", docTypes, "allowed:", prefs.importDocTypes);
@@ -729,7 +729,7 @@ async function finalizeExtractedInvoice(
 
   const now = new Date().toISOString();
   const lineItemNames = enhanced.lineItems.map((li) => li.name);
-  const category = resolveCategory(enhanced.merchantName, lineItemNames);
+  const category = resolveCategory(enhanced.merchantName, lineItemNames, enhanced.rawText);
   const docTypes = detectDocType(enhanced.merchantName, lineItemNames, undefined, undefined, enhanced.rawText);
   const status = enhanced.confidenceScore >= 0.7 ? "imported" : "pending_review";
 
