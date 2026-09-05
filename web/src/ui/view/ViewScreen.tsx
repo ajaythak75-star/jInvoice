@@ -1675,6 +1675,11 @@ export function ViewScreen() {
                         {DOC_TYPE_LABELS[rec.docType as keyof typeof DOC_TYPE_LABELS] ?? rec.docType}
                       </span>
                     )}
+                    {prefs.activeMode === "society" && rec.category && rec.status !== "pending_extraction" && (
+                      <span className="view-chip" style={{ color: "#0369a1", borderColor: "#7dd3fc", background: "#e0f2fe", fontWeight: 600, flexShrink: 0 }}>
+                        {SOCIETY_CATEGORY_LABEL[rec.category as SocietyExpenseCategory] ?? rec.category.replace(/_/g, " ")}
+                      </span>
+                    )}
                     {(rec.clientTags ?? []).map((tag) => (
                       <span key={tag} className="view-chip" style={{ color: "#0891b2", borderColor: "#0891b2", background: "#ecfeff", display: "inline-flex", alignItems: "center", gap: 2 }}>
                         {tag}
@@ -2298,7 +2303,20 @@ export function ViewScreen() {
 
               {/* Detail body: Universal format for Pro or any non-personal profile (society, etc.) */}
               {(prefs.isProActive || prefs.activeMode !== "personal") && !isPreviewMode ? (
-                <UniversalDocView rec={r} items={detailItems} category={detailCategory} activeMode={prefs.activeMode} rawText={detailRawText} onEditProjectTag={r.id != null ? openProjectTagPicker : undefined} />
+                <UniversalDocView
+                  rec={r}
+                  items={detailItems}
+                  category={detailCategory}
+                  activeMode={prefs.activeMode}
+                  rawText={detailRawText}
+                  onEditProjectTag={r.id != null ? openProjectTagPicker : undefined}
+                  onCategoryChange={prefs.activeMode === "society" && r.id != null ? async (newCat) => {
+                    setDetailCategory(newCat);
+                    await db.invoices.update(r.id!, { category: newCat, updatedAt: new Date().toISOString() });
+                    setDetailRec(prev => prev ? { ...prev, category: newCat } : null);
+                    setRecords(prev => prev.map(rec => rec.id === r.id ? { ...rec, category: newCat } : rec));
+                  } : undefined}
+                />
               ) : (
                 <>
                   {/* Merchant card */}

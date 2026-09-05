@@ -152,9 +152,10 @@ interface Props {
   activeMode: string;
   rawText?: string | null;
   onEditProjectTag?: (invoiceId: number, anchor: DOMRect) => void;
+  onCategoryChange?: (cat: SocietyExpenseCategory) => void;
 }
 
-export function UniversalDocView({ rec, items, category, activeMode, rawText, onEditProjectTag }: Props) {
+export function UniversalDocView({ rec, items, category, activeMode, rawText, onEditProjectTag, onCategoryChange }: Props) {
   const docTypes = rec.docTypes ?? (rec.docType ? [rec.docType] : []);
   const docClass = classifyDoc(docTypes, activeMode, category);
   const cfg = DOC_CONFIGS[docClass];
@@ -242,7 +243,22 @@ export function UniversalDocView({ rec, items, category, activeMode, rawText, on
         }}>
           {cfg.badge}
         </span>
-        {categoryLabel && (
+        {activeMode === "society" && onCategoryChange ? (
+          <select
+            value={category || "other"}
+            onChange={(e) => onCategoryChange(e.target.value as SocietyExpenseCategory)}
+            style={{
+              fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 20,
+              background: "var(--color-surface-2)", color: "var(--color-text-secondary)",
+              border: "1px solid var(--color-border)", cursor: "pointer",
+              appearance: "auto",
+            }}
+          >
+            {(Object.entries(SOCIETY_CATEGORY_LABEL) as [SocietyExpenseCategory, string][]).map(([k, v]) => (
+              <option key={k} value={k}>{v}</option>
+            ))}
+          </select>
+        ) : categoryLabel ? (
           <span style={{
             fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 20,
             background: "var(--color-surface-2)", color: "var(--color-text-secondary)",
@@ -250,7 +266,7 @@ export function UniversalDocView({ rec, items, category, activeMode, rawText, on
           }}>
             {categoryLabel}
           </span>
-        )}
+        ) : null}
         <span style={{ fontSize: 10.5, color: "var(--color-text-tertiary)", marginLeft: "auto" }}>
           Universal View
         </span>
