@@ -1003,6 +1003,18 @@ const ADMIN_EMAIL       = process.env.ADMIN_EMAIL       ?? "ajaythak75@gmail.com
 // Super admin has full access; falls back to ADMIN_EMAIL so existing deploys stay super-admin by default.
 const SUPER_ADMIN_EMAIL = (process.env.SUPER_ADMIN_EMAIL ?? ADMIN_EMAIL).toLowerCase();
 
+// In-memory cache of dynamically-granted admin emails (persisted in app_config "dynamic_admins").
+const dynamicAdminEmails = new Set();
+(async () => {
+  try {
+    const { ok, data } = await _sbService("/app_config?key=eq.dynamic_admins&select=value");
+    if (ok && Array.isArray(data) && data.length > 0) {
+      const emails = data[0]?.value?.emails;
+      if (Array.isArray(emails)) emails.forEach((e) => dynamicAdminEmails.add(e.toLowerCase()));
+    }
+  } catch { /* non-fatal: dynamic admins simply won't be loaded */ }
+})();
+
 async function _sendEmail(to, subject, html) {
   if (!RESEND_API_KEY) throw new Error("Email service not configured (RESEND_API_KEY missing).");
   const res = await fetch("https://api.resend.com/emails", {
@@ -1260,7 +1272,7 @@ function _requireAdmin(req, res) {
   const email = _verifyToken(_planToken(req));
   if (!email) { res.status(401).json({ error: "unauthorized" }); return null; }
   const em = email.toLowerCase();
-  const isAdminRole = (ADMIN_EMAIL && em === ADMIN_EMAIL.toLowerCase()) || em === SUPER_ADMIN_EMAIL;
+  const isAdminRole = (ADMIN_EMAIL && em === ADMIN_EMAIL.toLowerCase()) || em === SUPER_ADMIN_EMAIL || dynamicAdminEmails.has(em);
   if (!isAdminRole) { res.status(403).json({ error: "forbidden" }); return null; }
   return email;
 }
@@ -1281,15 +1293,24 @@ app.get("/api/admin/role", (req, res) => {
   if (!email) return res.status(401).json({ error: "unauthorized" });
   const em = email.toLowerCase();
   if (em === SUPER_ADMIN_EMAIL) return res.json({ role: "super_admin" });
-  if (ADMIN_EMAIL && em === ADMIN_EMAIL.toLowerCase()) return res.json({ role: "admin" });
+  if ((ADMIN_EMAIL && em === ADMIN_EMAIL.toLowerCase()) || dynamicAdminEmails.has(em)) return res.json({ role: "admin" });
   return res.status(403).json({ error: "forbidden" });
 });
 
-// GET /api/admin/users — all users with current plan
+// GET /api/admin/users — all users with current plan and admin_role
 app.get("/api/admin/users", async (req, res) => {
   if (!_requireAdmin(req, res)) return;
   const { data } = await _sbService("/user_plans?order=updated_at.desc&limit=200");
-  res.json(Array.isArray(data) ? data : []);
+  const users = Array.isArray(data) ? data : [];
+  const withRole = users.map((u) => {
+    const em = (u.email ?? "").toLowerCase();
+    const adminRole =
+      em === SUPER_ADMIN_EMAIL ? "super_admin" :
+      (ADMIN_EMAIL && em === ADMIN_EMAIL.toLowerCase()) ? "admin_env" :
+      dynamicAdminEmails.has(em) ? "admin" : null;
+    return { ...u, admin_role: adminRole };
+  });
+  res.json(withRole);
 });
 
 // GET /api/admin/users/:email/events — plan history for one user
@@ -1400,6 +1421,26 @@ app.delete("/api/admin/users/:email/access", async (req, res) => {
   const email = decodeURIComponent(req.params.email).toLowerCase();
   await _sbService(`/allowed_users?email=eq.${encodeURIComponent(email)}`, { method: "DELETE" });
   res.json({ ok: true });
+});
+
+// PATCH /api/admin/users/:email/role — grant or revoke admin role (super admin only)
+app.patch("/api/admin/users/:email/role", async (req, res) => {
+  if (!_requireSuperAdmin(req, res)) return;
+  const email = decodeURIComponent(req.params.email).toLowerCase();
+  if (email === SUPER_ADMIN_EMAIL) return res.status(400).json({ error: "Cannot change super admin role" });
+  if (ADMIN_EMAIL && email === ADMIN_EMAIL.toLowerCase()) return res.status(400).json({ error: "This admin is set via environment variable" });
+  const grant = req.body?.admin_role === "admin";
+  const { data } = await _sbService("/app_config?key=eq.dynamic_admins&select=value");
+  const existing = Array.isArray(data?.[0]?.value?.emails) ? data[0].value.emails.map((e) => e.toLowerCase()) : [];
+  const emailSet = new Set(existing);
+  if (grant) emailSet.add(email); else emailSet.delete(email);
+  await _sbService("/app_config?on_conflict=key", {
+    method: "POST",
+    headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+    body: JSON.stringify({ key: "dynamic_admins", value: { emails: [...emailSet] }, updated_at: new Date().toISOString() }),
+  });
+  if (grant) dynamicAdminEmails.add(email); else dynamicAdminEmails.delete(email);
+  res.json({ ok: true, email, admin_role: grant ? "admin" : null });
 });
 
 // ── App config (pricing, upload limits, profiles) ─────────────────────────────

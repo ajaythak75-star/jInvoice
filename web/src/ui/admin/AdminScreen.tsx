@@ -11,6 +11,7 @@ interface UserPlan {
   cancelled_at: string | null;
   updated_at: string;
   cloud_upload_enabled?: boolean;
+  admin_role?: "super_admin" | "admin_env" | "admin" | null;
 }
 
 interface PlanEvent {
@@ -82,7 +83,7 @@ const ALL_TABS: { id: AdminTab; label: string; superOnly: boolean }[] = [
 
 // ── Users tab ────────────────────────────────────────────────────────────────
 
-function UsersTab() {
+function UsersTab({ callerRole }: { callerRole: AdminRole }) {
   const [users, setUsers]               = useState<UserPlan[]>([]);
   const [loading, setLoading]           = useState(true);
   const [addEmail, setAddEmail]         = useState("");
@@ -92,6 +93,7 @@ function UsersTab() {
   const [events, setEvents]             = useState<PlanEvent[]>([]);
   const [eventsLoading, setEventsLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const isSuperAdmin = callerRole === "super_admin";
 
   const loadUsers = useCallback(async () => {
     setLoading(true);
@@ -166,6 +168,17 @@ function UsersTab() {
     } finally { setActionLoading(null); }
   };
 
+  const handleToggleAdminRole = async (email: string, grant: boolean) => {
+    setActionLoading(`${email}:adminrole`);
+    try {
+      await fetch(`/api/admin/users/${encodeURIComponent(email)}/role`, {
+        method: "PATCH", headers: authHeaders(),
+        body: JSON.stringify({ admin_role: grant ? "admin" : null }),
+      });
+      await loadUsers();
+    } finally { setActionLoading(null); }
+  };
+
   const fmtDate     = (d: string | null) => d ? new Date(d).toLocaleDateString("en-IN") : "—";
   const fmtDateTime = (d: string) => new Date(d).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
 
@@ -195,7 +208,7 @@ function UsersTab() {
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
                 <tr style={{ borderBottom: "2px solid var(--color-border)" }}>
-                  {["Email", "Plan", "Trial ends / Paid until", "Last updated", "Cloud Upload", "Actions"].map((h) => (
+                  {["Email", "Plan", "Trial ends / Paid until", "Last updated", "Cloud Upload", ...(isSuperAdmin ? ["Admin Role"] : []), "Actions"].map((h) => (
                     <th key={h} style={{ padding: "8px 10px", textAlign: "left", fontWeight: 600, color: "var(--color-text-secondary)", whiteSpace: "nowrap" }}>{h}</th>
                   ))}
                 </tr>
@@ -234,6 +247,28 @@ function UsersTab() {
                           );
                         })()}
                       </td>
+                      {isSuperAdmin && (() => {
+                        const ar = u.admin_role ?? null;
+                        const isFixed = ar === "super_admin" || ar === "admin_env";
+                        const isAdmin = ar === "super_admin" || ar === "admin_env" || ar === "admin";
+                        const loading = actionLoading === `${u.email}:adminrole`;
+                        return (
+                          <td style={{ padding: "10px 10px" }} onClick={(e) => e.stopPropagation()}>
+                            <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: isFixed || loading ? "default" : "pointer" }}>
+                              <input
+                                type="checkbox"
+                                checked={isAdmin}
+                                disabled={isFixed || loading}
+                                onChange={() => handleToggleAdminRole(u.email, !isAdmin)}
+                                style={{ width: 14, height: 14, accentColor: "#4f46e5", cursor: isFixed || loading ? "default" : "pointer" }}
+                              />
+                              <span style={{ fontSize: 11, fontWeight: 600, color: ar === "super_admin" ? "#4f46e5" : ar === "admin_env" ? "#7c6f00" : ar === "admin" ? "#4f46e5" : "#6b7280" }}>
+                                {loading ? "…" : ar === "super_admin" ? "Super" : ar === "admin_env" ? "Admin*" : ar === "admin" ? "Admin" : "—"}
+                              </span>
+                            </label>
+                          </td>
+                        );
+                      })()}
                       <td style={{ padding: "10px 10px" }} onClick={(e) => e.stopPropagation()}>
                         <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
                           {u.plan !== "pro_trial" && <ActionBtn label={actionLoading === `${u.email}:pro_trial` ? "…" : "Trial"} color="#d97706" onClick={() => handleSetPlan(u.email, "pro_trial")} />}
@@ -795,7 +830,7 @@ export function AdminScreen() {
         ))}
       </div>
 
-      {tab === "users"    && <UsersTab />}
+      {tab === "users"    && <UsersTab callerRole={role} />}
       {tab === "pricing"  && role === "super_admin" && <PricingTab />}
       {tab === "limits"   && role === "super_admin" && <UploadLimitsTab />}
       {tab === "profiles" && role === "super_admin" && <ProfilesTab />}
