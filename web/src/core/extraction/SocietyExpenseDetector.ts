@@ -122,8 +122,9 @@ const SOCIETY_KEYWORDS: Array<{ cat: SocietyExpenseCategory; keywords: string[] 
     cat: "government_dues",
     keywords: [
       "property tax", "municipal tax", "bmc", "mcgm", "nmmc", "pcmc",
-      "professional tax", "labour cess", "stamp duty", "government",
+      "professional tax", "labour cess", "stamp duty",
       "municipal corporation", "nagar palika", "registration fees",
+      "government dues", "government fee",
     ],
   },
   {
@@ -141,6 +142,15 @@ const SOCIETY_KEYWORDS: Array<{ cat: SocietyExpenseCategory; keywords: string[] 
       "lock-in period", "lock in period",
       "rental agreement", "rent agreement", "tenancy agreement",
       "monthly rent", "rent per month", "refundable deposit",
+    ],
+  },
+  {
+    // meeting_record MUST come before agreement — AGM notices contain the word "agreement"
+    cat: "meeting_record",
+    keywords: [
+      "agm", "annual general meeting", "special general meeting", "sgm",
+      "managing committee", "meeting notice", "minutes of meeting",
+      "resolution", "agenda", "attendance register",
     ],
   },
   {
@@ -183,14 +193,6 @@ const SOCIETY_KEYWORDS: Array<{ cat: SocietyExpenseCategory; keywords: string[] 
       "bank statement", "audit report", "balance sheet", "income expenditure",
       "receipt and payment", "fixed deposit", "fd receipt", "passbook",
       "trial balance", "ledger", "chartered accountant",
-    ],
-  },
-  {
-    cat: "meeting_record",
-    keywords: [
-      "agm", "annual general meeting", "special general meeting", "sgm",
-      "managing committee", "meeting notice", "minutes of meeting",
-      "resolution", "agenda", "attendance register",
     ],
   },
 ];
