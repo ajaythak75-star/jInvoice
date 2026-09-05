@@ -1003,7 +1003,7 @@ app.post("/api/sarvam", async (req, res) => {
   try {
     const upstream = await fetch("https://api.sarvam.ai/v1/chat/completions", {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${SARVAM_API_KEY}` },
+      headers: { "Content-Type": "application/json", "api-subscription-key": SARVAM_API_KEY },
       body: JSON.stringify(req.body ?? {}),
     });
     const data = await upstream.json();
