@@ -2315,6 +2315,7 @@ export function ViewScreen() {
                     await db.invoices.update(r.id!, { category: newCat, updatedAt: new Date().toISOString() });
                     setDetailRec(prev => prev ? { ...prev, category: newCat } : null);
                     setRecords(prev => prev.map(rec => rec.id === r.id ? { ...rec, category: newCat } : rec));
+                    window.dispatchEvent(new Event("jinvoice:sync-complete"));
                   } : undefined}
                 />
               ) : (
@@ -2375,6 +2376,8 @@ export function ViewScreen() {
                               const newCat = e.target.value as SocietyExpenseCategory;
                               setDetailCategory(newCat);
                               await db.invoices.update(r.id!, { category: newCat, updatedAt: new Date().toISOString() });
+                              setRecords(prev => prev.map(rec => rec.id === r.id ? { ...rec, category: newCat } : rec));
+                              window.dispatchEvent(new Event("jinvoice:sync-complete"));
                             }}
                             style={{ fontSize: 13, fontWeight: 600, padding: "4px 10px", borderRadius: 6, border: "1px solid var(--color-border)", background: "var(--color-surface)", color: "var(--color-accent, #6366f1)", cursor: "pointer", appearance: "auto" }}
                           >

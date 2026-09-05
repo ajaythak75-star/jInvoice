@@ -4408,7 +4408,7 @@ function SocietyMeetingsTab({ records }: { records: InvoiceMeta[] }) {
   // Imported meeting_record documents from IndexedDB
   const importedDocs = useMemo<ImportedMeetingDoc[]>(() =>
     records
-      .filter(r => r.category === "meeting_record" && r.status !== "pending_extraction")
+      .filter(r => r.category === "meeting_record" && r.status !== "extraction_failed" && r.status !== "import_blocked_encrypted")
       .map(importedDocFromRecord)
       .sort((a, b) => b.date.localeCompare(a.date)),
     [records]
