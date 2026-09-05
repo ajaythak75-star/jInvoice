@@ -4158,9 +4158,8 @@ const AGM_PRINT_CSS = `
 function agmPrintWindow(title: string, bodyHtml: string) {
   const w = window.open("", "_blank");
   if (!w) return;
-  w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${title}</title><style>${AGM_PRINT_CSS}</style></head><body>${bodyHtml}</body></html>`);
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${title}</title><style>${AGM_PRINT_CSS}</style></head><body>${bodyHtml}<script>document.fonts.ready.then(()=>window.print());<\/script></body></html>`);
   w.document.close();
-  w.print();
 }
 
 function AGMReportModal({ meetings, importedDocs, onClose, initialFY }: { meetings: SocietyMeeting[]; importedDocs: ImportedMeetingDoc[]; onClose: () => void; initialFY?: number }) {
@@ -4667,82 +4666,69 @@ function GenerateAGMModal({ meetings, importedDocs, onClose }: {
       }
     }
 
-    // Build Sarvam AI (OpenAI-compatible) messages for Marathi AGM minutes
-    const buildSarvamMessages = (): Array<{ role: string; content: string }> => {
+    // Build Gemini request for Marathi AGM minutes
+    const buildGeminiPrompt = (): string => {
       const system = [
-        `You are a formal document writer for Indian housing cooperative societies (गृहनिर्माण सहकारी संस्था).`,
-        `Generate the complete AGM minutes (वार्षिक सर्वसाधारण सभेचे इतिवृत्त) in MARATHI (Devanagari script).`,
-        `Use formal Marathi throughout. Terms like "AGM", "FY", "resolution", "quorum" may stay in English where standard.`,
-        `Structure the document with clear numbered Marathi headings (१., २., etc.) and sub-headings.`,
-        `Output only the formatted minutes document — no preamble, no explanation, no markdown code fences.`,
-      ].join("\n");
+        `तुम्ही भारतीय गृहनिर्माण सहकारी संस्थेसाठी औपचारिक दस्तावेज लेखक आहात.`,
+        `खालील डेटाच्या आधारे ${fyLbl} चे संपूर्ण वार्षिक सर्वसाधारण सभेचे इतिवृत्त (AGM Minutes) मराठीत (देवनागरी लिपीत) तयार करा.`,
+        `औपचारिक मराठी भाषा वापरा. "AGM", "FY", "resolution", "quorum" हे शब्द इंग्रजीत ठेवा.`,
+        `मराठी क्रमांकित शीर्षके वापरा (१., २., इ.) आणि उपशीर्षके.`,
+        `फक्त इतिवृत्त दस्तावेज आउटपुट करा — कोणतीही प्रस्तावना, स्पष्टीकरण किंवा markdown code fences नको.`,
+      ].join(" ");
 
-      let user = `वित्तीय वर्ष: ${fyLbl}\n\n`;
+      let prompt = system + "\n\n";
+      prompt += `वित्तीय वर्ष: ${fyLbl}\n\n`;
 
       if (prevDocRawText) {
-        user += `मागील वर्षाचा AGM संदर्भ दस्तावेज (${prevFyLbl}) — याच स्वरूपाचे अनुसरण करा:\n\n${prevDocRawText.slice(0, 5000)}\n\n--- संदर्भ दस्तावेज समाप्त ---\n\n`;
+        prompt += `मागील वर्षाचा AGM संदर्भ दस्तावेज (${prevFyLbl}) — याच स्वरूपाचे अनुसरण करा:\n\n${prevDocRawText.slice(0, 4000)}\n\n--- संदर्भ दस्तावेज समाप्त ---\n\n`;
       } else if (usePrevManual && prevAGM) {
-        user += `मागील वर्षाचा AGM संदर्भ (${prevFyLbl}):\n`;
-        user += `दिनांक: ${prevAGM.date}\n`;
-        if (prevAGM.venue) user += `स्थळ: ${prevAGM.venue}\n`;
-        if (prevAGM.attendees != null) user += `उपस्थिती: ${prevAGM.attendees}${prevAGM.totalMembers ? ` / ${prevAGM.totalMembers}` : ""} सदस्य\n`;
-        if (prevAGM.agenda) user += `कार्यसूची:\n${prevAGM.agenda}\n`;
-        if (prevAGM.resolutions) user += `ठराव:\n${prevAGM.resolutions}\n`;
-        user += `\n`;
+        prompt += `मागील वर्षाचा AGM संदर्भ (${prevFyLbl}):\n`;
+        prompt += `दिनांक: ${prevAGM.date}\n`;
+        if (prevAGM.venue) prompt += `स्थळ: ${prevAGM.venue}\n`;
+        if (prevAGM.attendees != null) prompt += `उपस्थिती: ${prevAGM.attendees}${prevAGM.totalMembers ? ` / ${prevAGM.totalMembers}` : ""} सदस्य\n`;
+        if (prevAGM.agenda) prompt += `कार्यसूची:\n${prevAGM.agenda}\n`;
+        if (prevAGM.resolutions) prompt += `ठराव:\n${prevAGM.resolutions}\n`;
+        prompt += `\n`;
       }
 
-      user += `${fyLbl} च्या नवीन अहवालात समाविष्ट करायच्या सभा:\n`;
+      prompt += `${fyLbl} च्या अहवालात समाविष्ट सभा:\n`;
       for (const m of selManual) {
-        user += `\n[${MTG_LABEL[m.type]} — ${m.date}]\n`;
-        user += `शीर्षक: ${m.title}\n`;
-        if (m.venue) user += `स्थळ: ${m.venue}\n`;
-        if (m.attendees != null) user += `उपस्थिती: ${m.attendees}${m.totalMembers ? ` पैकी ${m.totalMembers}` : ""} सदस्य\n`;
-        if (m.agenda) user += `कार्यसूची:\n${m.agenda}\n`;
-        if (m.resolutions) user += `ठराव:\n${m.resolutions}\n`;
-        if (m.notes) user += `टीप: ${m.notes}\n`;
+        prompt += `\n[${MTG_LABEL[m.type]} — ${m.date}]\n`;
+        prompt += `शीर्षक: ${m.title}\n`;
+        if (m.venue) prompt += `स्थळ: ${m.venue}\n`;
+        if (m.attendees != null) prompt += `उपस्थिती: ${m.attendees}${m.totalMembers ? ` पैकी ${m.totalMembers}` : ""} सदस्य\n`;
+        if (m.agenda) prompt += `कार्यसूची:\n${m.agenda}\n`;
+        if (m.resolutions) prompt += `ठराव:\n${m.resolutions}\n`;
+        if (m.notes) prompt += `टीप: ${m.notes}\n`;
       }
       for (const d of selDocs) {
-        user += `\n[आयात दस्तावेज — ${d.date}]\n`;
-        user += `शीर्षक: ${d.title}\n`;
-        if (d.meetingType) user += `सभेचा प्रकार: ${MTG_LABEL[d.meetingType]}\n`;
+        prompt += `\n[आयात दस्तावेज — ${d.date}]\n`;
+        prompt += `शीर्षक: ${d.title}\n`;
+        if (d.meetingType) prompt += `सभेचा प्रकार: ${MTG_LABEL[d.meetingType]}\n`;
       }
 
-      user += `\nसूचना:\n`;
-      user += `१. ${fyLbl} साठी संपूर्ण, औपचारिक AGM इतिवृत्त मराठीत तयार करा\n`;
-      user += `२. औपचारिक भाषा वापरा: "ठराव मंजूर की...", "अध्यक्षांनी सभेस आरंभ केला..."\n`;
-      user += `३. सर्व कार्यसूची मुद्दे व ठराव क्रमांकित करा\n`;
-      user += `४. वरील डेटातील उपस्थिती आकडेवारी समाविष्ट करा\n`;
-      user += `५. सर्व सभांचे कार्यसूची मुद्दे व ठराव एकत्रित करा\n`;
-      user += `६. शेवटी अध्यक्ष आणि सचिव/व्यवस्थापकाचे स्वाक्षरी खंड समाविष्ट करा\n`;
-      user += `७. वरील डेटामध्ये दिलेली नावे, फ्लॅट क्रमांक किंवा आकडे नसतील तर शोध लावू नका\n`;
+      prompt += `\nसूचना: संपूर्ण औपचारिक AGM इतिवृत्त मराठीत तयार करा. "ठराव मंजूर की...", "अध्यक्षांनी सभेस आरंभ केला..." अशी औपचारिक भाषा वापरा. सर्व कार्यसूची मुद्दे व ठराव क्रमांकित करा. शेवटी अध्यक्ष आणि सचिव/व्यवस्थापकाचे स्वाक्षरी खंड समाविष्ट करा. डेटात नसलेली नावे, फ्लॅट क्रमांक किंवा आकडे शोधू नका.`;
 
-      return [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ];
+      return prompt;
     };
 
     try {
-      const res = await fetch("/api/sarvam", {
+      const res = await fetch("/api/gemini", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "sarvam-105b-conversations",
-          messages: buildSarvamMessages(),
-          temperature: 0.3,
-          max_tokens: 4096,
+          model: "gemini-2.0-flash",
+          contents: [{ role: "user", parts: [{ text: buildGeminiPrompt() }] }],
+          generationConfig: { temperature: 0.3, maxOutputTokens: 4096 },
         }),
       });
       if (!res.ok) {
         const errBody = await res.json().catch(() => ({}));
-        const errDetail = typeof errBody?.error === "object"
-          ? JSON.stringify(errBody.error)
-          : (errBody?.error ?? JSON.stringify(errBody));
-        throw new Error(`Sarvam returned ${res.status}: ${errDetail}`);
+        throw new Error(`Gemini returned ${res.status}: ${JSON.stringify(errBody).slice(0, 200)}`);
       }
       const data = await res.json();
-      const text = (data?.choices?.[0]?.message?.content ?? "").trim();
-      if (!text) throw new Error("Empty response from Sarvam");
+      const text = (data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "").trim();
+      if (!text) throw new Error("Empty response from Gemini");
       setReportText(text);
       setStep("report");
     } catch (e) {
