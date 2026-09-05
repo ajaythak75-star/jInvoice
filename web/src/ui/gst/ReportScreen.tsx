@@ -4099,6 +4099,70 @@ function AddMeetingModal({ onClose, onSave }: { onClose: () => void; onSave: (m:
   );
 }
 
+function agmMarkdownToHtml(md: string): string {
+  function fmt(s: string): string {
+    return s.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/\*(.+?)\*/g, "<em>$1</em>");
+  }
+  const lines = md.split("\n");
+  const out: string[] = [];
+  let inList = false;
+  for (const raw of lines) {
+    const esc = raw.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    if (/^####\s/.test(raw)) {
+      if (inList) { out.push("</ul>"); inList = false; }
+      out.push(`<h4>${fmt(esc.replace(/^####\s/, ""))}</h4>`);
+    } else if (/^###\s/.test(raw)) {
+      if (inList) { out.push("</ul>"); inList = false; }
+      out.push(`<h3>${fmt(esc.replace(/^###\s/, ""))}</h3>`);
+    } else if (/^##\s/.test(raw)) {
+      if (inList) { out.push("</ul>"); inList = false; }
+      out.push(`<h2>${fmt(esc.replace(/^##\s/, ""))}</h2>`);
+    } else if (/^#\s/.test(raw)) {
+      if (inList) { out.push("</ul>"); inList = false; }
+      out.push(`<h1>${fmt(esc.replace(/^#\s/, ""))}</h1>`);
+    } else if (/^---+$/.test(raw.trim())) {
+      if (inList) { out.push("</ul>"); inList = false; }
+      out.push("<hr>");
+    } else if (/^[*-] /.test(raw)) {
+      if (!inList) { out.push("<ul>"); inList = true; }
+      out.push(`<li>${fmt(esc.replace(/^[*-] /, ""))}</li>`);
+    } else if (raw.trim() === "") {
+      if (inList) { out.push("</ul>"); inList = false; }
+      out.push("<div class='spacer'></div>");
+    } else {
+      if (inList) { out.push("</ul>"); inList = false; }
+      out.push(`<p>${fmt(esc)}</p>`);
+    }
+  }
+  if (inList) out.push("</ul>");
+  return out.join("\n");
+}
+
+const AGM_PRINT_CSS = `
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Devanagari:wght@400;600;700&display=swap');
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Noto Sans Devanagari', 'Mangal', Arial, sans-serif; font-size: 13pt; line-height: 1.8; color: #111; background: #fff; padding: 40px 60px; max-width: 800px; margin: 0 auto; }
+  h1 { font-size: 18pt; font-weight: 700; text-align: center; margin: 16px 0 6px; }
+  h2 { font-size: 15pt; font-weight: 700; margin: 20px 0 8px; }
+  h3 { font-size: 13.5pt; font-weight: 700; margin: 18px 0 6px; }
+  h4 { font-size: 12.5pt; font-weight: 600; margin: 14px 0 4px; }
+  p  { margin: 6px 0; }
+  ul { margin: 6px 0 6px 24px; }
+  li { margin: 4px 0; }
+  hr { border: none; border-top: 1.5px solid #888; margin: 16px 0; }
+  .spacer { height: 8px; }
+  strong { font-weight: 700; }
+  @media print { body { padding: 20px 40px; } }
+`;
+
+function agmPrintWindow(title: string, bodyHtml: string) {
+  const w = window.open("", "_blank");
+  if (!w) return;
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${title}</title><style>${AGM_PRINT_CSS}</style></head><body>${bodyHtml}</body></html>`);
+  w.document.close();
+  w.print();
+}
+
 function AGMReportModal({ meetings, importedDocs, onClose, initialFY }: { meetings: SocietyMeeting[]; importedDocs: ImportedMeetingDoc[]; onClose: () => void; initialFY?: number }) {
   const curFY = currentFY();
   const allFYs = useMemo(() => {
@@ -4238,12 +4302,7 @@ function AGMReportModal({ meetings, importedDocs, onClose, initialFY }: { meetin
   const handleCopy = () => { navigator.clipboard.writeText(reportText).catch(() => {}); };
 
   const handlePrint = () => {
-    const w = window.open("", "_blank");
-    if (!w) return;
-    const escaped = reportText.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    w.document.write(`<html><head><title>AGM Report ${fyLabel(selectedFY)}</title><style>body{font-family:monospace;padding:40px;white-space:pre-wrap;font-size:13px;line-height:1.7;max-width:700px;}</style></head><body>${escaped}</body></html>`);
-    w.document.close();
-    w.print();
+    agmPrintWindow(`AGM Report ${fyLabel(selectedFY)}`, agmMarkdownToHtml(reportText));
   };
 
   return (
@@ -4275,7 +4334,7 @@ function AGMReportModal({ meetings, importedDocs, onClose, initialFY }: { meetin
         </div>
 
         <div style={{ flex: 1, overflowY: "auto", padding: "16px 24px" }}>
-          <pre style={{ fontFamily: "monospace", fontSize: 12, lineHeight: 1.7, whiteSpace: "pre-wrap", color: "var(--color-text)", margin: 0, background: "var(--color-surface-2)", padding: 16, borderRadius: 8, border: "1px solid var(--color-border)" }}>
+          <pre style={{ fontFamily: "'Noto Sans Devanagari', 'Mangal', sans-serif", fontSize: 12, lineHeight: 1.8, whiteSpace: "pre-wrap", color: "var(--color-text)", margin: 0, background: "var(--color-surface-2)", padding: 16, borderRadius: 8, border: "1px solid var(--color-border)" }}>
             {reportText}
           </pre>
         </div>
@@ -4597,94 +4656,90 @@ function GenerateAGMModal({ meetings, importedDocs, onClose }: {
     setLoading(true);
     setGenError(null);
 
-    // Try to fetch the prev AGM document's raw text or PDF bytes for format reference
+    // Fetch prev AGM document raw text for format reference (Sarvam is text-only)
     let prevDocRawText: string | null = null;
-    let prevDocPdfB64: string | null  = null;
 
     if (usePrevDoc && prevAGMDoc) {
       const numId = Number(prevAGMDoc.id);
       if (!isNaN(numId)) {
         const rawRec = await db.rawTexts.where("invoiceId").equals(numId).first().catch(() => null);
         prevDocRawText = rawRec?.rawText ?? null;
-        if (!prevDocRawText) {
-          const pdfRec = await db.pdfFiles.where("invoiceId").equals(numId).first().catch(() => null);
-          if (pdfRec?.bytes) {
-            const binary = Array.from(pdfRec.bytes).map(b => String.fromCharCode(b)).join("");
-            prevDocPdfB64 = btoa(binary);
-          }
-        }
       }
     }
 
-    // Build the Gemini prompt
-    const buildPromptParts = (): object[] => {
-      const parts: object[] = [];
+    // Build Sarvam AI (OpenAI-compatible) messages for Marathi AGM minutes
+    const buildSarvamMessages = (): Array<{ role: string; content: string }> => {
+      const system = [
+        `You are a formal document writer for Indian housing cooperative societies (गृहनिर्माण सहकारी संस्था).`,
+        `Generate the complete AGM minutes (वार्षिक सर्वसाधारण सभेचे इतिवृत्त) in MARATHI (Devanagari script).`,
+        `Use formal Marathi throughout. Terms like "AGM", "FY", "resolution", "quorum" may stay in English where standard.`,
+        `Structure the document with clear numbered Marathi headings (१., २., etc.) and sub-headings.`,
+        `Output only the formatted minutes document — no preamble, no explanation, no markdown code fences.`,
+      ].join("\n");
 
-      // Reference: last year's AGM
+      let user = `वित्तीय वर्ष: ${fyLbl}\n\n`;
+
       if (prevDocRawText) {
-        parts.push({ text: `You are generating formal AGM minutes for an Indian housing cooperative society.\n\nFINANCIAL YEAR: ${fyLbl}\n\nLAST YEAR'S AGM DOCUMENT (${prevFyLbl}) — USE THIS AS FORMAT REFERENCE:\n\n${prevDocRawText.slice(0, 5000)}\n\n--- END OF LAST YEAR'S AGM ---\n\nIMPORTANT: Generate the new AGM minutes following the EXACT same format, section headings, and structure as the reference document above. Keep the same formal language style.\n` });
-      } else if (prevDocPdfB64) {
-        parts.push({ text: `You are generating formal AGM minutes for an Indian housing cooperative society.\n\nFINANCIAL YEAR: ${fyLbl}\n\nThe attached PDF is LAST YEAR'S AGM DOCUMENT (${prevFyLbl}). Use it as the FORMAT REFERENCE — follow its exact structure, headings, and formal language for the new report.\n` });
-        parts.push({ inlineData: { mimeType: "application/pdf", data: prevDocPdfB64 } });
-        parts.push({ text: `--- END OF REFERENCE PDF ---\n` });
+        user += `मागील वर्षाचा AGM संदर्भ दस्तावेज (${prevFyLbl}) — याच स्वरूपाचे अनुसरण करा:\n\n${prevDocRawText.slice(0, 5000)}\n\n--- संदर्भ दस्तावेज समाप्त ---\n\n`;
       } else if (usePrevManual && prevAGM) {
-        let ref = `You are generating formal AGM minutes for an Indian housing cooperative society.\n\nFINANCIAL YEAR: ${fyLbl}\n\nPREVIOUS YEAR AGM REFERENCE (${prevFyLbl}):\n`;
-        ref += `Date: ${prevAGM.date}\n`;
-        if (prevAGM.venue) ref += `Venue: ${prevAGM.venue}\n`;
-        if (prevAGM.attendees != null) ref += `Attendance: ${prevAGM.attendees}${prevAGM.totalMembers ? ` / ${prevAGM.totalMembers}` : ""} members\n`;
-        if (prevAGM.agenda) ref += `Agenda items:\n${prevAGM.agenda}\n`;
-        if (prevAGM.resolutions) ref += `Resolutions passed:\n${prevAGM.resolutions}\n`;
-        ref += `\nFollow the format of standard Indian housing cooperative society AGM minutes.\n`;
-        parts.push({ text: ref });
-      } else {
-        parts.push({ text: `You are generating formal AGM minutes for an Indian housing cooperative society.\n\nFINANCIAL YEAR: ${fyLbl}\n\nFollow the format of standard Indian housing cooperative society AGM minutes.\n` });
+        user += `मागील वर्षाचा AGM संदर्भ (${prevFyLbl}):\n`;
+        user += `दिनांक: ${prevAGM.date}\n`;
+        if (prevAGM.venue) user += `स्थळ: ${prevAGM.venue}\n`;
+        if (prevAGM.attendees != null) user += `उपस्थिती: ${prevAGM.attendees}${prevAGM.totalMembers ? ` / ${prevAGM.totalMembers}` : ""} सदस्य\n`;
+        if (prevAGM.agenda) user += `कार्यसूची:\n${prevAGM.agenda}\n`;
+        if (prevAGM.resolutions) user += `ठराव:\n${prevAGM.resolutions}\n`;
+        user += `\n`;
       }
 
-      // Current year meeting data
-      let meetingData = `\nMEETINGS AND POINTS TO INCLUDE IN THE NEW ${fyLbl} REPORT:\n`;
+      user += `${fyLbl} च्या नवीन अहवालात समाविष्ट करायच्या सभा:\n`;
       for (const m of selManual) {
-        meetingData += `\n[${MTG_LABEL[m.type]} — ${m.date}]\n`;
-        meetingData += `Title: ${m.title}\n`;
-        if (m.venue) meetingData += `Venue: ${m.venue}\n`;
-        if (m.attendees != null) meetingData += `Attendance: ${m.attendees}${m.totalMembers ? ` out of ${m.totalMembers}` : ""} members\n`;
-        if (m.agenda) meetingData += `Agenda:\n${m.agenda}\n`;
-        if (m.resolutions) meetingData += `Resolutions:\n${m.resolutions}\n`;
-        if (m.notes) meetingData += `Notes: ${m.notes}\n`;
+        user += `\n[${MTG_LABEL[m.type]} — ${m.date}]\n`;
+        user += `शीर्षक: ${m.title}\n`;
+        if (m.venue) user += `स्थळ: ${m.venue}\n`;
+        if (m.attendees != null) user += `उपस्थिती: ${m.attendees}${m.totalMembers ? ` पैकी ${m.totalMembers}` : ""} सदस्य\n`;
+        if (m.agenda) user += `कार्यसूची:\n${m.agenda}\n`;
+        if (m.resolutions) user += `ठराव:\n${m.resolutions}\n`;
+        if (m.notes) user += `टीप: ${m.notes}\n`;
       }
       for (const d of selDocs) {
-        meetingData += `\n[Imported Document — ${d.date}]\n`;
-        meetingData += `Title: ${d.title}\n`;
-        if (d.meetingType) meetingData += `Meeting type: ${MTG_LABEL[d.meetingType]}\n`;
+        user += `\n[आयात दस्तावेज — ${d.date}]\n`;
+        user += `शीर्षक: ${d.title}\n`;
+        if (d.meetingType) user += `सभेचा प्रकार: ${MTG_LABEL[d.meetingType]}\n`;
       }
 
-      meetingData += `\nINSTRUCTIONS:\n`;
-      meetingData += `1. Generate complete, formal AGM minutes for ${fyLbl}\n`;
-      meetingData += `2. Use formal language throughout: "Resolved that...", "The Chairman called the meeting to order..."\n`;
-      meetingData += `3. Number all agenda items and resolutions\n`;
-      meetingData += `4. Include attendance statistics from the data above\n`;
-      meetingData += `5. Consolidate agenda points and resolutions from all meetings listed\n`;
-      meetingData += `6. Include signature blocks for Chairman and Secretary/Manager at the end\n`;
-      meetingData += `7. Do NOT invent names, flat numbers, or figures not provided in the data above\n`;
-      meetingData += `8. Output only the formatted minutes document — no preamble or explanation\n`;
+      user += `\nसूचना:\n`;
+      user += `१. ${fyLbl} साठी संपूर्ण, औपचारिक AGM इतिवृत्त मराठीत तयार करा\n`;
+      user += `२. औपचारिक भाषा वापरा: "ठराव मंजूर की...", "अध्यक्षांनी सभेस आरंभ केला..."\n`;
+      user += `३. सर्व कार्यसूची मुद्दे व ठराव क्रमांकित करा\n`;
+      user += `४. वरील डेटातील उपस्थिती आकडेवारी समाविष्ट करा\n`;
+      user += `५. सर्व सभांचे कार्यसूची मुद्दे व ठराव एकत्रित करा\n`;
+      user += `६. शेवटी अध्यक्ष आणि सचिव/व्यवस्थापकाचे स्वाक्षरी खंड समाविष्ट करा\n`;
+      user += `७. वरील डेटामध्ये दिलेली नावे, फ्लॅट क्रमांक किंवा आकडे नसतील तर शोध लावू नका\n`;
 
-      parts.push({ text: meetingData });
-      return parts;
+      return [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ];
     };
 
     try {
-      const res = await fetch("/api/gemini", {
+      const res = await fetch("/api/sarvam", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "gemini-3.6-flash",
-          contents: [{ role: "user", parts: buildPromptParts() }],
-          generationConfig: { temperature: 0.3, maxOutputTokens: 4096 },
+          model: "sarvam-m",
+          messages: buildSarvamMessages(),
+          temperature: 0.3,
+          max_tokens: 4096,
         }),
       });
-      if (!res.ok) throw new Error(`Gemini returned ${res.status}`);
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(`Sarvam returned ${res.status}: ${errBody?.error ?? ""}`);
+      }
       const data = await res.json();
-      const text = (data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "").trim();
-      if (!text) throw new Error("Empty response from Gemini");
+      const text = (data?.choices?.[0]?.message?.content ?? "").trim();
+      if (!text) throw new Error("Empty response from Sarvam");
       setReportText(text);
       setStep("report");
     } catch (e) {
@@ -4699,12 +4754,7 @@ function GenerateAGMModal({ meetings, importedDocs, onClose }: {
 
   const handleCopy = () => { navigator.clipboard.writeText(reportText).catch(() => {}); };
   const handlePrint = () => {
-    const w = window.open("", "_blank");
-    if (!w) return;
-    const esc = reportText.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    w.document.write(`<html><head><title>AGM Report ${fyLabel(curFY)}</title><style>body{font-family:monospace;padding:40px;white-space:pre-wrap;font-size:13px;line-height:1.7;max-width:700px;}</style></head><body>${esc}</body></html>`);
-    w.document.close();
-    w.print();
+    agmPrintWindow(`AGM Report ${fyLabel(curFY)}`, agmMarkdownToHtml(reportText));
   };
 
   const fyLbl     = fyLabel(curFY);
@@ -4865,7 +4915,7 @@ function GenerateAGMModal({ meetings, importedDocs, onClose }: {
                     ⚠️ {genError}
                   </div>
                 )}
-                <pre style={{ fontFamily: "monospace", fontSize: 12, lineHeight: 1.7, whiteSpace: "pre-wrap", color: "var(--color-text)", margin: 0, background: "var(--color-surface-2)", padding: 16, borderRadius: 8, border: "1px solid var(--color-border)" }}>
+                <pre style={{ fontFamily: "'Noto Sans Devanagari', 'Mangal', sans-serif", fontSize: 12, lineHeight: 1.8, whiteSpace: "pre-wrap", color: "var(--color-text)", margin: 0, background: "var(--color-surface-2)", padding: 16, borderRadius: 8, border: "1px solid var(--color-border)" }}>
                   {reportText}
                 </pre>
               </div>

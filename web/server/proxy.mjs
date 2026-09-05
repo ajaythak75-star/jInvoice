@@ -954,6 +954,24 @@ app.post("/api/gemini", async (req, res) => {
   }
 });
 
+// ── Sarvam AI proxy (Indian-language LLM — avoids CORS + keeps key server-side) ─
+const SARVAM_API_KEY = process.env.SARVAM_API_KEY ?? "";
+
+app.post("/api/sarvam", async (req, res) => {
+  if (!SARVAM_API_KEY) return res.status(503).json({ error: "SARVAM_API_KEY not configured on server" });
+  try {
+    const upstream = await fetch("https://api.sarvam.ai/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${SARVAM_API_KEY}` },
+      body: JSON.stringify(req.body ?? {}),
+    });
+    const data = await upstream.json();
+    res.status(upstream.status).json(data);
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
 app.post("/api/openai", async (req, res) => {
   const userKey = (req.headers["x-openai-key"] ?? "").toString().trim();
   const effectiveKey = userKey || OPENAI_API_KEY;
