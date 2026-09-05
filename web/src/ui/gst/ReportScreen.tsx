@@ -126,7 +126,7 @@ function useInvoices() {
   const load = useCallback(() => {
     db.invoices.toArray().then(rows =>
       setRecords(rows.filter(r =>
-        r.grandTotalPaise != null &&
+        (r.grandTotalPaise != null || r.category === "meeting_record") &&
         r.status !== "extraction_failed" &&
         r.status !== "import_blocked_encrypted"
       ))
