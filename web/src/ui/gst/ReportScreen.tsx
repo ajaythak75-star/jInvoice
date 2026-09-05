@@ -4099,7 +4099,7 @@ function AddMeetingModal({ onClose, onSave }: { onClose: () => void; onSave: (m:
   );
 }
 
-function AGMReportModal({ meetings, importedDocs, onClose }: { meetings: SocietyMeeting[]; importedDocs: ImportedMeetingDoc[]; onClose: () => void }) {
+function AGMReportModal({ meetings, importedDocs, onClose, initialFY }: { meetings: SocietyMeeting[]; importedDocs: ImportedMeetingDoc[]; onClose: () => void; initialFY?: number }) {
   const curFY = currentFY();
   const allFYs = useMemo(() => {
     const fys = new Set<number>();
@@ -4109,7 +4109,7 @@ function AGMReportModal({ meetings, importedDocs, onClose }: { meetings: Society
     return [...fys].sort((a, b) => b - a);
   }, [meetings, importedDocs, curFY]);
 
-  const [selectedFY, setSelectedFY] = useState(curFY);
+  const [selectedFY, setSelectedFY] = useState(initialFY ?? curFY);
 
   const agm = useMemo(
     () => meetings.filter(m => m.type === "agm" && fyContainsMtg(m.date, selectedFY)).sort((a, b) => b.date.localeCompare(a.date))[0] ?? null,
@@ -4210,7 +4210,8 @@ function AGMReportModal({ meetings, importedDocs, onClose }: { meetings: Society
       lines.push(hr2);
       for (const doc of importedInFY) {
         const docDate = new Date(doc.date + "T00:00:00").toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
-        lines.push(`📄  ${doc.title}`);
+        const typeLabel = doc.meetingType ? `[${MTG_LABEL[doc.meetingType]}] ` : "";
+        lines.push(`📄  ${typeLabel}${doc.title}`);
         lines.push(`    Date: ${docDate}`);
         lines.push("");
       }
@@ -4297,6 +4298,7 @@ interface ImportedMeetingDoc {
   date: string;
   fy: number;
   title: string;
+  meetingType?: SocietyMeeting["type"];
   rec: InvoiceMeta;
 }
 
@@ -4305,25 +4307,56 @@ function importedDocFromRecord(r: InvoiceMeta): ImportedMeetingDoc {
   const title = r.merchantName
     || (r.sourceFilename ? r.sourceFilename.replace(/\.[^.]+$/, "") : null)
     || "Meeting Document";
-  return { id: String(r.id), date, fy: mtgFY(date), title, rec: r };
+  const meetingType = (r.docMetadata?.meetingType as SocietyMeeting["type"] | undefined) ?? undefined;
+  return { id: String(r.id), date, fy: mtgFY(date), title, meetingType, rec: r };
 }
 
-function ImportedDocCard({ doc }: { doc: ImportedMeetingDoc }) {
+function ImportedDocCard({ doc, onMeetingTypeChange }: { doc: ImportedMeetingDoc; onMeetingTypeChange?: (type: SocietyMeeting["type"] | undefined) => void }) {
   const d = new Date(doc.date + "T00:00:00");
   const dateStr = d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+  const MTG_TYPES: SocietyMeeting["type"][] = ["agm", "sgm", "committee", "general"];
+  const typeBg  = doc.meetingType === "agm" ? "#7c3aed22" : doc.meetingType === "sgm" ? "#dc262622" : "var(--color-surface-2)";
+  const typeCol = doc.meetingType === "agm" ? "#7c3aed"   : doc.meetingType === "sgm" ? "#dc2626"   : "var(--color-text-tertiary)";
   return (
-    <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10, padding: "12px 16px", display: "flex", alignItems: "center", gap: 10 }}>
-      <span style={{ fontSize: 20, flexShrink: 0 }}>📄</span>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--color-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{doc.title}</div>
-        <div style={{ fontSize: 11.5, color: "var(--color-text-secondary)", marginTop: 2, display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <span>📅 {dateStr}</span>
-          <span style={{ color: "#0369a1", fontWeight: 600 }}>{fyLabel(doc.fy)}</span>
+    <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10, padding: "12px 16px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <span style={{ fontSize: 20, flexShrink: 0 }}>📄</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--color-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{doc.title}</div>
+          <div style={{ fontSize: 11.5, color: "var(--color-text-secondary)", marginTop: 2, display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <span>📅 {dateStr}</span>
+            <span style={{ color: "#0369a1", fontWeight: 600 }}>{fyLabel(doc.fy)}</span>
+          </div>
         </div>
+        {doc.meetingType ? (
+          <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 4, background: typeBg, color: typeCol, flexShrink: 0, whiteSpace: "nowrap" as const }}>
+            {MTG_ICON[doc.meetingType]} {MTG_LABEL[doc.meetingType]}
+          </span>
+        ) : (
+          <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 4, background: "#e0f2fe", color: "#0369a1", flexShrink: 0, whiteSpace: "nowrap" as const }}>
+            Document
+          </span>
+        )}
       </div>
-      <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 4, background: "#e0f2fe", color: "#0369a1", flexShrink: 0, whiteSpace: "nowrap" as const }}>
-        Document
-      </span>
+      {onMeetingTypeChange && (
+        <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 10.5, color: "var(--color-text-tertiary)", fontWeight: 600 }}>Tag as:</span>
+          {MTG_TYPES.map(t => (
+            <button
+              key={t}
+              onClick={() => onMeetingTypeChange(doc.meetingType === t ? undefined : t)}
+              style={{
+                fontSize: 10.5, padding: "2px 8px", borderRadius: 4, cursor: "pointer", whiteSpace: "nowrap" as const, fontWeight: 600,
+                border: doc.meetingType === t ? "none" : "1px solid var(--color-border)",
+                background: doc.meetingType === t ? (t === "agm" ? "#7c3aed22" : t === "sgm" ? "#dc262622" : "var(--color-surface-2)") : "transparent",
+                color: doc.meetingType === t ? (t === "agm" ? "#7c3aed" : t === "sgm" ? "#dc2626" : "var(--color-text-secondary)") : "var(--color-text-tertiary)",
+              }}
+            >
+              {MTG_ICON[t]} {MTG_LABEL[t]}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -4403,16 +4436,37 @@ function SocietyMeetingsTab({ records }: { records: InvoiceMeta[] }) {
   const [filterType, setFilterType] = useState<SocietyMeeting["type"] | "all" | "documents">("all");
   const [showAdd, setShowAdd]       = useState(false);
   const [showReport, setShowReport] = useState(false);
+  const [reportInitialFY, setReportInitialFY] = useState<number | undefined>(undefined);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [importedDocTypes, setImportedDocTypes] = useState<Record<string, SocietyMeeting["type"] | undefined>>({});
 
   // Imported meeting_record documents from IndexedDB
   const importedDocs = useMemo<ImportedMeetingDoc[]>(() =>
     records
       .filter(r => r.category === "meeting_record" && r.status !== "extraction_failed" && r.status !== "import_blocked_encrypted")
-      .map(importedDocFromRecord)
+      .map(r => {
+        const base = importedDocFromRecord(r);
+        // Local state override takes priority over stored docMetadata
+        const override = importedDocTypes[base.id];
+        return override !== undefined ? { ...base, meetingType: override === undefined ? undefined : override } : base;
+      })
       .sort((a, b) => b.date.localeCompare(a.date)),
-    [records]
+    [records, importedDocTypes]
   );
+
+  const handleImportedDocTypeChange = async (docId: string, newType: SocietyMeeting["type"] | undefined) => {
+    setImportedDocTypes(prev => ({ ...prev, [docId]: newType }));
+    const numId = Number(docId);
+    if (!isNaN(numId)) {
+      const existing = records.find(r => r.id === numId);
+      const existingMeta = existing?.docMetadata ?? {};
+      const updatedMeta = newType != null
+        ? { ...existingMeta, meetingType: newType }
+        : Object.fromEntries(Object.entries(existingMeta).filter(([k]) => k !== "meetingType"));
+      await db.invoices.update(numId, { docMetadata: updatedMeta });
+      window.dispatchEvent(new Event("jinvoice:sync-complete"));
+    }
+  };
 
   // Unified display entries: manual meetings + imported docs filtered by type chip
   const { filteredMeetings, filteredDocs } = useMemo(() => {
@@ -4423,7 +4477,8 @@ function SocietyMeetingsTab({ records }: { records: InvoiceMeta[] }) {
     };
     return {
       filteredMeetings: meetings.filter(m => m.type === filterType).sort((a, b) => b.date.localeCompare(a.date)),
-      filteredDocs: [],
+      // Also show imported docs tagged with the selected type
+      filteredDocs: importedDocs.filter(d => d.meetingType === filterType),
     };
   }, [meetings, importedDocs, filterType]);
 
@@ -4486,9 +4541,16 @@ function SocietyMeetingsTab({ records }: { records: InvoiceMeta[] }) {
           <h2 style={{ fontSize: 18, fontWeight: 700, color: "var(--color-text)", margin: 0 }}>Meetings</h2>
           <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 3 }}>AGM, Special GM, Committee meetings + imported meeting documents — grouped by Financial Year and month</p>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={() => setShowReport(true)} style={{ fontSize: 13, padding: "7px 14px", borderRadius: 8, border: "1.5px solid var(--color-border)", background: "transparent", color: "var(--color-text-secondary)", cursor: "pointer" }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button onClick={() => { setReportInitialFY(undefined); setShowReport(true); }} style={{ fontSize: 13, padding: "7px 14px", borderRadius: 8, border: "1.5px solid var(--color-border)", background: "transparent", color: "var(--color-text-secondary)", cursor: "pointer" }}>
             📄 AGM Report
+          </button>
+          <button
+            onClick={() => { setReportInitialFY(currentFY()); setShowReport(true); }}
+            style={{ fontSize: 13, padding: "7px 14px", borderRadius: 8, border: "none", background: "#7c3aed", color: "#fff", cursor: "pointer", fontWeight: 600 }}
+            title={`Generate AGM report for current FY (${fyLabel(currentFY())})`}
+          >
+            🏛️ Generate AGM Report
           </button>
           <button onClick={() => setShowAdd(true)} style={{ fontSize: 13, padding: "7px 14px", borderRadius: 8, border: "none", background: "var(--color-primary)", color: "#fff", cursor: "pointer", fontWeight: 600 }}>
             + Add Meeting
@@ -4548,7 +4610,7 @@ function SocietyMeetingsTab({ records }: { records: InvoiceMeta[] }) {
                         {list.map((entry) =>
                           entry.kind === "manual"
                             ? <MeetingCard key={entry.m.id} m={entry.m} expandedId={expandedId} setExpandedId={setExpandedId} onDelete={handleDelete} />
-                            : <ImportedDocCard key={entry.d.id} doc={entry.d} />
+                            : <ImportedDocCard key={entry.d.id} doc={entry.d} onMeetingTypeChange={(t) => handleImportedDocTypeChange(entry.d.id, t)} />
                         )}
                       </div>
                     </div>
@@ -4561,7 +4623,7 @@ function SocietyMeetingsTab({ records }: { records: InvoiceMeta[] }) {
       )}
 
       {showAdd    && <AddMeetingModal onClose={() => setShowAdd(false)} onSave={handleSave} />}
-      {showReport && <AGMReportModal  meetings={meetings} importedDocs={importedDocs} onClose={() => setShowReport(false)} />}
+      {showReport && <AGMReportModal  meetings={meetings} importedDocs={importedDocs} onClose={() => setShowReport(false)} initialFY={reportInitialFY} />}
     </div>
   );
 }
