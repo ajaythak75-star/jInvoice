@@ -168,6 +168,23 @@ function UsersTab({ callerRole }: { callerRole: AdminRole }) {
     } finally { setActionLoading(null); }
   };
 
+  const handleDeleteUser = async (email: string) => {
+    const confirmed = window.prompt(
+      `PERMANENTLY DELETE "${email}"?\n\nThis erases all plan history, access, and their Supabase account. It cannot be undone.\n\nType DELETE to confirm:`,
+    );
+    if (confirmed?.trim() !== "DELETE") return;
+    setActionLoading(`${email}:delete`);
+    try {
+      const r = await fetch(`/api/admin/users/${encodeURIComponent(email)}`, {
+        method: "DELETE", headers: authHeaders(),
+      });
+      if (!r.ok) { const d = await r.json(); alert(d.error ?? "Delete failed."); return; }
+      await loadUsers();
+      if (selectedEmail === email) setSelectedEmail(null);
+    } catch { alert("Network error. Try again."); }
+    finally { setActionLoading(null); }
+  };
+
   const handleToggleAdminRole = async (email: string, grant: boolean) => {
     setActionLoading(`${email}:adminrole`);
     try {
@@ -278,6 +295,7 @@ function UsersTab({ callerRole }: { callerRole: AdminRole }) {
                             {u.plan !== "pro_paid"  && <ActionBtn label={actionLoading === `${u.email}:pro_paid`  ? "…" : "Pro"}   color="#4f46e5" onClick={() => handleSetPlan(u.email, "pro_paid")} />}
                             {u.plan !== "free"      && <ActionBtn label={actionLoading === `${u.email}:free`      ? "…" : "Free"}  color="#6b7280" onClick={() => handleSetPlan(u.email, "free")} />}
                             <ActionBtn label={actionLoading === `${u.email}:revoke` ? "…" : "Revoke"} color="#ef4444" onClick={() => handleRevoke(u.email)} />
+                            <ActionBtn label={actionLoading === `${u.email}:delete` ? "…" : "Delete"} color="#7f1d1d" onClick={() => handleDeleteUser(u.email)} />
                           </div>
                         </td>
                       )}

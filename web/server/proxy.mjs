@@ -1443,6 +1443,44 @@ app.patch("/api/admin/users/:email/role", async (req, res) => {
   res.json({ ok: true, email, admin_role: grant ? "admin" : null });
 });
 
+// DELETE /api/admin/users/:email — permanently delete user and all their data (super admin only)
+app.delete("/api/admin/users/:email", async (req, res) => {
+  if (!_requireSuperAdmin(req, res)) return;
+  const email = decodeURIComponent(req.params.email).toLowerCase();
+  if (email === SUPER_ADMIN_EMAIL) return res.status(400).json({ error: "Cannot delete the super admin account." });
+  if (ADMIN_EMAIL && email === ADMIN_EMAIL.toLowerCase()) return res.status(400).json({ error: "Cannot delete an environment-pinned admin account." });
+
+  // Delete from all application tables
+  await Promise.allSettled([
+    _sbService(`/user_plan_events?email=eq.${encodeURIComponent(email)}`, { method: "DELETE" }),
+    _sbService(`/user_plans?email=eq.${encodeURIComponent(email)}`, { method: "DELETE" }),
+    _sbService(`/allowed_users?email=eq.${encodeURIComponent(email)}`, { method: "DELETE" }),
+  ]);
+
+  // Best-effort: find and delete Supabase Auth user by email
+  if (SUPABASE_URL && SUPABASE_SERVICE_KEY) {
+    try {
+      const listRes = await fetch(
+        `${SUPABASE_URL}/auth/v1/admin/users?filter=email:eq:${encodeURIComponent(email)}&per_page=1`,
+        { headers: { apikey: SUPABASE_SERVICE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_KEY}` } },
+      );
+      if (listRes.ok) {
+        const listData = await listRes.json();
+        const users = Array.isArray(listData?.users) ? listData.users : (Array.isArray(listData) ? listData : []);
+        const found = users.find((u) => u.email?.toLowerCase() === email);
+        if (found?.id) {
+          await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${found.id}`, {
+            method: "DELETE",
+            headers: { apikey: SUPABASE_SERVICE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_KEY}` },
+          });
+        }
+      }
+    } catch {}
+  }
+
+  res.json({ ok: true });
+});
+
 // ── App config (pricing, upload limits, profiles) ─────────────────────────────
 
 const CONFIG_DEFAULTS = {
