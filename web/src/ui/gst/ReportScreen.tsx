@@ -4742,7 +4742,7 @@ function GenerateAGMModal({ meetings, importedDocs, onClose }: {
       }
       const data = await res.json();
       const text = (data?.choices?.[0]?.message?.content ?? "").trim();
-      if (!text) throw new Error("Empty response from Sarvam");
+      if (!text) throw new Error(`Empty response from Sarvam — keys: ${Object.keys(data ?? {}).join(", ")}`);
       setReportText(text);
       setStep("report");
     } catch (e) {
