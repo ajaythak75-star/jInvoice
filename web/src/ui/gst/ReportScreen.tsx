@@ -4311,7 +4311,7 @@ function importedDocFromRecord(r: InvoiceMeta): ImportedMeetingDoc {
   return { id: String(r.id), date, fy: mtgFY(date), title, meetingType, rec: r };
 }
 
-function ImportedDocCard({ doc, onMeetingTypeChange }: { doc: ImportedMeetingDoc; onMeetingTypeChange?: (type: SocietyMeeting["type"] | undefined) => void }) {
+function ImportedDocCard({ doc, onMeetingTypeChange, onDelete }: { doc: ImportedMeetingDoc; onMeetingTypeChange?: (type: SocietyMeeting["type"] | undefined) => void; onDelete?: () => void }) {
   const d = new Date(doc.date + "T00:00:00");
   const dateStr = d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
   const MTG_TYPES: SocietyMeeting["type"][] = ["agm", "sgm", "committee", "general"];
@@ -4336,6 +4336,13 @@ function ImportedDocCard({ doc, onMeetingTypeChange }: { doc: ImportedMeetingDoc
           <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 4, background: "#e0f2fe", color: "#0369a1", flexShrink: 0, whiteSpace: "nowrap" as const }}>
             Document
           </span>
+        )}
+        {onDelete && (
+          <button
+            onClick={(e) => { e.stopPropagation(); if (window.confirm("Delete this imported document?")) onDelete(); }}
+            title="Delete"
+            style={{ flexShrink: 0, fontSize: 14, lineHeight: 1, padding: "4px 7px", borderRadius: 6, border: "1.5px solid #ef444460", background: "transparent", color: "#ef4444", cursor: "pointer" }}
+          >🗑</button>
         )}
       </div>
       {onMeetingTypeChange && (
@@ -4394,6 +4401,11 @@ function MeetingCard({ m, expandedId, setExpandedId, onDelete }: {
         <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 4, background: typeBg, color: typeCol, flexShrink: 0, whiteSpace: "nowrap" as const }}>
           {MTG_LABEL[m.type]}
         </span>
+        <button
+          onClick={(e) => { e.stopPropagation(); if (window.confirm("Delete this meeting?")) onDelete(m.id); }}
+          title="Delete"
+          style={{ flexShrink: 0, fontSize: 14, lineHeight: 1, padding: "4px 7px", borderRadius: 6, border: "1.5px solid #ef444460", background: "transparent", color: "#ef4444", cursor: "pointer" }}
+        >🗑</button>
         <span style={{ fontSize: 10, color: "var(--color-text-tertiary)", flexShrink: 0 }}>{isOpen ? "▲" : "▼"}</span>
       </div>
 
@@ -4420,11 +4432,6 @@ function MeetingCard({ m, expandedId, setExpandedId, onDelete }: {
           {!m.agenda && !m.resolutions && !m.notes && (
             <p style={{ fontSize: 12, color: "var(--color-text-tertiary)", marginTop: 12, fontStyle: "italic" }}>No agenda or resolutions recorded.</p>
           )}
-          <div style={{ marginTop: 14, display: "flex", justifyContent: "flex-end" }}>
-            <button onClick={() => onDelete(m.id)} style={{ fontSize: 12, padding: "4px 12px", borderRadius: 6, border: "1.5px solid #ef4444", background: "transparent", color: "#ef4444", cursor: "pointer" }}>
-              Delete
-            </button>
-          </div>
         </div>
       )}
     </div>
@@ -4976,6 +4983,16 @@ function SocietyMeetingsTab({ records }: { records: InvoiceMeta[] }) {
     if (expandedId === id) setExpandedId(null);
   };
 
+  const handleDeleteImported = async (docId: string) => {
+    const numId = Number(docId);
+    if (!isNaN(numId)) {
+      await db.invoices.delete(numId);
+      await db.rawTexts.where("invoiceId").equals(numId).delete().catch(() => {});
+      await db.pdfFiles.where("invoiceId").equals(numId).delete().catch(() => {});
+      window.dispatchEvent(new Event("jinvoice:sync-complete"));
+    }
+  };
+
   const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
   const TYPES: (SocietyMeeting["type"] | "all" | "documents")[] = ["all", "agm", "sgm", "committee", "general", "documents"];
   const thisYear = new Date().getFullYear();
@@ -5056,7 +5073,7 @@ function SocietyMeetingsTab({ records }: { records: InvoiceMeta[] }) {
                         {list.map((entry) =>
                           entry.kind === "manual"
                             ? <MeetingCard key={entry.m.id} m={entry.m} expandedId={expandedId} setExpandedId={setExpandedId} onDelete={handleDelete} />
-                            : <ImportedDocCard key={entry.d.id} doc={entry.d} onMeetingTypeChange={(t) => handleImportedDocTypeChange(entry.d.id, t)} />
+                            : <ImportedDocCard key={entry.d.id} doc={entry.d} onMeetingTypeChange={(t) => handleImportedDocTypeChange(entry.d.id, t)} onDelete={() => handleDeleteImported(entry.d.id)} />
                         )}
                       </div>
                     </div>
