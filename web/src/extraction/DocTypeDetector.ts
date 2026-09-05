@@ -84,6 +84,11 @@ const FINANCIAL_KW = [
   "redemption", "allotment", "maturity date",
   "nav", "sip", "dividend", "portfolio", "securities",
   "investment", "rate of interest", "lock-in period", "demat", "dpid", "client id",
+  // Bank/card statement identifiers (appear in raw text, not necessarily in line items)
+  "opening balance", "closing balance", "statement period", "account holder",
+  "total deposits", "total withdrawals", "transaction history",
+  "credit limit", "minimum payment due", "available credit", "new balance",
+  "payment due date", "passbook", "account number",
 ];
 
 const INSURANCE_KW = [
