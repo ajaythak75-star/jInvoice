@@ -4431,13 +4431,301 @@ function MeetingCard({ m, expandedId, setExpandedId, onDelete }: {
   );
 }
 
+function GenerateAGMModal({ meetings, importedDocs, onClose }: {
+  meetings: SocietyMeeting[];
+  importedDocs: ImportedMeetingDoc[];
+  onClose: () => void;
+}) {
+  const curFY  = currentFY();
+  const prevFY = curFY - 1;
+
+  const prevAGM = useMemo(() =>
+    meetings.filter(m => m.type === "agm" && fyContainsMtg(m.date, prevFY))
+      .sort((a, b) => b.date.localeCompare(a.date))[0] ?? null,
+    [meetings, prevFY]);
+
+  const curManual = useMemo(() =>
+    meetings.filter(m => fyContainsMtg(m.date, curFY)).sort((a, b) => a.date.localeCompare(b.date)),
+    [meetings, curFY]);
+
+  const curDocs = useMemo(() =>
+    importedDocs.filter(d => fyContainsMtg(d.date, curFY)).sort((a, b) => a.date.localeCompare(b.date)),
+    [importedDocs, curFY]);
+
+  const [selected, setSelected] = useState<Set<string>>(() => {
+    const s = new Set<string>();
+    if (prevAGM) s.add(`prev_${prevAGM.id}`);
+    curManual.forEach(m => s.add(`manual_${m.id}`));
+    curDocs.forEach(d => s.add(`doc_${d.id}`));
+    return s;
+  });
+
+  const [step, setStep]           = useState<"select" | "report">("select");
+  const [reportText, setReportText] = useState("");
+
+  const toggle = (key: string) => setSelected(prev => {
+    const next = new Set(prev);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    return next;
+  });
+
+  const handleGenerate = () => {
+    const usePrevAGM  = prevAGM && selected.has(`prev_${prevAGM.id}`);
+    const selManual   = curManual.filter(m => selected.has(`manual_${m.id}`));
+    const selDocs     = curDocs.filter(d => selected.has(`doc_${d.id}`));
+    const hr          = "═".repeat(50);
+    const hr2         = "─".repeat(30);
+    const fyLbl       = fyLabel(curFY);
+    const prevFyLbl   = fyLabel(prevFY);
+    const lines: string[] = [];
+
+    lines.push(`AGM REPORT — ${fyLbl}`);
+    lines.push(hr);
+    lines.push("");
+
+    // Section 1 — previous year's AGM (reference)
+    lines.push(`PREVIOUS AGM REFERENCE (${prevFyLbl})`);
+    lines.push(hr2);
+    if (usePrevAGM && prevAGM) {
+      lines.push(`Date    : ${new Date(prevAGM.date + "T00:00:00").toLocaleDateString("en-IN", { weekday: "long", day: "2-digit", month: "long", year: "numeric" })}`);
+      if (prevAGM.venue) lines.push(`Venue   : ${prevAGM.venue}`);
+      if (prevAGM.attendees != null || prevAGM.totalMembers != null) {
+        const pct = prevAGM.attendees != null && prevAGM.totalMembers ? ` (${Math.round((prevAGM.attendees / prevAGM.totalMembers) * 100)}%)` : "";
+        lines.push(`Attended: ${prevAGM.attendees ?? "—"} / ${prevAGM.totalMembers ?? "—"} members${pct}`);
+      }
+      if (prevAGM.agenda) { lines.push(""); lines.push("Agenda:"); prevAGM.agenda.split("\\n").forEach(l => { if (l.trim()) lines.push(`  • ${l.trim()}`); }); }
+      if (prevAGM.resolutions) { lines.push(""); lines.push("Resolutions carried forward:"); prevAGM.resolutions.split("\\n").forEach(l => { if (l.trim()) lines.push(`  ✓ ${l.trim()}`); }); }
+      if (prevAGM.notes) { lines.push(""); lines.push(`Notes: ${prevAGM.notes}`); }
+    } else {
+      lines.push(`No AGM reference selected for ${prevFyLbl}.`);
+    }
+    lines.push("");
+
+    // Section 2 — this FY's AGM
+    const thisAGM = selManual.find(m => m.type === "agm") ?? null;
+    lines.push(`ANNUAL GENERAL MEETING — ${fyLbl}`);
+    lines.push(hr2);
+    if (thisAGM) {
+      lines.push(`Date    : ${new Date(thisAGM.date + "T00:00:00").toLocaleDateString("en-IN", { weekday: "long", day: "2-digit", month: "long", year: "numeric" })}`);
+      if (thisAGM.venue) lines.push(`Venue   : ${thisAGM.venue}`);
+      if (thisAGM.attendees != null || thisAGM.totalMembers != null) {
+        const pct = thisAGM.attendees != null && thisAGM.totalMembers ? ` (${Math.round((thisAGM.attendees / thisAGM.totalMembers) * 100)}%)` : "";
+        lines.push(`Attended: ${thisAGM.attendees ?? "—"} / ${thisAGM.totalMembers ?? "—"} members${pct}`);
+      }
+      if (thisAGM.agenda) { lines.push(""); lines.push("Agenda:"); thisAGM.agenda.split("\\n").forEach(l => { if (l.trim()) lines.push(`  • ${l.trim()}`); }); }
+      if (thisAGM.resolutions) { lines.push(""); lines.push("Resolutions:"); thisAGM.resolutions.split("\\n").forEach(l => { if (l.trim()) lines.push(`  ✓ ${l.trim()}`); }); }
+      if (thisAGM.notes) { lines.push(""); lines.push(`Notes: ${thisAGM.notes}`); }
+      lines.push("");
+    } else {
+      lines.push(`No AGM recorded for ${fyLbl}.`);
+      lines.push("");
+    }
+
+    // Section 3 — other meetings this FY
+    const nonAgm = selManual.filter(m => m.type !== "agm");
+    if (nonAgm.length > 0) {
+      lines.push(`MEETINGS DURING ${fyLbl} (${nonAgm.length})`);
+      lines.push(hr2);
+      for (const m of nonAgm) {
+        lines.push("");
+        lines.push(`${MTG_ICON[m.type]}  ${MTG_LABEL[m.type].toUpperCase()}`);
+        lines.push(`Date    : ${new Date(m.date + "T00:00:00").toLocaleDateString("en-IN", { weekday: "short", day: "2-digit", month: "short", year: "numeric" })}`);
+        lines.push(`Title   : ${m.title}`);
+        if (m.venue) lines.push(`Venue   : ${m.venue}`);
+        if (m.attendees != null || m.totalMembers != null) {
+          const pct = m.attendees != null && m.totalMembers ? ` (${Math.round((m.attendees / m.totalMembers) * 100)}%)` : "";
+          lines.push(`Attended: ${m.attendees ?? "—"} / ${m.totalMembers ?? "—"}${pct}`);
+        }
+        if (m.agenda) { lines.push("Agenda:"); m.agenda.split("\\n").forEach(l => { if (l.trim()) lines.push(`  • ${l.trim()}`); }); }
+        if (m.resolutions) { lines.push("Resolutions:"); m.resolutions.split("\\n").forEach(l => { if (l.trim()) lines.push(`  ✓ ${l.trim()}`); }); }
+        if (m.notes) lines.push(`Notes: ${m.notes}`);
+      }
+      lines.push("");
+    }
+
+    // Section 4 — selected imported docs
+    if (selDocs.length > 0) {
+      lines.push(`MEETING DOCUMENTS — ${fyLbl} (${selDocs.length})`);
+      lines.push(hr2);
+      for (const doc of selDocs) {
+        const docDate  = new Date(doc.date + "T00:00:00").toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+        const typeLabel = doc.meetingType ? `[${MTG_LABEL[doc.meetingType]}] ` : "";
+        lines.push(`📄  ${typeLabel}${doc.title}`);
+        lines.push(`    Date: ${docDate}`);
+        lines.push("");
+      }
+    }
+
+    // Section 5 — compiled resolutions
+    const withRes = selManual.filter(m => m.resolutions);
+    if (withRes.length > 0) {
+      lines.push(hr);
+      lines.push(`COMPILED RESOLUTIONS — ${fyLbl}`);
+      lines.push(hr2);
+      for (const m of withRes) {
+        lines.push(`\n[${MTG_LABEL[m.type]} — ${m.date}]`);
+        m.resolutions!.split("\\n").forEach(l => { if (l.trim()) lines.push(`  • ${l.trim()}`); });
+      }
+      lines.push("");
+    }
+
+    lines.push(hr2);
+    lines.push(`Generated by jInvoice on ${new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "long", year: "numeric" })}`);
+    setReportText(lines.join("\n"));
+    setStep("report");
+  };
+
+  const handleCopy = () => { navigator.clipboard.writeText(reportText).catch(() => {}); };
+  const handlePrint = () => {
+    const w = window.open("", "_blank");
+    if (!w) return;
+    const esc = reportText.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    w.document.write(`<html><head><title>AGM Report ${fyLabel(curFY)}</title><style>body{font-family:monospace;padding:40px;white-space:pre-wrap;font-size:13px;line-height:1.7;max-width:700px;}</style></head><body>${esc}</body></html>`);
+    w.document.close();
+    w.print();
+  };
+
+  const fyLbl     = fyLabel(curFY);
+  const prevFyLbl = fyLabel(prevFY);
+  const totalSel  = selected.size;
+
+  return (
+    <div className="modal-overlay" onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 580, width: "94%", maxHeight: "90vh", borderRadius: 12, background: "var(--color-surface)", boxShadow: "0 8px 40px rgba(0,0,0,0.25)", display: "flex", flexDirection: "column" }}>
+
+        {/* Header */}
+        <div style={{ padding: "18px 24px", borderBottom: "1px solid var(--color-border)", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 700 }}>🏛️ Generate AGM Report</div>
+            <div style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 2 }}>
+              {step === "select" ? `Select meetings to include — ${fyLbl}` : `AGM Report — ${fyLbl}`}
+            </div>
+          </div>
+          <button onClick={onClose} style={{ fontSize: 16, background: "none", border: "none", cursor: "pointer", color: "var(--color-text-secondary)", padding: "4px 8px" }}>✕</button>
+        </div>
+
+        {step === "select" ? (
+          <>
+            <div style={{ flex: 1, overflowY: "auto", padding: "16px 24px" }}>
+
+              {/* Previous year AGM */}
+              <div style={{ marginBottom: 18 }}>
+                <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 8 }}>
+                  Last Year's AGM — {prevFyLbl} (Reference)
+                </div>
+                {prevAGM ? (
+                  <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer", padding: "10px 12px", borderRadius: 8, background: selected.has(`prev_${prevAGM.id}`) ? "#7c3aed11" : "var(--color-surface-2)", border: `1.5px solid ${selected.has(`prev_${prevAGM.id}`) ? "#7c3aed44" : "var(--color-border)"}` }}>
+                    <input type="checkbox" checked={selected.has(`prev_${prevAGM.id}`)} onChange={() => toggle(`prev_${prevAGM.id}`)} style={{ marginTop: 3, accentColor: "#7c3aed", flexShrink: 0 }} />
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: "var(--color-text)" }}>🏛️ {prevAGM.title}</div>
+                      <div style={{ fontSize: 11.5, color: "var(--color-text-secondary)", marginTop: 2 }}>
+                        📅 {new Date(prevAGM.date + "T00:00:00").toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                        {prevAGM.venue ? ` · 📍 ${prevAGM.venue}` : ""}
+                        {prevAGM.resolutions ? " · ✓ Has resolutions" : ""}
+                      </div>
+                    </div>
+                  </label>
+                ) : (
+                  <div style={{ fontSize: 12, color: "var(--color-text-tertiary)", fontStyle: "italic", padding: "8px 12px", background: "var(--color-surface-2)", borderRadius: 8 }}>
+                    No AGM recorded for {prevFyLbl}
+                  </div>
+                )}
+              </div>
+
+              {/* Current FY meetings */}
+              <div>
+                <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 8 }}>
+                  Current FY Meetings — {fyLbl}
+                </div>
+                {curManual.length === 0 && curDocs.length === 0 ? (
+                  <div style={{ fontSize: 12, color: "var(--color-text-tertiary)", fontStyle: "italic", padding: "8px 12px", background: "var(--color-surface-2)", borderRadius: 8 }}>
+                    No meetings recorded for {fyLbl} yet
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {curManual.map(m => {
+                      const key   = `manual_${m.id}`;
+                      const isChk = selected.has(key);
+                      const bg    = isChk ? (m.type === "agm" ? "#7c3aed11" : m.type === "sgm" ? "#dc262611" : "var(--color-surface-2)") : "var(--color-surface-2)";
+                      const bdr   = isChk ? (m.type === "agm" ? "#7c3aed44" : m.type === "sgm" ? "#dc262644" : "var(--color-border)") : "var(--color-border)";
+                      return (
+                        <label key={key} style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer", padding: "10px 12px", borderRadius: 8, background: bg, border: `1.5px solid ${bdr}` }}>
+                          <input type="checkbox" checked={isChk} onChange={() => toggle(key)} style={{ marginTop: 3, accentColor: "#7c3aed", flexShrink: 0 }} />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--color-text)" }}>{MTG_ICON[m.type]} {m.title}</div>
+                            <div style={{ fontSize: 11.5, color: "var(--color-text-secondary)", marginTop: 2 }}>
+                              <span style={{ fontSize: 10.5, fontWeight: 700, padding: "1px 6px", borderRadius: 3, background: "var(--color-surface)", border: "1px solid var(--color-border)", marginRight: 6 }}>{MTG_LABEL[m.type]}</span>
+                              📅 {new Date(m.date + "T00:00:00").toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                              {m.venue ? ` · 📍 ${m.venue}` : ""}
+                              {m.agenda ? " · Has agenda" : ""}
+                              {m.resolutions ? " · ✓ Resolutions" : ""}
+                            </div>
+                          </div>
+                        </label>
+                      );
+                    })}
+                    {curDocs.map(d => {
+                      const key   = `doc_${d.id}`;
+                      const isChk = selected.has(key);
+                      return (
+                        <label key={key} style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer", padding: "10px 12px", borderRadius: 8, background: isChk ? "#0369a111" : "var(--color-surface-2)", border: `1.5px solid ${isChk ? "#0369a144" : "var(--color-border)"}` }}>
+                          <input type="checkbox" checked={isChk} onChange={() => toggle(key)} style={{ marginTop: 3, accentColor: "#0369a1", flexShrink: 0 }} />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--color-text)" }}>📄 {d.title}</div>
+                            <div style={{ fontSize: 11.5, color: "var(--color-text-secondary)", marginTop: 2 }}>
+                              <span style={{ fontSize: 10.5, fontWeight: 700, padding: "1px 6px", borderRadius: 3, background: "#e0f2fe", color: "#0369a1", marginRight: 6 }}>
+                                {d.meetingType ? MTG_LABEL[d.meetingType] : "Document"}
+                              </span>
+                              📅 {new Date(d.date + "T00:00:00").toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                            </div>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div style={{ padding: "14px 24px", borderTop: "1px solid var(--color-border)", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+              <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>{totalSel} item{totalSel !== 1 ? "s" : ""} selected</span>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={onClose} style={{ fontSize: 13, padding: "7px 14px", borderRadius: 7, border: "1.5px solid var(--color-border)", background: "transparent", color: "var(--color-text-secondary)", cursor: "pointer" }}>Cancel</button>
+                <button onClick={handleGenerate} disabled={totalSel === 0} style={{ fontSize: 13, padding: "7px 16px", borderRadius: 7, border: "none", background: totalSel === 0 ? "var(--color-surface-2)" : "#7c3aed", color: totalSel === 0 ? "var(--color-text-tertiary)" : "#fff", cursor: totalSel === 0 ? "not-allowed" : "pointer", fontWeight: 600 }}>
+                  Generate Report →
+                </button>
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            <div style={{ flex: 1, overflowY: "auto", padding: "16px 24px" }}>
+              <pre style={{ fontFamily: "monospace", fontSize: 12, lineHeight: 1.7, whiteSpace: "pre-wrap", color: "var(--color-text)", margin: 0, background: "var(--color-surface-2)", padding: 16, borderRadius: 8, border: "1px solid var(--color-border)" }}>
+                {reportText}
+              </pre>
+            </div>
+            <div style={{ padding: "14px 24px", borderTop: "1px solid var(--color-border)", display: "flex", justifyContent: "space-between", flexShrink: 0 }}>
+              <button onClick={() => setStep("select")} style={{ fontSize: 13, padding: "7px 14px", borderRadius: 7, border: "1.5px solid var(--color-border)", background: "transparent", color: "var(--color-text-secondary)", cursor: "pointer" }}>← Back</button>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={handleCopy} style={{ fontSize: 13, padding: "7px 16px", borderRadius: 7, border: "1.5px solid var(--color-border)", background: "transparent", color: "var(--color-text-secondary)", cursor: "pointer" }}>📋 Copy</button>
+                <button onClick={handlePrint} style={{ fontSize: 13, padding: "7px 16px", borderRadius: 7, border: "none", background: "#7c3aed", color: "#fff", cursor: "pointer", fontWeight: 600 }}>🖨️ Print / Save PDF</button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function SocietyMeetingsTab({ records }: { records: InvoiceMeta[] }) {
   const [meetings, setMeetings] = useState<SocietyMeeting[]>(() => loadMeetings());
   const [filterType, setFilterType] = useState<SocietyMeeting["type"] | "all" | "documents">("all");
-  const [showAdd, setShowAdd]       = useState(false);
-  const [showReport, setShowReport] = useState(false);
+  const [showAdd, setShowAdd]         = useState(false);
+  const [showReport, setShowReport]   = useState(false);
+  const [showGenerate, setShowGenerate] = useState(false);
   const [reportInitialFY, setReportInitialFY] = useState<number | undefined>(undefined);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedId, setExpandedId]   = useState<string | null>(null);
   const [importedDocTypes, setImportedDocTypes] = useState<Record<string, SocietyMeeting["type"] | undefined>>({});
 
   // Imported meeting_record documents from IndexedDB
@@ -4546,9 +4834,8 @@ function SocietyMeetingsTab({ records }: { records: InvoiceMeta[] }) {
             📄 AGM Report
           </button>
           <button
-            onClick={() => { setReportInitialFY(currentFY()); setShowReport(true); }}
+            onClick={() => setShowGenerate(true)}
             style={{ fontSize: 13, padding: "7px 14px", borderRadius: 8, border: "none", background: "#7c3aed", color: "#fff", cursor: "pointer", fontWeight: 600 }}
-            title={`Generate AGM report for current FY (${fyLabel(currentFY())})`}
           >
             🏛️ Generate AGM Report
           </button>
@@ -4622,8 +4909,9 @@ function SocietyMeetingsTab({ records }: { records: InvoiceMeta[] }) {
         </div>
       )}
 
-      {showAdd    && <AddMeetingModal onClose={() => setShowAdd(false)} onSave={handleSave} />}
-      {showReport && <AGMReportModal  meetings={meetings} importedDocs={importedDocs} onClose={() => setShowReport(false)} initialFY={reportInitialFY} />}
+      {showAdd      && <AddMeetingModal    onClose={() => setShowAdd(false)} onSave={handleSave} />}
+      {showReport   && <AGMReportModal     meetings={meetings} importedDocs={importedDocs} onClose={() => setShowReport(false)} initialFY={reportInitialFY} />}
+      {showGenerate && <GenerateAGMModal   meetings={meetings} importedDocs={importedDocs} onClose={() => setShowGenerate(false)} />}
     </div>
   );
 }
