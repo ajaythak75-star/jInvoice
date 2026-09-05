@@ -202,19 +202,7 @@ export function App() {
         />
       )}
       {/* Keep AutoImportSettings mounted so in-progress uploads survive tab switches */}
-      {isAdmin ? (
-        tab === "import" && (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 24px", gap: 12, textAlign: "center" }}>
-            <span style={{ fontSize: 32 }}>🔒</span>
-            <div style={{ fontSize: 16, fontWeight: 700, color: "var(--color-text)" }}>Import disabled for admin accounts</div>
-            <div style={{ fontSize: 13, color: "var(--color-text-secondary)", maxWidth: 340 }}>
-              Admin users cannot import or sync invoices. Switch to the Admin panel to manage users.
-            </div>
-          </div>
-        )
-      ) : (
-        <div style={{ display: tab === "import" ? "contents" : "none" }}><AutoImportSettings /></div>
-      )}
+      <div style={{ display: tab === "import" ? "contents" : "none" }}><AutoImportSettings /></div>
       {tab === "view"     && <ViewScreen />}
       {tab === "buy"      && <BuyScreen />}
       {tab === "gst"      && <ReportScreen />}
