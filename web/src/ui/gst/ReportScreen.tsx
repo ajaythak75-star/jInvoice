@@ -4471,7 +4471,6 @@ function GenerateAGMModal({ meetings, importedDocs, onClose }: {
   const [reportText, setReportText]  = useState("");
   const [loading, setLoading]        = useState(false);
   const [genError, setGenError]      = useState<string | null>(null);
-  const [lang, setLang]              = useState<"en" | "mr">("en");
 
   const toggle = (key: string) => setSelected(prev => {
     const next = new Set(prev);
@@ -4611,19 +4610,14 @@ function GenerateAGMModal({ meetings, importedDocs, onClose }: {
     }
 
     // Build the Gemini prompt
-    const isMr = lang === "mr";
-    const langInstr = isMr
-      ? `\n\nLANGUAGE: Write the ENTIRE document in formal Marathi (मराठी) using Devanagari script. Use official cooperative society terminology in Marathi as used in Maharashtra. All section headings, resolutions, attendance notes, and signature blocks must be in Marathi.\n`
-      : "";
-
     const buildPromptParts = (): object[] => {
       const parts: object[] = [];
 
       // Reference: last year's AGM
       if (prevDocRawText) {
-        parts.push({ text: `You are generating formal AGM minutes for an Indian housing cooperative society.\n\nFINANCIAL YEAR: ${fyLbl}\n\nLAST YEAR'S AGM DOCUMENT (${prevFyLbl}) — USE THIS AS FORMAT REFERENCE:\n\n${prevDocRawText.slice(0, 5000)}\n\n--- END OF LAST YEAR'S AGM ---\n\nIMPORTANT: Generate the new AGM minutes following the EXACT same format, section headings, and structure as the reference document above. Keep the same formal language style.${langInstr}` });
+        parts.push({ text: `You are generating formal AGM minutes for an Indian housing cooperative society.\n\nFINANCIAL YEAR: ${fyLbl}\n\nLAST YEAR'S AGM DOCUMENT (${prevFyLbl}) — USE THIS AS FORMAT REFERENCE:\n\n${prevDocRawText.slice(0, 5000)}\n\n--- END OF LAST YEAR'S AGM ---\n\nIMPORTANT: Generate the new AGM minutes following the EXACT same format, section headings, and structure as the reference document above. Keep the same formal language style.\n` });
       } else if (prevDocPdfB64) {
-        parts.push({ text: `You are generating formal AGM minutes for an Indian housing cooperative society.\n\nFINANCIAL YEAR: ${fyLbl}\n\nThe attached PDF is LAST YEAR'S AGM DOCUMENT (${prevFyLbl}). Use it as the FORMAT REFERENCE — follow its exact structure, headings, and formal language for the new report.${langInstr}` });
+        parts.push({ text: `You are generating formal AGM minutes for an Indian housing cooperative society.\n\nFINANCIAL YEAR: ${fyLbl}\n\nThe attached PDF is LAST YEAR'S AGM DOCUMENT (${prevFyLbl}). Use it as the FORMAT REFERENCE — follow its exact structure, headings, and formal language for the new report.\n` });
         parts.push({ inlineData: { mimeType: "application/pdf", data: prevDocPdfB64 } });
         parts.push({ text: `--- END OF REFERENCE PDF ---\n` });
       } else if (usePrevManual && prevAGM) {
@@ -4633,10 +4627,10 @@ function GenerateAGMModal({ meetings, importedDocs, onClose }: {
         if (prevAGM.attendees != null) ref += `Attendance: ${prevAGM.attendees}${prevAGM.totalMembers ? ` / ${prevAGM.totalMembers}` : ""} members\n`;
         if (prevAGM.agenda) ref += `Agenda items:\n${prevAGM.agenda}\n`;
         if (prevAGM.resolutions) ref += `Resolutions passed:\n${prevAGM.resolutions}\n`;
-        ref += `\nFollow the format of standard Indian housing cooperative society AGM minutes.${langInstr}`;
+        ref += `\nFollow the format of standard Indian housing cooperative society AGM minutes.\n`;
         parts.push({ text: ref });
       } else {
-        parts.push({ text: `You are generating formal AGM minutes for an Indian housing cooperative society.\n\nFINANCIAL YEAR: ${fyLbl}\n\nFollow the format of standard Indian housing cooperative society AGM minutes.${langInstr}` });
+        parts.push({ text: `You are generating formal AGM minutes for an Indian housing cooperative society.\n\nFINANCIAL YEAR: ${fyLbl}\n\nFollow the format of standard Indian housing cooperative society AGM minutes.\n` });
       }
 
       // Current year meeting data
@@ -4658,9 +4652,7 @@ function GenerateAGMModal({ meetings, importedDocs, onClose }: {
 
       meetingData += `\nINSTRUCTIONS:\n`;
       meetingData += `1. Generate complete, formal AGM minutes for ${fyLbl}\n`;
-      meetingData += isMr
-        ? `2. संपूर्ण दस्तऐवज मराठीत लिहा. औपचारिक भाषा वापरा: "ठराव मंजूर करण्यात आला की...", "अध्यक्षांनी सभेची सुरुवात केली..."\n`
-        : `2. Use formal language throughout: "Resolved that...", "The Chairman called the meeting to order..."\n`;
+      meetingData += `2. Use formal language throughout: "Resolved that...", "The Chairman called the meeting to order..."\n`;
       meetingData += `3. Number all agenda items and resolutions\n`;
       meetingData += `4. Include attendance statistics from the data above\n`;
       meetingData += `5. Consolidate agenda points and resolutions from all meetings listed\n`;
@@ -4703,11 +4695,7 @@ function GenerateAGMModal({ meetings, importedDocs, onClose }: {
     const w = window.open("", "_blank");
     if (!w) return;
     const esc = reportText.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    const fontLink = lang === "mr"
-      ? `<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Devanagari:wght@400;600&display=swap">`
-      : "";
-    const fontFamily = lang === "mr" ? "'Noto Sans Devanagari', sans-serif" : "monospace";
-    w.document.write(`<html><head><title>AGM Report ${fyLabel(curFY)}</title>${fontLink}<style>body{font-family:${fontFamily};padding:40px;white-space:pre-wrap;font-size:13px;line-height:1.9;max-width:700px;}</style></head><body>${esc}</body></html>`);
+    w.document.write(`<html><head><title>AGM Report ${fyLabel(curFY)}</title><style>body{font-family:monospace;padding:40px;white-space:pre-wrap;font-size:13px;line-height:1.7;max-width:700px;}</style></head><body>${esc}</body></html>`);
     w.document.close();
     w.print();
   };
@@ -4841,17 +4829,8 @@ function GenerateAGMModal({ meetings, importedDocs, onClose }: {
               </div>
             </div>
 
-            <div style={{ padding: "14px 24px", borderTop: "1px solid var(--color-border)", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0, gap: 8, flexWrap: "wrap" as const }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>{totalSel} item{totalSel !== 1 ? "s" : ""} selected</span>
-                <div style={{ display: "flex", borderRadius: 6, overflow: "hidden", border: "1.5px solid var(--color-border)", flexShrink: 0 }}>
-                  {(["en", "mr"] as const).map(l => (
-                    <button key={l} onClick={() => setLang(l)} style={{ fontSize: 11.5, padding: "3px 10px", border: "none", background: lang === l ? "#7c3aed" : "transparent", color: lang === l ? "#fff" : "var(--color-text-secondary)", cursor: "pointer", fontWeight: lang === l ? 700 : 400 }}>
-                      {l === "en" ? "EN" : "मराठी"}
-                    </button>
-                  ))}
-                </div>
-              </div>
+            <div style={{ padding: "14px 24px", borderTop: "1px solid var(--color-border)", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+              <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>{totalSel} item{totalSel !== 1 ? "s" : ""} selected</span>
               <div style={{ display: "flex", gap: 8 }}>
                 <button onClick={onClose} style={{ fontSize: 13, padding: "7px 14px", borderRadius: 7, border: "1.5px solid var(--color-border)", background: "transparent", color: "var(--color-text-secondary)", cursor: "pointer" }}>Cancel</button>
                 <button onClick={handleGenerate} disabled={totalSel === 0 || loading} style={{ fontSize: 13, padding: "7px 16px", borderRadius: 7, border: "none", background: (totalSel === 0 || loading) ? "var(--color-surface-2)" : "#7c3aed", color: (totalSel === 0 || loading) ? "var(--color-text-tertiary)" : "#fff", cursor: (totalSel === 0 || loading) ? "not-allowed" : "pointer", fontWeight: 600 }}>
@@ -4868,12 +4847,8 @@ function GenerateAGMModal({ meetings, importedDocs, onClose }: {
                 <div style={{ fontSize: 14, fontWeight: 600, color: "var(--color-text)" }}>Generating AGM Report…</div>
                 <div style={{ fontSize: 12, color: "var(--color-text-secondary)", textAlign: "center", maxWidth: 320 }}>
                   {(selected.has(`prevdoc_${prevAGMDoc?.id}`) && prevAGMDoc)
-                    ? lang === "mr"
-                      ? "मागील वर्षाचा AGM दस्तऐवज वाचत आहे आणि मराठीत नवीन इतिवृत्त तयार करत आहे…"
-                      : "Reading last year's AGM document and generating new minutes in the same format"
-                    : lang === "mr"
-                      ? "सभा माहितीवरून मराठीत औपचारिक AGM इतिवृत्त तयार करत आहे…"
-                      : "Using meeting data to generate formal AGM minutes"}
+                    ? "Reading last year's AGM document and generating new minutes in the same format"
+                    : "Using meeting data to generate formal AGM minutes"}
                 </div>
               </div>
             ) : (
@@ -4883,7 +4858,7 @@ function GenerateAGMModal({ meetings, importedDocs, onClose }: {
                     ⚠️ {genError}
                   </div>
                 )}
-                <pre style={{ fontFamily: lang === "mr" ? "'Noto Sans Devanagari', system-ui, sans-serif" : "monospace", fontSize: lang === "mr" ? 14 : 12, lineHeight: lang === "mr" ? 2 : 1.7, whiteSpace: "pre-wrap", color: "var(--color-text)", margin: 0, background: "var(--color-surface-2)", padding: 16, borderRadius: 8, border: "1px solid var(--color-border)" }}>
+                <pre style={{ fontFamily: "monospace", fontSize: 12, lineHeight: 1.7, whiteSpace: "pre-wrap", color: "var(--color-text)", margin: 0, background: "var(--color-surface-2)", padding: 16, borderRadius: 8, border: "1px solid var(--color-border)" }}>
                   {reportText}
                 </pre>
               </div>
