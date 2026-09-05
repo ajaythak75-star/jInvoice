@@ -4727,7 +4727,7 @@ function GenerateAGMModal({ meetings, importedDocs, onClose }: {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "sarvam-105b",
+          model: "sarvam-105b-conversations",
           messages: buildSarvamMessages(),
           temperature: 0.3,
           max_tokens: 4096,
@@ -4742,7 +4742,7 @@ function GenerateAGMModal({ meetings, importedDocs, onClose }: {
       }
       const data = await res.json();
       const text = (data?.choices?.[0]?.message?.content ?? "").trim();
-      if (!text) throw new Error(`Empty response from Sarvam — choices[0]: ${JSON.stringify(data?.choices?.[0] ?? data?.choices)}`);
+      if (!text) throw new Error("Empty response from Sarvam");
       setReportText(text);
       setStep("report");
     } catch (e) {
