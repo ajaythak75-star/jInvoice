@@ -5,7 +5,7 @@ import { prefs } from "../../data/AutoImportPreferences";
 
 type ReportTab = "gst" | "period" | "vendor" | "tags" | "category"
                | "summary" | "personal_budget" | "personal_tax"
-               | "society_ledger" | "society_audit" | "society_vendor" | "society_dues" | "society_sinking" | "society_quotes"
+               | "society_ledger" | "society_audit" | "society_vendor" | "society_dues" | "society_sinking" | "society_quotes" | "society_meetings"
                | "bookkeeper_ledger"
                | "shop_purchase_register" | "shop_expense_head" | "shop_gst_summary"
                | "tc_client_summary" | "tc_tds_tracker" | "tc_fy_comparison" | "tc_gstr2a"
@@ -3954,6 +3954,481 @@ function AdvCourtFeesTab({ records }: { records: InvoiceMeta[] }) {
   );
 }
 
+// ── Society: Meetings ─────────────────────────────────────────────────────────
+
+const SOCIETY_MEETINGS_KEY = "jinvoice_society_meetings";
+
+interface SocietyMeeting {
+  id: string;
+  type: "agm" | "sgm" | "committee" | "general";
+  date: string;
+  title: string;
+  venue?: string;
+  attendees?: number;
+  totalMembers?: number;
+  agenda?: string;
+  resolutions?: string;
+  notes?: string;
+  createdAt: string;
+}
+
+const MTG_LABEL: Record<SocietyMeeting["type"], string> = {
+  agm:       "AGM",
+  sgm:       "Special GM",
+  committee: "Committee Meeting",
+  general:   "Society Meeting",
+};
+const MTG_ICON: Record<SocietyMeeting["type"], string> = {
+  agm: "🏛️", sgm: "⚡", committee: "👥", general: "🤝",
+};
+
+function loadMeetings(): SocietyMeeting[] {
+  try { return JSON.parse(localStorage.getItem(SOCIETY_MEETINGS_KEY) ?? "[]"); } catch { return []; }
+}
+function saveMeetings(meetings: SocietyMeeting[]): void {
+  try { localStorage.setItem(SOCIETY_MEETINGS_KEY, JSON.stringify(meetings)); } catch {}
+}
+function genMtgId(): string {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+function mtgFY(date: string): number {
+  const d = new Date(date + "T00:00:00");
+  return d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1;
+}
+function fyContainsMtg(date: string, fyStart: number): boolean {
+  const d = new Date(date + "T00:00:00");
+  return d >= new Date(fyStart, 3, 1) && d <= new Date(fyStart + 1, 2, 31, 23, 59, 59);
+}
+
+function AddMeetingModal({ onClose, onSave }: { onClose: () => void; onSave: (m: SocietyMeeting) => void }) {
+  const [type, setType]           = useState<SocietyMeeting["type"]>("general");
+  const [date, setDate]           = useState(new Date().toISOString().slice(0, 10));
+  const [title, setTitle]         = useState("");
+  const [venue, setVenue]         = useState("");
+  const [attendees, setAttendees] = useState("");
+  const [totalMem, setTotalMem]   = useState("");
+  const [agenda, setAgenda]       = useState("");
+  const [resolutions, setResolutions] = useState("");
+  const [notes, setNotes]         = useState("");
+  const [err, setErr]             = useState<string | null>(null);
+
+  const iS: React.CSSProperties = { width: "100%", padding: "7px 10px", borderRadius: 6, fontSize: 13, border: "1px solid var(--color-border)", background: "var(--color-surface)", color: "var(--color-text)", boxSizing: "border-box" };
+  const taS: React.CSSProperties = { ...iS, minHeight: 70, resize: "vertical" as const, fontFamily: "inherit" };
+  const lS: React.CSSProperties  = { fontSize: 12, color: "var(--color-text-secondary)", display: "block", marginBottom: 4 };
+
+  const handleSave = () => {
+    if (!date) { setErr("Select a meeting date."); return; }
+    const m: SocietyMeeting = {
+      id: genMtgId(),
+      type,
+      date,
+      title: title.trim() || `${MTG_LABEL[type]} — ${new Date(date + "T00:00:00").toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}`,
+      venue: venue.trim() || undefined,
+      attendees: attendees ? Number(attendees) : undefined,
+      totalMembers: totalMem ? Number(totalMem) : undefined,
+      agenda: agenda.trim() || undefined,
+      resolutions: resolutions.trim() || undefined,
+      notes: notes.trim() || undefined,
+      createdAt: new Date().toISOString(),
+    };
+    onSave(m);
+    onClose();
+  };
+
+  const TYPES: SocietyMeeting["type"][] = ["agm", "sgm", "committee", "general"];
+
+  return (
+    <div className="modal-overlay" onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 480, width: "94%", padding: 24, borderRadius: 12, background: "var(--color-surface)", boxShadow: "0 8px 32px rgba(0,0,0,0.2)", maxHeight: "90vh", overflowY: "auto" }}>
+        <h2 style={{ fontSize: 17, marginBottom: 18 }}>Add Meeting</h2>
+        <div style={{ display: "flex", flexDirection: "column", gap: 13 }}>
+          <div>
+            <label style={lS}>Meeting type *</label>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {TYPES.map((t) => (
+                <button key={t} type="button" onClick={() => setType(t)} style={{ padding: "5px 12px", borderRadius: 6, fontSize: 12.5, fontWeight: 600, cursor: "pointer", border: type === t ? "none" : "1px solid var(--color-border)", background: type === t ? "#7c3aed" : "var(--color-surface-2)", color: type === t ? "#fff" : "var(--color-text)" }}>
+                  {MTG_ICON[t]} {MTG_LABEL[t]}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label style={lS}>Date *</label>
+            <input type="date" style={iS} value={date} onChange={(e) => { setDate(e.target.value); setErr(null); }} />
+          </div>
+          <div>
+            <label style={lS}>Title / Subject <span style={{ fontWeight: 400 }}>(optional — auto-filled if blank)</span></label>
+            <input style={iS} placeholder={`${MTG_LABEL[type]} — 01 Jan 2025`} value={title} onChange={(e) => setTitle(e.target.value)} />
+          </div>
+          <div>
+            <label style={lS}>Venue</label>
+            <input style={iS} placeholder="e.g. Community Hall, Flat 101" value={venue} onChange={(e) => setVenue(e.target.value)} />
+          </div>
+          <div style={{ display: "flex", gap: 10 }}>
+            <div style={{ flex: 1 }}>
+              <label style={lS}>Attendees</label>
+              <input type="number" min="0" style={iS} placeholder="0" value={attendees} onChange={(e) => setAttendees(e.target.value)} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={lS}>Total members</label>
+              <input type="number" min="0" style={iS} placeholder="0" value={totalMem} onChange={(e) => setTotalMem(e.target.value)} />
+            </div>
+          </div>
+          <div>
+            <label style={lS}>Agenda <span style={{ fontWeight: 400 }}>(one item per line)</span></label>
+            <textarea style={taS} placeholder="1. Approval of previous minutes&#10;2. Financial statement&#10;3. Maintenance revision" value={agenda} onChange={(e) => setAgenda(e.target.value)} />
+          </div>
+          <div>
+            <label style={lS}>Resolutions passed <span style={{ fontWeight: 400 }}>(one per line)</span></label>
+            <textarea style={taS} placeholder="Maintenance increased to ₹3500 from April&#10;Lift AMC renewed with ABC Services" value={resolutions} onChange={(e) => setResolutions(e.target.value)} />
+          </div>
+          <div>
+            <label style={lS}>Notes / Remarks</label>
+            <textarea style={{ ...taS, minHeight: 50 }} placeholder="Additional notes..." value={notes} onChange={(e) => setNotes(e.target.value)} />
+          </div>
+        </div>
+        {err && <p style={{ fontSize: 12, color: "#ef4444", marginTop: 8 }}>{err}</p>}
+        <div style={{ display: "flex", gap: 10, marginTop: 18, justifyContent: "flex-end" }}>
+          <button className="btn-ghost" onClick={onClose} style={{ fontSize: 13 }}>Cancel</button>
+          <button onClick={handleSave} style={{ padding: "6px 18px", borderRadius: 6, fontSize: 13, fontWeight: 600, border: "none", background: "var(--color-primary)", color: "#fff", cursor: "pointer" }}>
+            Save Meeting
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AGMReportModal({ meetings, onClose }: { meetings: SocietyMeeting[]; onClose: () => void }) {
+  const curFY = currentFY();
+  const allFYs = useMemo(() => {
+    const fys = new Set<number>();
+    for (const m of meetings) fys.add(mtgFY(m.date));
+    fys.add(curFY);
+    return [...fys].sort((a, b) => b - a);
+  }, [meetings, curFY]);
+
+  const [selectedFY, setSelectedFY] = useState(curFY);
+
+  const agm = useMemo(
+    () => meetings.filter(m => m.type === "agm" && fyContainsMtg(m.date, selectedFY)).sort((a, b) => b.date.localeCompare(a.date))[0] ?? null,
+    [meetings, selectedFY],
+  );
+  const allInFY = useMemo(
+    () => meetings.filter(m => fyContainsMtg(m.date, selectedFY)).sort((a, b) => a.date.localeCompare(b.date)),
+    [meetings, selectedFY],
+  );
+
+  const reportText = useMemo(() => {
+    const fyLbl = fyLabel(selectedFY);
+    const lines: string[] = [];
+    const hr = "═".repeat(50);
+    const hr2 = "─".repeat(30);
+    lines.push(`SOCIETY MEETINGS REPORT — ${fyLbl}`);
+    lines.push(hr);
+    lines.push("");
+
+    if (agm) {
+      lines.push("ANNUAL GENERAL MEETING (AGM)");
+      lines.push(hr2);
+      lines.push(`Date    : ${new Date(agm.date + "T00:00:00").toLocaleDateString("en-IN", { weekday: "long", day: "2-digit", month: "long", year: "numeric" })}`);
+      if (agm.venue) lines.push(`Venue   : ${agm.venue}`);
+      if (agm.attendees != null || agm.totalMembers != null) {
+        const att = agm.attendees ?? "—";
+        const tot = agm.totalMembers ?? "—";
+        const pctStr = agm.attendees != null && agm.totalMembers ? ` (${Math.round((agm.attendees / agm.totalMembers) * 100)}%)` : "";
+        lines.push(`Attended: ${att} / ${tot} members${pctStr}`);
+      }
+      if (agm.agenda) { lines.push(""); lines.push("Agenda:"); agm.agenda.split("\n").forEach(l => { if (l.trim()) lines.push(`  • ${l.trim()}`); }); }
+      if (agm.resolutions) { lines.push(""); lines.push("Resolutions:"); agm.resolutions.split("\n").forEach(l => { if (l.trim()) lines.push(`  ✓ ${l.trim()}`); }); }
+      if (agm.notes) { lines.push(""); lines.push(`Notes: ${agm.notes}`); }
+      lines.push("");
+    } else {
+      lines.push("No AGM recorded for this financial year.");
+      lines.push("");
+    }
+
+    if (allInFY.length > 0) {
+      lines.push(`ALL MEETINGS IN ${fyLbl} (${allInFY.length})`);
+      lines.push(hr2);
+      for (const m of allInFY) {
+        lines.push("");
+        lines.push(`${MTG_ICON[m.type]}  ${MTG_LABEL[m.type].toUpperCase()}`);
+        lines.push(`Date    : ${new Date(m.date + "T00:00:00").toLocaleDateString("en-IN", { weekday: "short", day: "2-digit", month: "short", year: "numeric" })}`);
+        lines.push(`Title   : ${m.title}`);
+        if (m.venue) lines.push(`Venue   : ${m.venue}`);
+        if (m.attendees != null || m.totalMembers != null) {
+          const pctStr = m.attendees != null && m.totalMembers ? ` (${Math.round((m.attendees / m.totalMembers) * 100)}%)` : "";
+          lines.push(`Attended: ${m.attendees ?? "—"} / ${m.totalMembers ?? "—"}${pctStr}`);
+        }
+        if (m.resolutions) { lines.push("Resolutions:"); m.resolutions.split("\n").forEach(l => { if (l.trim()) lines.push(`  ✓ ${l.trim()}`); }); }
+      }
+      lines.push("");
+    }
+
+    const withRes = allInFY.filter(m => m.resolutions);
+    if (withRes.length > 0) {
+      lines.push(hr);
+      lines.push(`COMPILED RESOLUTIONS — ${fyLbl}`);
+      lines.push(hr2);
+      for (const m of withRes) {
+        lines.push(`\n[${MTG_LABEL[m.type]} — ${m.date}]`);
+        m.resolutions!.split("\n").forEach(l => { if (l.trim()) lines.push(`  • ${l.trim()}`); });
+      }
+      lines.push("");
+    }
+
+    lines.push(hr2);
+    lines.push(`Generated by jInvoice on ${new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "long", year: "numeric" })}`);
+    return lines.join("\n");
+  }, [agm, allInFY, selectedFY]);
+
+  const handleCopy = () => { navigator.clipboard.writeText(reportText).catch(() => {}); };
+
+  const handlePrint = () => {
+    const w = window.open("", "_blank");
+    if (!w) return;
+    const escaped = reportText.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    w.document.write(`<html><head><title>AGM Report ${fyLabel(selectedFY)}</title><style>body{font-family:monospace;padding:40px;white-space:pre-wrap;font-size:13px;line-height:1.7;max-width:700px;}</style></head><body>${escaped}</body></html>`);
+    w.document.close();
+    w.print();
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 640, width: "94%", maxHeight: "90vh", borderRadius: 12, background: "var(--color-surface)", boxShadow: "0 8px 40px rgba(0,0,0,0.25)", display: "flex", flexDirection: "column" }}>
+        <div style={{ padding: "18px 24px", borderBottom: "1px solid var(--color-border)", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 700 }}>AGM Report</div>
+            <div style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 2 }}>Meetings summary for the selected financial year</div>
+          </div>
+          <button onClick={onClose} style={{ fontSize: 16, background: "none", border: "none", cursor: "pointer", color: "var(--color-text-secondary)", padding: "4px 8px" }}>✕</button>
+        </div>
+
+        <div style={{ padding: "12px 24px", borderBottom: "1px solid var(--color-border)", flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>Financial Year:</span>
+            <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+              {allFYs.map(fy => (
+                <button key={fy} style={chipStyle(selectedFY === fy)} onClick={() => setSelectedFY(fy)}>{fyLabel(fy)}</button>
+              ))}
+            </div>
+          </div>
+          <div style={{ fontSize: 11.5, color: "var(--color-text-tertiary)", marginTop: 6 }}>
+            {allInFY.length} meeting{allInFY.length !== 1 ? "s" : ""} in {fyLabel(selectedFY)}
+            {agm ? ` · AGM on ${new Date(agm.date + "T00:00:00").toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}` : " · No AGM recorded"}
+          </div>
+        </div>
+
+        <div style={{ flex: 1, overflowY: "auto", padding: "16px 24px" }}>
+          <pre style={{ fontFamily: "monospace", fontSize: 12, lineHeight: 1.7, whiteSpace: "pre-wrap", color: "var(--color-text)", margin: 0, background: "var(--color-surface-2)", padding: 16, borderRadius: 8, border: "1px solid var(--color-border)" }}>
+            {reportText}
+          </pre>
+        </div>
+
+        <div style={{ padding: "14px 24px", borderTop: "1px solid var(--color-border)", display: "flex", gap: 10, justifyContent: "flex-end", flexShrink: 0 }}>
+          <button onClick={handleCopy} style={{ fontSize: 13, padding: "7px 16px", borderRadius: 7, border: "1.5px solid var(--color-border)", background: "transparent", color: "var(--color-text-secondary)", cursor: "pointer" }}>
+            📋 Copy
+          </button>
+          <button onClick={handlePrint} style={{ fontSize: 13, padding: "7px 16px", borderRadius: 7, border: "none", background: "var(--color-primary)", color: "#fff", cursor: "pointer", fontWeight: 600 }}>
+            🖨️ Print / Save PDF
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SocietyMeetingsTab() {
+  const [meetings, setMeetings] = useState<SocietyMeeting[]>(() => loadMeetings());
+  const [filterType, setFilterType]   = useState<SocietyMeeting["type"] | "all">("all");
+  const [filterYear, setFilterYear]   = useState<number | null>(null);
+  const [filterMonth, setFilterMonth] = useState<number | null>(null);
+  const [showAdd, setShowAdd]         = useState(false);
+  const [showReport, setShowReport]   = useState(false);
+  const [expandedId, setExpandedId]   = useState<string | null>(null);
+
+  const years = useMemo(() => {
+    const ys = new Set<number>();
+    for (const m of meetings) ys.add(new Date(m.date + "T00:00:00").getFullYear());
+    return [...ys].sort((a, b) => b - a);
+  }, [meetings]);
+
+  const months = useMemo(() => {
+    if (filterYear === null) return [];
+    const ms = new Set<number>();
+    for (const m of meetings) {
+      const d = new Date(m.date + "T00:00:00");
+      if (d.getFullYear() === filterYear) ms.add(d.getMonth());
+    }
+    return [...ms].sort((a, b) => a - b);
+  }, [meetings, filterYear]);
+
+  const visible = useMemo(() => {
+    let list = [...meetings];
+    if (filterType !== "all") list = list.filter(m => m.type === filterType);
+    if (filterYear !== null) list = list.filter(m => new Date(m.date + "T00:00:00").getFullYear() === filterYear);
+    if (filterMonth !== null) list = list.filter(m => new Date(m.date + "T00:00:00").getMonth() === filterMonth);
+    return list.sort((a, b) => b.date.localeCompare(a.date));
+  }, [meetings, filterType, filterYear, filterMonth]);
+
+  const typeCounts = useMemo(() => {
+    const base = filterYear !== null ? meetings.filter(m => new Date(m.date + "T00:00:00").getFullYear() === filterYear) : meetings;
+    const c: Record<string, number> = { all: base.length };
+    for (const m of base) c[m.type] = (c[m.type] ?? 0) + 1;
+    return c;
+  }, [meetings, filterYear]);
+
+  const handleSave = (m: SocietyMeeting) => {
+    const next = [m, ...meetings].sort((a, b) => b.date.localeCompare(a.date));
+    setMeetings(next);
+    saveMeetings(next);
+  };
+
+  const handleDelete = (id: string) => {
+    const next = meetings.filter(m => m.id !== id);
+    setMeetings(next);
+    saveMeetings(next);
+    if (expandedId === id) setExpandedId(null);
+  };
+
+  const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const TYPES: (SocietyMeeting["type"] | "all")[] = ["all", "agm", "sgm", "committee", "general"];
+  const thisYear = new Date().getFullYear();
+
+  return (
+    <div style={{ padding: "20px", maxWidth: 900, margin: "0 auto" }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
+        <div>
+          <h2 style={{ fontSize: 18, fontWeight: 700, color: "var(--color-text)", margin: 0 }}>Meetings</h2>
+          <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 3 }}>AGM, Special GM, Committee and Society meetings with resolutions</p>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={() => setShowReport(true)} style={{ fontSize: 13, padding: "7px 14px", borderRadius: 8, border: "1.5px solid var(--color-border)", background: "transparent", color: "var(--color-text-secondary)", cursor: "pointer" }}>
+            📄 AGM Report
+          </button>
+          <button onClick={() => setShowAdd(true)} style={{ fontSize: 13, padding: "7px 14px", borderRadius: 8, border: "none", background: "var(--color-primary)", color: "#fff", cursor: "pointer", fontWeight: 600 }}>
+            + Add Meeting
+          </button>
+        </div>
+      </div>
+
+      {/* Meeting type chips */}
+      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 12 }}>
+        {TYPES.map(t => (
+          <button key={t} style={chipStyle(filterType === t)} onClick={() => setFilterType(t)}>
+            {t === "all"
+              ? `All (${typeCounts.all ?? 0})`
+              : `${MTG_ICON[t]} ${MTG_LABEL[t]}${(typeCounts[t] ?? 0) > 0 ? ` (${typeCounts[t]})` : ""}`}
+          </button>
+        ))}
+      </div>
+
+      {/* Year filter */}
+      {years.length >= 1 && (
+        <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 10, alignItems: "center" }}>
+          <span style={{ fontSize: 11, color: "var(--color-text-tertiary)", fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.05em" }}>Year</span>
+          <button style={chipStyle(filterYear === null)} onClick={() => { setFilterYear(null); setFilterMonth(null); }}>All</button>
+          {years.map(y => <button key={y} style={chipStyle(filterYear === y)} onClick={() => { setFilterYear(y); setFilterMonth(null); }}>{y}</button>)}
+        </div>
+      )}
+
+      {/* Month filter — shown only when a year is selected and has multiple months */}
+      {filterYear !== null && months.length > 1 && (
+        <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 10, alignItems: "center" }}>
+          <span style={{ fontSize: 11, color: "var(--color-text-tertiary)", fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.05em" }}>Month</span>
+          <button style={chipStyle(filterMonth === null)} onClick={() => setFilterMonth(null)}>All</button>
+          {months.map(mo => <button key={mo} style={chipStyle(filterMonth === mo)} onClick={() => setFilterMonth(mo)}>{MONTH_NAMES[mo]}</button>)}
+        </div>
+      )}
+
+      <SummaryCards cards={[
+        { label: "Total Meetings", value: String(meetings.length) },
+        { label: "AGMs",           value: String(meetings.filter(m => m.type === "agm").length) },
+        { label: "This Year",      value: String(meetings.filter(m => new Date(m.date + "T00:00:00").getFullYear() === thisYear).length) },
+        { label: "With Resolutions", value: String(meetings.filter(m => m.resolutions).length) },
+      ]} />
+
+      {visible.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "48px 0", color: "var(--color-text-secondary)", fontSize: 13 }}>
+          {meetings.length === 0
+            ? <>No meetings recorded yet.<br /><span style={{ opacity: 0.7 }}>Add your first AGM or committee meeting to get started.</span></>
+            : "No meetings match the current filters."}
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {visible.map((m) => {
+            const isOpen = expandedId === m.id;
+            const d = new Date(m.date + "T00:00:00");
+            const dateStr = d.toLocaleDateString("en-IN", { weekday: "short", day: "2-digit", month: "short", year: "numeric" });
+            const attStr = m.attendees != null && m.totalMembers != null
+              ? `${m.attendees}/${m.totalMembers} (${Math.round((m.attendees / m.totalMembers) * 100)}%)`
+              : m.attendees != null ? `${m.attendees} attended` : null;
+
+            const typeBg  = m.type === "agm" ? "#7c3aed22" : m.type === "sgm" ? "#dc262622" : "var(--color-surface-2)";
+            const typeCol = m.type === "agm" ? "#7c3aed"   : m.type === "sgm" ? "#dc2626"   : "var(--color-text-tertiary)";
+
+            return (
+              <div key={m.id} style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10, overflow: "hidden" }}>
+                <div onClick={() => setExpandedId(isOpen ? null : m.id)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", cursor: "pointer" }}>
+                  <span style={{ fontSize: 20, flexShrink: 0 }}>{MTG_ICON[m.type]}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--color-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.title}</div>
+                    <div style={{ fontSize: 11.5, color: "var(--color-text-secondary)", marginTop: 2, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                      <span>📅 {dateStr}</span>
+                      {m.venue && <span>📍 {m.venue}</span>}
+                      {attStr && <span>👥 {attStr}</span>}
+                      {m.resolutions && <span style={{ color: "#16a34a" }}>✓ Resolutions</span>}
+                    </div>
+                  </div>
+                  <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 4, background: typeBg, color: typeCol, flexShrink: 0, whiteSpace: "nowrap" as const }}>
+                    {MTG_LABEL[m.type]}
+                  </span>
+                  <span style={{ fontSize: 10, color: "var(--color-text-tertiary)", flexShrink: 0 }}>{isOpen ? "▲" : "▼"}</span>
+                </div>
+
+                {isOpen && (
+                  <div style={{ padding: "0 16px 16px", borderTop: "1px solid var(--color-border)" }}>
+                    {m.agenda && (
+                      <div style={{ marginTop: 12 }}>
+                        <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase" as const, letterSpacing: "0.05em", marginBottom: 5 }}>Agenda</div>
+                        <div style={{ fontSize: 12.5, color: "var(--color-text)", whiteSpace: "pre-wrap", lineHeight: 1.65 }}>{m.agenda}</div>
+                      </div>
+                    )}
+                    {m.resolutions && (
+                      <div style={{ marginTop: 12 }}>
+                        <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase" as const, letterSpacing: "0.05em", marginBottom: 5 }}>Resolutions Passed</div>
+                        <div style={{ fontSize: 12.5, color: "var(--color-text)", whiteSpace: "pre-wrap", lineHeight: 1.65, background: "#16a34a10", padding: "8px 12px", borderRadius: 6, borderLeft: "3px solid #16a34a" }}>{m.resolutions}</div>
+                      </div>
+                    )}
+                    {m.notes && (
+                      <div style={{ marginTop: 12 }}>
+                        <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase" as const, letterSpacing: "0.05em", marginBottom: 5 }}>Notes</div>
+                        <div style={{ fontSize: 12.5, color: "var(--color-text-secondary)", whiteSpace: "pre-wrap", lineHeight: 1.65 }}>{m.notes}</div>
+                      </div>
+                    )}
+                    {!m.agenda && !m.resolutions && !m.notes && (
+                      <p style={{ fontSize: 12, color: "var(--color-text-tertiary)", marginTop: 12, fontStyle: "italic" }}>No agenda or resolutions recorded.</p>
+                    )}
+                    <div style={{ marginTop: 14, display: "flex", justifyContent: "flex-end" }}>
+                      <button onClick={() => handleDelete(m.id)} style={{ fontSize: 12, padding: "4px 12px", borderRadius: 6, border: "1.5px solid #ef4444", background: "transparent", color: "#ef4444", cursor: "pointer" }}>
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {showAdd    && <AddMeetingModal onClose={() => setShowAdd(false)}    onSave={handleSave} />}
+      {showReport && <AGMReportModal  meetings={meetings}                  onClose={() => setShowReport(false)} />}
+    </div>
+  );
+}
+
 // ── Profile-based tab visibility ──────────────────────────────────────────────
 
 type UserProfile = "personal" | "society" | "shopkeeper" | "tax_consultant" | "ca" | "real_estate" | "advocate" | "bookkeeper" | "freelancer" | "ngo";
@@ -3966,7 +4441,7 @@ function visibleTabs(mode: string): ReportTab[] {
   if (GST_PROFILES.includes(mode as UserProfile)) tabs.unshift("gst");
   if (TAGS_PROFILES.includes(mode as UserProfile)) tabs.push("tags");
   if (mode === "personal")      tabs.push("personal_budget", "personal_tax");
-  if (mode === "society")       { tabs.push("society_ledger"); tabs.push("society_audit"); tabs.push("society_dues"); tabs.push("society_sinking"); tabs.push("society_vendor"); tabs.push("society_quotes"); }
+  if (mode === "society")       { tabs.push("society_ledger"); tabs.push("society_audit"); tabs.push("society_dues"); tabs.push("society_sinking"); tabs.push("society_vendor"); tabs.push("society_quotes"); tabs.push("society_meetings"); }
   if (mode === "bookkeeper")    tabs.push("bookkeeper_ledger");
   if (mode === "shopkeeper")    tabs.push("shop_purchase_register", "shop_expense_head", "shop_gst_summary");
   if (mode === "tax_consultant") tabs.push("tc_client_summary", "tc_tds_tracker", "tc_fy_comparison", "tc_gstr2a");
@@ -3999,6 +4474,7 @@ export function ReportScreen() {
     { id: "society_sinking",   label: "Sinking Fund" },
     { id: "society_vendor",    label: "Vendors" },
     { id: "society_quotes",    label: "Quotes" },
+    { id: "society_meetings",  label: "Meetings" },
     { id: "bookkeeper_ledger", label: "Account Book" },
     { id: "shop_purchase_register", label: "Purchase Register" },
     { id: "shop_expense_head",      label: "Expense Head" },
@@ -4061,6 +4537,7 @@ export function ReportScreen() {
         {activeTab === "society_sinking"   && <SocietySinkingFundTab records={records} />}
         {activeTab === "society_quotes"    && <SocietyQuotesTab      records={records} />}
         {activeTab === "society_audit"     && <SocietyAuditTab       records={records} />}
+        {activeTab === "society_meetings"  && <SocietyMeetingsTab />}
         {activeTab === "bookkeeper_ledger" && <BookkeeperLedgerTab   records={records} />}
         {activeTab === "shop_purchase_register" && <ShopkeeperPurchaseRegisterTab records={records} />}
         {activeTab === "shop_expense_head"      && <ShopkeeperExpenseHeadTab      records={records} />}
