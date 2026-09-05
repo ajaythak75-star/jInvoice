@@ -584,6 +584,7 @@ export function detectNGOCategory(
 // ─── Personal ──────────────────────────────────────────────────────────────
 
 export type PersonalCategory =
+  | "bank_card_statement"
   | "grocery_household"
   | "medical_health"
   | "food_dining"
@@ -595,18 +596,27 @@ export type PersonalCategory =
   | "other";
 
 export const PERSONAL_CATEGORY_LABEL: Record<PersonalCategory, string> = {
-  grocery_household:  "Grocery & Household",
-  medical_health:     "Medical & Health",
-  food_dining:        "Food & Dining",
-  transport_fuel:     "Transport & Fuel",
-  education:          "Education",
-  entertainment:      "Entertainment",
-  utilities_bills:    "Utilities & Bills",
-  clothing_lifestyle: "Clothing & Lifestyle",
-  other:              "Other",
+  bank_card_statement: "Bank / Card Statement",
+  grocery_household:   "Grocery & Household",
+  medical_health:      "Medical & Health",
+  food_dining:         "Food & Dining",
+  transport_fuel:      "Transport & Fuel",
+  education:           "Education",
+  entertainment:       "Entertainment",
+  utilities_bills:     "Utilities & Bills",
+  clothing_lifestyle:  "Clothing & Lifestyle",
+  other:               "Other",
 };
 
 const PERSONAL_KEYWORDS: Array<{ cat: PersonalCategory; keywords: string[] }> = [
+  // Check banking document type FIRST — prevents transaction-level keywords (fuel, travel, food)
+  // inside the statement from overriding the document-level category.
+  { cat: "bank_card_statement", keywords: [
+    "card services", "credit card statement", "bank statement", "account statement",
+    "credit limit", "minimum payment due", "closing balance", "opening balance",
+    "available credit", "new balance", "statement date", "payment due date",
+    "bank passbook", "passbook", "loan statement", "emi schedule",
+  ]},
   { cat: "grocery_household", keywords: [
     "grocery", "supermarket", "dmart", "bigbasket", "blinkit", "zepto", "swiggy instamart",
     "reliance fresh", "more", "nature's basket", "vegetables", "fruits", "household",

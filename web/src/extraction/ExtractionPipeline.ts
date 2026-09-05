@@ -13,7 +13,7 @@ import { db, insertInvoiceWithItems, isDuplicateInvoice, isDuplicateByFilename, 
 import type { InvoicePdfFile } from "../data/InvoiceDatabase";
 import { detectCategory } from "../core/extraction/CategoryDetector";
 import { detectSocietyCategory } from "../core/extraction/SocietyExpenseDetector";
-import { detectProfessionalCategory, type ProfessionalProfile } from "../core/extraction/ProfessionalCategoryDetector";
+import { detectProfessionalCategory, detectPersonalCategory, type ProfessionalProfile } from "../core/extraction/ProfessionalCategoryDetector";
 import { detectDocType } from "./DocTypeDetector";
 import { computeSentinelForInvoice, computeSentinelForProfileCategory } from "../service/ExpirySentinel";
 import { detectSentinelCandidates } from "./WarrantyDetector";
@@ -35,11 +35,14 @@ async function maybeSarvamTranslate(text: string | null): Promise<string | null>
   }
 }
 
-const PROFESSIONAL_PROFILES: ProfessionalProfile[] = ["shopkeeper", "tax_consultant", "ca", "real_estate", "advocate", "bookkeeper"];
+const PROFESSIONAL_PROFILES: ProfessionalProfile[] = [
+  "shopkeeper", "tax_consultant", "ca", "real_estate", "advocate", "bookkeeper", "freelancer", "ngo",
+];
 
 export function resolveCategory(merchantName: string | null, lineItemNames: string[], extraText?: string | null): string {
   const mode = prefs.activeMode;
   if (mode === "society") return detectSocietyCategory(merchantName, lineItemNames, extraText);
+  if (mode === "personal") return detectPersonalCategory(merchantName, lineItemNames, extraText);
   if (PROFESSIONAL_PROFILES.includes(mode as ProfessionalProfile))
     return detectProfessionalCategory(mode as ProfessionalProfile, merchantName, lineItemNames, extraText);
   return detectCategory(merchantName, lineItemNames);
