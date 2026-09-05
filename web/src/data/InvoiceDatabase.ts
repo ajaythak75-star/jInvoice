@@ -57,6 +57,7 @@ export interface SentinelRecord {
   expiresAt: string;
   status: "active" | "expired" | "dismissed";
   createdAt: string;
+  reminderDays?: number;
 }
 
 export interface LineItemRow {

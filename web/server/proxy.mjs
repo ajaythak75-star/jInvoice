@@ -1105,6 +1105,19 @@ app.post("/api/auth/verify-otp", async (req, res) => {
   res.json({ ok: true, token: sessionToken });
 });
 
+// ── Reminder email ─────────────────────────────────────────────────────────────
+
+app.post("/api/send-reminder", async (req, res) => {
+  const { email, subject, html } = req.body ?? {};
+  if (!email || !subject) return res.status(400).json({ error: "email and subject required" });
+  try {
+    await _sendEmail(email, subject, html ?? `<p>${subject}</p>`);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
 // ── Subscription / plan endpoints ─────────────────────────────────────────────
 
 function _planToken(req) {

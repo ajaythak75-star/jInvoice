@@ -995,6 +995,40 @@ app.post("/api/gemini", async (req, res) => {
   }
 });
 
+// ── Reminder email (nodemailer) ───────────────────────────────────────────────
+
+const SMTP_HOST = process.env.SMTP_HOST ?? "";
+const SMTP_PORT = Number(process.env.SMTP_PORT ?? 587);
+const SMTP_USER = process.env.SMTP_USER ?? "";
+const SMTP_PASS = process.env.SMTP_PASS ?? "";
+const SMTP_FROM = process.env.SMTP_FROM ?? SMTP_USER;
+
+app.post("/api/send-reminder", async (req, res) => {
+  const { email, subject, html } = req.body ?? {};
+  if (!email || !subject) return res.status(400).json({ error: "email and subject required" });
+  if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) {
+    return res.status(503).json({ error: "SMTP not configured" });
+  }
+  try {
+    const { default: nodemailer } = await import("nodemailer");
+    const transporter = nodemailer.createTransport({
+      host: SMTP_HOST,
+      port: SMTP_PORT,
+      secure: SMTP_PORT === 465,
+      auth: { user: SMTP_USER, pass: SMTP_PASS },
+    });
+    await transporter.sendMail({
+      from: `jInvoice <${SMTP_FROM}>`,
+      to: email,
+      subject,
+      html: html ?? `<p>${subject}</p>`,
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
 // ── Static files + SPA fallback ────────────────────────────────────────────
 
 // Mobile redirect must come before express.static (which would serve index.html for /)

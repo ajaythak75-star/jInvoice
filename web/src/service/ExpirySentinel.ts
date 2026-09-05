@@ -79,15 +79,22 @@ export async function addManualAlert(
   label: string,
   type: SentinelRecord["type"],
   expiresAt: string,
+  reminderDays?: number,
 ): Promise<void> {
-  await db.sentinelRecords.add({
+  const rec: Omit<SentinelRecord, "id"> = {
     invoiceId: 0,
     type,
     label,
     expiresAt,
     status: "active",
     createdAt: new Date().toISOString(),
-  });
+  };
+  if (reminderDays != null) rec.reminderDays = reminderDays;
+  await db.sentinelRecords.add(rec as SentinelRecord);
+}
+
+export async function updateSentinelReminderDays(id: number, reminderDays: number | undefined): Promise<void> {
+  await db.sentinelRecords.update(id, { reminderDays });
 }
 
 /** Create a warranty sentinel manually when none was auto-detected. */
