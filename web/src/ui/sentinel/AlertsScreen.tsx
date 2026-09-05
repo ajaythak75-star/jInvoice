@@ -19,6 +19,7 @@ const TYPE_ICON: Record<string, string> = {
   membership_renewal:"🎓",
   software_renewal:  "💻",
   retainer_renewal:  "⚖️",
+  custom:            "🔔",
 };
 
 const TYPE_LABEL: Record<string, string> = {
@@ -34,6 +35,7 @@ const TYPE_LABEL: Record<string, string> = {
   membership_renewal:"Membership Renewal",
   software_renewal:  "Software Renewal",
   retainer_renewal:  "Retainer Renewal",
+  custom:            "Custom",
 };
 
 const ALL_TYPES = Object.keys(TYPE_LABEL) as SentinelRecord["type"][];
@@ -174,7 +176,9 @@ function AlertCard({ row, onDismiss, onExpiryChange }: {
         </span>
         <span style={{ flexShrink: 0 }}>
           <span style={labelStyle}>Type</span>
-          {TYPE_LABEL[record.type] ?? record.type.replace(/_/g, " ")}
+          {record.type === "custom"
+            ? (record.customType ?? "Custom")
+            : (TYPE_LABEL[record.type] ?? record.type.replace(/_/g, " "))}
         </span>
       </div>
       {/* Line 3: Date info + Expiry */}
@@ -254,6 +258,7 @@ function AddAlertModal({ onClose, onAdded }: { onClose: () => void; onAdded: () 
   const [err, setErr]                 = useState<string | null>(null);
   const [fileOptions, setFileOptions] = useState<{ name: string; invoiceId: number }[]>([]);
   const [linkedInvoiceId, setLinkedInvoiceId] = useState(0);
+  const [customType, setCustomType]   = useState("");
   const labelRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -290,20 +295,23 @@ function AddAlertModal({ onClose, onAdded }: { onClose: () => void; onAdded: () 
     if (!label.trim()) { setErr("Enter a description for this alert."); return; }
     if (!startDate)    { setErr("Select a start date."); return; }
     if (months == null){ setErr("Select a duration in months."); return; }
+    if (type === "custom" && !customType.trim()) { setErr("Enter a name for your custom alert type."); return; }
 
     // Duplicate check
     const existing = await db.sentinelRecords.where("status").equals("active").toArray();
+    const effectiveType = type === "custom" ? customType.trim().toLowerCase() : type;
     const isDuplicate = linkedInvoiceId > 0
-      ? existing.some((s) => s.invoiceId === linkedInvoiceId && s.type === type)
-      : existing.some((s) => s.invoiceId === 0 && s.type === type && s.label.trim().toLowerCase() === label.trim().toLowerCase());
+      ? existing.some((s) => s.invoiceId === linkedInvoiceId && (s.type === type) && (type !== "custom" || s.customType?.toLowerCase() === effectiveType))
+      : existing.some((s) => s.invoiceId === 0 && s.type === type && s.label.trim().toLowerCase() === label.trim().toLowerCase() && (type !== "custom" || s.customType?.toLowerCase() === effectiveType));
     if (isDuplicate) {
-      setErr(`An active ${TYPE_LABEL[type]} alert already exists for this file. Dismiss the existing one first.`);
+      const typeDisplay = type === "custom" ? customType.trim() : TYPE_LABEL[type];
+      setErr(`An active "${typeDisplay}" alert already exists for this file. Dismiss the existing one first.`);
       return;
     }
 
     setSaving(true);
     try {
-      await addManualAlert(label.trim(), type, expiryDate!, reminderDays ?? undefined, linkedInvoiceId);
+      await addManualAlert(label.trim(), type, expiryDate!, reminderDays ?? undefined, linkedInvoiceId, type === "custom" ? customType.trim() : undefined);
       onAdded();
       onClose();
     } catch {
@@ -364,12 +372,22 @@ function AddAlertModal({ onClose, onAdded }: { onClose: () => void; onAdded: () 
             <select
               style={{ ...inputStyle, cursor: "pointer" }}
               value={type}
-              onChange={(e) => setType(e.target.value as SentinelRecord["type"])}
+              onChange={(e) => { setType(e.target.value as SentinelRecord["type"]); setErr(null); }}
             >
-              {ALL_TYPES.map((t) => (
+              {ALL_TYPES.filter((t) => t !== "custom").map((t) => (
                 <option key={t} value={t}>{TYPE_ICON[t]} {TYPE_LABEL[t]}</option>
               ))}
+              <option value="custom">🔔 Custom…</option>
             </select>
+            {type === "custom" && (
+              <input
+                style={{ ...inputStyle, marginTop: 8 }}
+                placeholder="e.g. Car Insurance, Gym Membership, TV Licence"
+                value={customType}
+                onChange={(e) => { setCustomType(e.target.value); setErr(null); }}
+                onKeyDown={(e) => { if (e.key === "Enter") handleSubmit(); }}
+              />
+            )}
           </div>
 
           <div>

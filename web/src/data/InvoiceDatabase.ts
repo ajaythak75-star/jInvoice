@@ -52,7 +52,9 @@ export interface SentinelRecord {
     | "itr_filing"
     | "membership_renewal"
     | "software_renewal"
-    | "retainer_renewal";
+    | "retainer_renewal"
+    | "custom";
+  customType?: string;
   label: string;
   expiresAt: string;
   status: "active" | "expired" | "dismissed";

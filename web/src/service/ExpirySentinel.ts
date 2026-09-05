@@ -81,6 +81,7 @@ export async function addManualAlert(
   expiresAt: string,
   reminderDays?: number,
   invoiceId = 0,
+  customType?: string,
 ): Promise<void> {
   const rec: Omit<SentinelRecord, "id"> = {
     invoiceId,
@@ -91,6 +92,7 @@ export async function addManualAlert(
     createdAt: new Date().toISOString(),
   };
   if (reminderDays != null) rec.reminderDays = reminderDays;
+  if (customType?.trim()) rec.customType = customType.trim();
   await db.sentinelRecords.add(rec as SentinelRecord);
 }
 
