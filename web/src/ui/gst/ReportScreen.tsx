@@ -4727,7 +4727,7 @@ function GenerateAGMModal({ meetings, importedDocs, onClose }: {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "sarvam-m",
+          model: "sarvam-105b",
           messages: buildSarvamMessages(),
           temperature: 0.3,
           max_tokens: 4096,
