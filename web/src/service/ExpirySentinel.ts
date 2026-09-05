@@ -74,15 +74,16 @@ export async function updateSentinelExpiry(id: number, expiresAt: string): Promi
   await db.sentinelRecords.update(id, { expiresAt });
 }
 
-/** Create a fully manual alert with any type, not linked to any invoice (invoiceId = 0). */
+/** Create a fully manual alert with any type. Pass invoiceId > 0 to link it to an invoice record so renames are reflected automatically. */
 export async function addManualAlert(
   label: string,
   type: SentinelRecord["type"],
   expiresAt: string,
   reminderDays?: number,
+  invoiceId = 0,
 ): Promise<void> {
   const rec: Omit<SentinelRecord, "id"> = {
-    invoiceId: 0,
+    invoiceId,
     type,
     label,
     expiresAt,

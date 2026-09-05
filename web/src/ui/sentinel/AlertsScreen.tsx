@@ -252,26 +252,39 @@ function AddAlertModal({ onClose, onAdded }: { onClose: () => void; onAdded: () 
   const [reminderDays, setReminderDays] = useState<number | null>(null);
   const [saving, setSaving]           = useState(false);
   const [err, setErr]                 = useState<string | null>(null);
-  const [fileOptions, setFileOptions] = useState<string[]>([]);
+  const [fileOptions, setFileOptions] = useState<{ name: string; invoiceId: number }[]>([]);
+  const [linkedInvoiceId, setLinkedInvoiceId] = useState(0);
   const labelRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     labelRef.current?.focus();
-    // Load unique file/invoice names from ViewScreen records
+    // Load unique file/invoice names from ViewScreen records, preserving invoice ID so renames propagate
     db.invoices.toArray().then((invs) => {
-      const names = new Set<string>();
+      const seen = new Map<string, number>();
       for (const inv of invs) {
-        if (inv.status === "duplicate") continue;
+        if (inv.status === "duplicate" || inv.id == null) continue;
         const name = inv.sourceFilename
           ? inv.sourceFilename.replace(/\.[^.]+$/, "")
           : inv.subject ?? inv.merchantName ?? null;
-        if (name?.trim()) names.add(name.trim());
+        if (name?.trim() && !seen.has(name.trim())) seen.set(name.trim(), inv.id);
       }
-      setFileOptions([...names].sort((a, b) => a.localeCompare(b)));
+      setFileOptions(
+        [...seen.entries()]
+          .map(([name, invoiceId]) => ({ name, invoiceId }))
+          .sort((a, b) => a.name.localeCompare(b.name)),
+      );
     });
   }, []);
 
   const expiryDate = startDate && months != null ? addMonths(startDate, months) : null;
+
+  const handleLabelChange = (val: string) => {
+    setLabel(val);
+    setErr(null);
+    // If the typed value exactly matches a datalist option, link the alert to that invoice
+    const match = fileOptions.find((o) => o.name === val.trim());
+    setLinkedInvoiceId(match ? match.invoiceId : 0);
+  };
 
   const handleSubmit = async () => {
     if (!label.trim()) { setErr("Enter a description for this alert."); return; }
@@ -279,7 +292,7 @@ function AddAlertModal({ onClose, onAdded }: { onClose: () => void; onAdded: () 
     if (months == null){ setErr("Select a duration in months."); return; }
     setSaving(true);
     try {
-      await addManualAlert(label.trim(), type, expiryDate!, reminderDays ?? undefined);
+      await addManualAlert(label.trim(), type, expiryDate!, reminderDays ?? undefined, linkedInvoiceId);
       onAdded();
       onClose();
     } catch {
@@ -321,15 +334,16 @@ function AddAlertModal({ onClose, onAdded }: { onClose: () => void; onAdded: () 
               style={inputStyle}
               placeholder="e.g. Samsung TV Warranty, Lift AMC, GST Q3"
               value={label}
-              onChange={(e) => { setLabel(e.target.value); setErr(null); }}
+              onChange={(e) => handleLabelChange(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") handleSubmit(); }}
             />
             <datalist id="alert-files-datalist">
-              {fileOptions.map((f) => <option key={f} value={f} />)}
+              {fileOptions.map((o) => <option key={o.invoiceId} value={o.name} />)}
             </datalist>
             {fileOptions.length > 0 && (
               <p style={{ fontSize: 11, color: "var(--color-text-tertiary)", margin: "4px 0 0" }}>
                 {fileOptions.length} file{fileOptions.length !== 1 ? "s" : ""} from your records — type to search or pick one
+                {linkedInvoiceId > 0 && " · linked ✓"}
               </p>
             )}
           </div>
