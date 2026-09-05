@@ -95,6 +95,14 @@ const SOCIETY_KEYWORDS: Array<{ cat: SocietyExpenseCategory; keywords: string[] 
     ],
   },
   {
+    cat: "quotation",
+    keywords: [
+      "quotation", "rate list", "rate schedule", "proforma invoice",
+      "pro-forma", "estimate", "bill of quantities", "boq",
+      "price list", "valid until", "validity of offer",
+    ],
+  },
+  {
     cat: "civil_work",
     keywords: [
       "civil work", "repair", "renovation", "painting", "plumber", "plumbing",
@@ -116,14 +124,6 @@ const SOCIETY_KEYWORDS: Array<{ cat: SocietyExpenseCategory; keywords: string[] 
       "property tax", "municipal tax", "bmc", "mcgm", "nmmc", "pcmc",
       "professional tax", "labour cess", "stamp duty", "government",
       "municipal corporation", "nagar palika", "registration fees",
-    ],
-  },
-  {
-    cat: "quotation",
-    keywords: [
-      "quotation", "rate list", "rate schedule", "proforma invoice",
-      "pro-forma", "estimate", "bill of quantities", "boq",
-      "price list", "valid until", "validity of offer",
     ],
   },
   {

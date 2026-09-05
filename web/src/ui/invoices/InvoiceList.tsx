@@ -197,7 +197,11 @@ function ReviewPanel({ inv, lineItems, onClose }: { inv: InvoiceMeta; lineItems:
                     )}
                   </div>
                 ) : (
-                  <span>{category ? category.replace(/_/g, " ") : "—"}</span>
+                  <span>{category
+                    ? (isSociety
+                        ? (SOCIETY_CATEGORY_LABEL[category as SocietyExpenseCategory] ?? category.replace(/_/g, " "))
+                        : category.replace(/_/g, " "))
+                    : "—"}</span>
                 )}
               </div>
             </div>
