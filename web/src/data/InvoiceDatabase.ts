@@ -55,6 +55,7 @@ export interface SentinelRecord {
     | "retainer_renewal"
     | "custom";
   customType?: string;
+  isManual?: boolean;
   label: string;
   expiresAt: string;
   status: "active" | "expired" | "dismissed";

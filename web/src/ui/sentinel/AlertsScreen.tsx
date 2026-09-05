@@ -129,10 +129,12 @@ function AlertCard({ row, onDismiss, onExpiryChange }: {
   const isManual = record.invoiceId === 0;
   const reminderDue = isReminderDue(record);
 
-  const label = fileLabel(inv);
-  const productName = isManual
-    ? record.label
-    : (item?.name ?? label ?? inv?.subject ?? inv?.merchantName ?? record.label);
+  const fileLbl = fileLabel(inv);
+  // For linked manual alerts: show the live file label (rename-aware), fall back to what user typed.
+  // For auto-detected alerts: show the specific line item name, then file label, then merchant.
+  const productName = record.isManual
+    ? (record.invoiceId > 0 ? (fileLbl ?? record.label) : record.label)
+    : (item?.name ?? fileLbl ?? inv?.subject ?? inv?.merchantName ?? record.label);
 
   const metaStyle: React.CSSProperties = { fontSize: 11.5, color: "var(--color-text-secondary)" };
   const labelStyle: React.CSSProperties = { fontSize: 10.5, fontWeight: 600, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.04em", marginRight: 3 };

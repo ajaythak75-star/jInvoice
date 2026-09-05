@@ -89,6 +89,7 @@ export async function addManualAlert(
     label,
     expiresAt,
     status: "active",
+    isManual: true,
     createdAt: new Date().toISOString(),
   };
   if (reminderDays != null) rec.reminderDays = reminderDays;
