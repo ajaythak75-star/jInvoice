@@ -100,13 +100,11 @@ function applyOAuthHash(): boolean {
 applyOAuthHash();
 
 
-const ADMIN_EMAIL = "ajaythak75@gmail.com";
-
 export function App() {
   const [loggedIn, setLoggedIn] = useState(auth.isLoggedIn);
   const [tab, setTab] = useState("import");
-  const userEmail = auth.email ?? prefs.gmailEmail ?? null;
-  const isAdmin = userEmail?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
+  const [adminRole, setAdminRole] = useState<"super_admin" | "admin" | null>(null);
+  const isAdmin = adminRole !== null;
   const [alertCount, setAlertCount] = useState(0);
   const [showTrialBanner, setShowTrialBanner] = useState(false);
 
@@ -123,6 +121,17 @@ export function App() {
   useEffect(() => {
     if (!loggedIn) return;
     refreshAllConfig().catch(() => {});
+  }, [loggedIn]);
+
+  // Fetch the caller's admin role from the server so dynamic admins are recognized
+  useEffect(() => {
+    if (!loggedIn) { setAdminRole(null); return; }
+    const h: Record<string, string> = { "Content-Type": "application/json" };
+    if (auth.token) h["Authorization"] = `Bearer ${auth.token}`;
+    fetch("/api/admin/role", { headers: h })
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => setAdminRole(d?.role === "super_admin" ? "super_admin" : d?.role === "admin" ? "admin" : null))
+      .catch(() => setAdminRole(null));
   }, [loggedIn]);
 
   // Sync subscription plan from Supabase on every login/startup
@@ -193,7 +202,19 @@ export function App() {
         />
       )}
       {/* Keep AutoImportSettings mounted so in-progress uploads survive tab switches */}
-      <div style={{ display: tab === "import" ? "contents" : "none" }}><AutoImportSettings /></div>
+      {isAdmin ? (
+        tab === "import" && (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 24px", gap: 12, textAlign: "center" }}>
+            <span style={{ fontSize: 32 }}>🔒</span>
+            <div style={{ fontSize: 16, fontWeight: 700, color: "var(--color-text)" }}>Import disabled for admin accounts</div>
+            <div style={{ fontSize: 13, color: "var(--color-text-secondary)", maxWidth: 340 }}>
+              Admin users cannot import or sync invoices. Switch to the Admin panel to manage users.
+            </div>
+          </div>
+        )
+      ) : (
+        <div style={{ display: tab === "import" ? "contents" : "none" }}><AutoImportSettings /></div>
+      )}
       {tab === "view"     && <ViewScreen />}
       {tab === "buy"      && <BuyScreen />}
       {tab === "gst"      && <ReportScreen />}
