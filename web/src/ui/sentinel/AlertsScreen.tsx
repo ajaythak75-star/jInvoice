@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { getActiveSentinels, dismissSentinel, dismissAllSentinels, daysUntilExpiry, updateSentinelExpiry, addManualAlert } from "../../service/ExpirySentinel";
+import { getActiveSentinels, dismissSentinel, dismissAllSentinels, daysUntilExpiry, updateSentinelExpiry, updateSentinelReminderDays, addManualAlert } from "../../service/ExpirySentinel";
 import { db } from "../../data/InvoiceDatabase";
 import { auth } from "../../data/AuthStore";
 import { prefs } from "../../data/AutoImportPreferences";
@@ -115,14 +115,16 @@ interface AlertRow {
   item: LineItemRow | null;
 }
 
-function AlertCard({ row, onDismiss, onExpiryChange }: {
+function AlertCard({ row, onDismiss, onExpiryChange, onReminderChange }: {
   row: AlertRow;
   onDismiss: () => void;
   onExpiryChange: (newExpiry: string) => void;
+  onReminderChange: (days: number | undefined) => void;
 }) {
   const { record, inv, item } = row;
   const [editing, setEditing] = useState(false);
   const [editDate, setEditDate] = useState(record.expiresAt);
+  const [editReminderDays, setEditReminderDays] = useState<number | null>(record.reminderDays ?? null);
   const [saving, setSaving] = useState(false);
   const days = daysUntilExpiry(record.expiresAt);
   const icon = TYPE_ICON[record.type] ?? "🔔";
@@ -148,7 +150,9 @@ function AlertCard({ row, onDismiss, onExpiryChange }: {
     setSaving(true);
     try {
       await updateSentinelExpiry(record.id, editDate);
+      await updateSentinelReminderDays(record.id, editReminderDays ?? undefined);
       onExpiryChange(editDate);
+      onReminderChange(editReminderDays ?? undefined);
       setEditing(false);
     } finally {
       setSaving(false);
@@ -163,7 +167,7 @@ function AlertCard({ row, onDismiss, onExpiryChange }: {
         <span className="sentinel-label" style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={productName}>{productName}</span>
         <span className={urgencyClass(days, reminderDue)} style={{ flexShrink: 0, ...(reminderDue ? { background: "#ef4444", color: "#fff" } : {}) }}>{urgencyLabel(days)}</span>
         <button
-          onClick={() => { setEditing(!editing); setEditDate(record.expiresAt); }}
+          onClick={() => { setEditing(!editing); setEditDate(record.expiresAt); setEditReminderDays(record.reminderDays ?? null); }}
           aria-label="Edit expiry"
           title="Edit expiry date"
           style={{ background: "none", border: "none", cursor: "pointer", padding: "2px 4px", fontSize: 13, color: "var(--color-text-secondary)", flexShrink: 0 }}
@@ -204,37 +208,67 @@ function AlertCard({ row, onDismiss, onExpiryChange }: {
           </span>
         </div>
       )}
-      {/* Inline edit row */}
+      {/* Inline edit panel */}
       {editing && (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, paddingLeft: 30, paddingTop: 4 }}>
-          <span style={{ ...labelStyle }}>New Expiry</span>
-          <input
-            type="date"
-            value={editDate}
-            onChange={(e) => setEditDate(e.target.value)}
-            style={{
-              fontSize: 12, padding: "3px 6px", borderRadius: 4,
-              border: "1px solid var(--color-border)",
-              background: "var(--color-surface)", color: "var(--color-text)",
-            }}
-          />
-          <button
-            onClick={handleSave}
-            disabled={saving || !editDate}
-            style={{
-              fontSize: 12, padding: "3px 10px", borderRadius: 4, border: "none",
-              background: "var(--color-primary)", color: "#fff", cursor: saving ? "wait" : "pointer",
-              opacity: saving ? 0.7 : 1,
-            }}
-          >{saving ? "Saving…" : "Save"}</button>
-          <button
-            onClick={() => setEditing(false)}
-            style={{
-              fontSize: 12, padding: "3px 8px", borderRadius: 4,
-              border: "1px solid var(--color-border)",
-              background: "var(--color-surface)", color: "var(--color-text-secondary)", cursor: "pointer",
-            }}
-          >Cancel</button>
+        <div style={{ paddingLeft: 30, paddingTop: 6, display: "flex", flexDirection: "column", gap: 8 }}>
+          {/* Purchased / Added date — display only */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, ...metaStyle }}>
+            <span style={labelStyle}>{isManual ? "Added" : "Purchased"}</span>
+            <span>{isManual ? formatDate(record.createdAt) : (inv ? formatDate(inv.invoiceDate ?? inv.createdAt) : "—")}</span>
+          </div>
+          {/* Expiry date */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={labelStyle}>Expiry</span>
+            <input
+              type="date"
+              value={editDate}
+              onChange={(e) => setEditDate(e.target.value)}
+              style={{
+                fontSize: 12, padding: "3px 6px", borderRadius: 4,
+                border: "1px solid var(--color-border)",
+                background: "var(--color-surface)", color: "var(--color-text)",
+              }}
+            />
+          </div>
+          {/* Reminder days chips */}
+          <div>
+            <span style={labelStyle}>Reminder before expiry</span>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 5 }}>
+              {REMINDER_OPTIONS.map((opt) => (
+                <button
+                  key={opt.label}
+                  type="button"
+                  onClick={() => setEditReminderDays(opt.days)}
+                  style={{
+                    padding: "3px 9px", borderRadius: 5, fontSize: 11.5, fontWeight: 600, cursor: "pointer",
+                    border: editReminderDays === opt.days ? "none" : "1px solid var(--color-border)",
+                    background: editReminderDays === opt.days ? (opt.days == null ? "#6b7280" : "#ef4444") : "var(--color-surface-2)",
+                    color: editReminderDays === opt.days ? "#fff" : "var(--color-text)",
+                  }}
+                >{opt.label}</button>
+              ))}
+            </div>
+          </div>
+          {/* Actions */}
+          <div style={{ display: "flex", gap: 8, marginTop: 2 }}>
+            <button
+              onClick={handleSave}
+              disabled={saving || !editDate}
+              style={{
+                fontSize: 12, padding: "4px 12px", borderRadius: 4, border: "none",
+                background: "var(--color-primary)", color: "#fff", cursor: saving ? "wait" : "pointer",
+                opacity: saving ? 0.7 : 1,
+              }}
+            >{saving ? "Saving…" : "Save"}</button>
+            <button
+              onClick={() => setEditing(false)}
+              style={{
+                fontSize: 12, padding: "4px 10px", borderRadius: 4,
+                border: "1px solid var(--color-border)",
+                background: "var(--color-surface)", color: "var(--color-text-secondary)", cursor: "pointer",
+              }}
+            >Cancel</button>
+          </div>
         </div>
       )}
     </div>
@@ -654,6 +688,11 @@ export function AlertsScreen() {
                   r.id === row.record.id ? { ...r, expiresAt: newExpiry } : r
                 ));
               }}
+              onReminderChange={(days) => {
+                setRecords((prev) => prev.map((r) =>
+                  r.id === row.record.id ? { ...r, reminderDays: days } : r
+                ));
+              }}
             />
           ))}
         </>
@@ -669,6 +708,11 @@ export function AlertsScreen() {
               onExpiryChange={(newExpiry) => {
                 setRecords((prev) => prev.map((r) =>
                   r.id === row.record.id ? { ...r, expiresAt: newExpiry } : r
+                ));
+              }}
+              onReminderChange={(days) => {
+                setRecords((prev) => prev.map((r) =>
+                  r.id === row.record.id ? { ...r, reminderDays: days } : r
                 ));
               }}
             />
@@ -687,6 +731,11 @@ export function AlertsScreen() {
               onExpiryChange={(newExpiry) => {
                 setRecords((prev) => prev.map((r) =>
                   r.id === row.record.id ? { ...r, expiresAt: newExpiry } : r
+                ));
+              }}
+              onReminderChange={(days) => {
+                setRecords((prev) => prev.map((r) =>
+                  r.id === row.record.id ? { ...r, reminderDays: days } : r
                 ));
               }}
             />
