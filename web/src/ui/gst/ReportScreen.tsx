@@ -4735,7 +4735,10 @@ function GenerateAGMModal({ meetings, importedDocs, onClose }: {
       });
       if (!res.ok) {
         const errBody = await res.json().catch(() => ({}));
-        throw new Error(`Sarvam returned ${res.status}: ${errBody?.error ?? ""}`);
+        const errDetail = typeof errBody?.error === "object"
+          ? JSON.stringify(errBody.error)
+          : (errBody?.error ?? JSON.stringify(errBody));
+        throw new Error(`Sarvam returned ${res.status}: ${errDetail}`);
       }
       const data = await res.json();
       const text = (data?.choices?.[0]?.message?.content ?? "").trim();

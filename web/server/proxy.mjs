@@ -966,6 +966,7 @@ app.post("/api/sarvam", async (req, res) => {
       body: JSON.stringify(req.body ?? {}),
     });
     const data = await upstream.json();
+    if (!upstream.ok) console.error("[sarvam] error", upstream.status, JSON.stringify(data));
     res.status(upstream.status).json(data);
   } catch (e) {
     res.status(500).json({ error: String(e) });
